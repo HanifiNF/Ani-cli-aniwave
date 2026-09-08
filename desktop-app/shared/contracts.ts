@@ -1,6 +1,7 @@
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
+export type ThemePreset = "graphite" | "paper" | "nord" | "gruvbox" | "mocha" | "solarized-light" | "custom";
 
 export interface AnimeResult {
   id: string;
@@ -28,6 +29,14 @@ export interface LibraryEntry {
   lastEpisode: string;
   mode: TranslationMode;
   updatedAt: string;
+  poster?: string;
+}
+
+/** Three colours define a theme; every other tone is mixed from background and text. */
+export interface CustomTheme {
+  background: string;
+  text: string;
+  highlight: string;
 }
 
 export interface Settings {
@@ -37,6 +46,8 @@ export interface Settings {
   preferredProvider: ProviderPreference;
   aniwaveBaseUrl: string;
   anidbBaseUrl: string;
+  theme: ThemePreset;
+  customTheme: CustomTheme;
 }
 
 export interface PersistedState {
@@ -59,6 +70,9 @@ export interface AniDesktopApi {
   getState(): Promise<PersistedState>;
   saveSettings(settings: Settings): Promise<PersistedState>;
   toggleBookmark(entry: LibraryEntry): Promise<PersistedState>;
+  removeBookmark(animeId: string): Promise<PersistedState>;
   recordHistory(entry: LibraryEntry): Promise<PersistedState>;
+  removeHistory(animeId: string): Promise<PersistedState>;
+  clearHistory(): Promise<PersistedState>;
   remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState>;
 }

@@ -1,25 +1,39 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnimeResult,
+  CustomTheme,
   Episode,
   LibraryEntry,
   PersistedState,
   ProviderName,
   ProviderPreference,
   Settings,
-  Stream,
+  ThemePreset,
   TranslationMode
 } from "../shared/contracts";
+import { THEME_NAMES, THEME_PRESETS, resolveTheme } from "../shared/theme";
 
-type View = "discover" | "bookmarks" | "history";
+type Screen = "home" | "series" | "saved" | "recent" | "settings";
+type RowKind = "results" | "continue" | "saved" | "recent";
+interface Row { kind: RowKind; anime?: AnimeResult; entry?: LibraryEntry; }
+interface PlayStatus { episode: Episode; phase: "finding" | "opening" | "opened" | "failed"; detail: string; }
+
+const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
+const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb"];
+const EPISODE_CELL = 62; // 56px cell plus 6px gap, used for arrow-key movement in the grid
 
 const emptyState: PersistedState = {
   bookmarks: [],
   history: [],
-  settings: { playerPath: "mpv.exe", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto", aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app" }
+  settings: {
+    playerPath: "mpv", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
+    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
+  }
 };
 
 const providerOf = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : "anidb";
+const asAnime = (entry: LibraryEntry): AnimeResult => ({ id: entry.animeId, title: entry.title, poster: entry.poster, provider: providerOf(entry.animeId) });
+const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") || "player";
 
 function messageFrom(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -27,94 +41,177 @@ function messageFrom(error: unknown): string {
 }
 
 function libraryEntry(anime: AnimeResult, episode: Episode | undefined, mode: TranslationMode): LibraryEntry {
-  return {
-    animeId: anime.id,
-    title: anime.title,
-    lastEpisode: episode?.number ?? "1",
-    mode,
-    updatedAt: new Date().toISOString()
-  };
+  return { animeId: anime.id, title: anime.title, lastEpisode: episode?.number ?? "1", mode, updatedAt: new Date().toISOString(), poster: anime.poster };
+}
+
+function when(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const day = 86_400_000;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (date.getTime() >= today) return `today ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  if (date.getTime() >= today - day) return "yesterday";
+  if (date.getTime() >= today - 6 * day) return date.toLocaleDateString([], { weekday: "short" });
+  return date.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+function applyTheme(theme: ThemePreset, custom: CustomTheme): void {
+  const colours = resolveTheme(theme, custom);
+  const root = document.documentElement.style;
+  root.setProperty("--theme-bg", colours.background);
+  root.setProperty("--theme-text", colours.text);
+  root.setProperty("--theme-cursor", colours.highlight);
+}
+
+function Art({ src, large }: { src?: string; large?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return (
+    <span className={`art ${large ? "large" : ""}`}>
+      {src && !failed && <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />}
+    </span>
+  );
+}
+
+function Chips<T extends string>({ label, value, options, onChange }: { label?: string; value: T; options: readonly T[]; onChange: (value: T) => void }) {
+  return (
+    <div className="chips" role="radiogroup" aria-label={label}>
+      {label && <span className="lab">{label}</span>}
+      {options.map((option) => (
+        <button type="button" key={option} role="radio" aria-checked={option === value} className={option === value ? "on" : ""} onClick={() => onChange(option)}>{option}</button>
+      ))}
+    </div>
+  );
 }
 
 function App() {
-  const [view, setView] = useState<View>("discover");
+  const [screen, setScreen] = useState<Screen>("home");
   const [appState, setAppState] = useState<PersistedState>(emptyState);
   const [query, setQuery] = useState("");
+  const [lastQuery, setLastQuery] = useState("");
   const [results, setResults] = useState<AnimeResult[]>([]);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [selectedEpisode, setSelectedEpisode] = useState<Episode>();
-  const [streams, setStreams] = useState<Stream[]>([]);
-  const [selectedQuality, setSelectedQuality] = useState("best");
+  const [cursor, setCursor] = useState(0);
   const [mode, setMode] = useState<TranslationMode>("sub");
   const [provider, setProvider] = useState<ProviderPreference>("auto");
+  const [quality, setQuality] = useState("best");
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [status, setStatus] = useState<PlayStatus>();
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
 
+  const fieldRef = useRef<HTMLInputElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const playToken = useRef(0);
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
+
   useEffect(() => {
-    window.aniDesktop
-      .getState()
-      .then((state) => {
-        setAppState(state);
-        setSettingsDraft(state.settings);
-        setMode(state.settings.preferredMode);
-        setSelectedQuality(state.settings.preferredQuality);
-        setProvider(state.settings.preferredProvider);
-      })
-      .catch((reason) => setError(messageFrom(reason)));
+    window.aniDesktop.getState().then((state) => {
+      setAppState(state);
+      setSettingsDraft(state.settings);
+      setMode(state.settings.preferredMode);
+      setQuality(state.settings.preferredQuality);
+      setProvider(state.settings.preferredProvider);
+    }).catch((reason) => setError(messageFrom(reason)));
   }, []);
 
-  const isBookmarked = useMemo(
-    () => Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id)),
-    [appState.bookmarks, selectedAnime]
-  );
+  const themeSource = screen === "settings" ? settingsDraft : appState.settings;
+  useEffect(() => applyTheme(themeSource.theme, themeSource.customTheme), [themeSource.theme, themeSource.customTheme]);
+
+  const filter = query.trim().toLowerCase();
+  const matches = (entry: LibraryEntry) => !filter || entry.title.toLowerCase().includes(filter);
+  const rows = useMemo<Row[]>(() => {
+    if (screen === "home") {
+      return [
+        ...results.map((anime): Row => ({ kind: "results", anime })),
+        ...appState.history.slice(0, 3).map((entry): Row => ({ kind: "continue", entry })),
+        ...appState.bookmarks.slice(0, 3).map((entry): Row => ({ kind: "saved", entry }))
+      ];
+    }
+    if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
+    if (screen === "recent") return appState.history.filter(matches).map((entry): Row => ({ kind: "recent", entry }));
+    return [];
+  }, [screen, results, appState.history, appState.bookmarks, filter]);
+
+  useEffect(() => { if (screen !== "series") setCursor(0); }, [screen, results, filter]);
+  useEffect(() => {
+    const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
+    const list = selected?.closest<HTMLElement>(".section-scroll");
+    if (!selected) return;
+    if (!list) { selected.scrollIntoView({ block: "nearest" }); return; }
+    // Move only the selected list so keyboard navigation keeps the other sections in place.
+    const reveal = () => {
+      const rowBounds = selected.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
+      if (rowBounds.top < listBounds.top) list.scrollTop += rowBounds.top - listBounds.top;
+      else if (rowBounds.bottom > listBounds.bottom) list.scrollTop += rowBounds.bottom - listBounds.bottom;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [cursor, screen, rows]);
+  useEffect(() => { if (screen !== "settings") fieldRef.current?.focus(); }, [screen]);
+
+  const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id));
+  const progress = selectedAnime ? appState.history.find((entry) => entry.animeId === selectedAnime.id) : undefined;
+  const player = playerName(appState.settings.playerPath);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
-    setBusy(label);
-    setError(undefined);
-    setNotice(undefined);
-    try {
-      return await operation();
-    } catch (reason) {
-      setError(messageFrom(reason));
-      return undefined;
-    } finally {
-      setBusy(undefined);
-    }
+    setBusy(label); setError(undefined); setNotice(undefined);
+    try { return await operation(); }
+    catch (reason) { setError(messageFrom(reason)); return undefined; }
+    finally { setBusy(undefined); }
   }
 
-  async function search(event: FormEvent) {
-    event.preventDefault();
-    const found = await run("Searching the library…", () => window.aniDesktop.search(query, provider));
+  function go(next: Screen) {
+    setScreen(next);
+    setError(undefined); setNotice(undefined);
+    if (next !== "home" && next !== "series") setQuery("");
+    if (next === "settings") setSettingsDraft(appState.settings);
+  }
+
+  function goBack() {
+    if (screen === "home") { if (query) setQuery(""); return; }
+    if (screen === "series") setSelectedAnime(undefined);
+    go("home");
+  }
+
+  async function search() {
+    const cleaned = query.trim();
+    if (!cleaned) return;
+    setSelectedAnime(undefined);
+    setScreen("home");
+    const found = await run("searching", () => window.aniDesktop.search(cleaned, provider));
     if (found) {
       setResults(found);
-      setSelectedAnime(undefined);
-      setEpisodes([]);
-      if (found.length === 0) setNotice("No titles matched that search.");
+      setLastQuery(cleaned);
+      if (found.length === 0) setNotice(`nothing found for "${cleaned}"`);
     }
   }
 
-  async function openAnime(anime: AnimeResult, resumeAfter?: string, entryMode?: TranslationMode, allowRemap = false): Promise<boolean> {
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
+    playToken.current += 1;
     setSelectedAnime(anime);
-    setSelectedEpisode(undefined);
-    setStreams([]);
-    if (entryMode) setMode(entryMode);
+    setEpisodes([]); setStatus(undefined);
+    setScreen("series");
+    if (options.mode) setMode(options.mode);
+    setBusy("loading episodes"); setError(undefined); setNotice(undefined);
     let list: Episode[];
-    setBusy("Loading episodes…"); setError(undefined); setNotice(undefined);
     try { list = await window.aniDesktop.episodes(anime.id); }
     catch (reason) {
       setBusy(undefined);
-      if (allowRemap) {
+      if (options.allowRemap) {
         const other: ProviderName = providerOf(anime.id) === "aniwave" ? "anidb" : "aniwave";
-        const candidates = await run(`Checking ${other} for a replacement…`, () => window.aniDesktop.search(anime.title, other));
+        const candidates = await run(`checking ${other} for a replacement`, () => window.aniDesktop.search(anime.title, other));
         const replacement = candidates?.[0];
-        if (replacement && window.confirm(`${providerOf(anime.id)} is unavailable. Remap “${anime.title}” to “${replacement.title}” on ${other}?`)) {
-          if (await openAnime(replacement, resumeAfter, entryMode, false)) {
+        if (replacement && window.confirm(`${providerOf(anime.id)} is unavailable. Remap "${anime.title}" to "${replacement.title}" on ${other}?`)) {
+          if (await openAnime(replacement, { ...options, allowRemap: false })) {
             setAppState(await window.aniDesktop.remapEntry(anime.id, replacement));
-            setNotice(`Remapped to ${replacement.title} on ${other}.`);
+            setNotice(`remapped to ${replacement.title} on ${other}`);
             return true;
           }
           return false;
@@ -125,195 +222,332 @@ function App() {
     }
     finally { setBusy(undefined); }
     setEpisodes(list);
+    let index = 0;
+    const resumeAfter = options.resumeAfter ?? appState.history.find((entry) => entry.animeId === anime.id)?.lastEpisode;
     if (resumeAfter) {
       const previous = list.findIndex((episode) => episode.number === resumeAfter);
-      setSelectedEpisode(list[Math.min(previous + 1, list.length - 1)] ?? list[0]);
+      index = Math.min(previous + 1, list.length - 1);
     }
+    setCursor(Math.max(index, 0));
+    if (options.autoPlay && list[index]) void playEpisode(list[index], anime, options.mode ?? mode);
     return true;
   }
 
-  async function chooseEpisode(episode: Episode) {
-    setSelectedEpisode(episode);
-    setStreams([]);
-    const found = await run(`Finding episode ${episode.number} streams…`, () =>
-      window.aniDesktop.streams(episode.id, mode)
-    );
-    if (found) {
-      setStreams(found);
-      const preferred = found.find((stream) => stream.quality === appState.settings.preferredQuality);
-      setSelectedQuality(preferred?.quality ?? found[0]?.quality ?? "best");
+  async function playEpisode(episode: Episode, anime = selectedAnime, playMode = mode) {
+    if (!anime) return;
+    const token = ++playToken.current;
+    setCursor(episodes.findIndex((item) => item.id === episode.id) >= 0 ? episodes.findIndex((item) => item.id === episode.id) : cursor);
+    setStatus({ episode, phase: "finding", detail: `${playMode} from ${anime.provider}` });
+    try {
+      const streams = await window.aniDesktop.streams(episode.id, playMode);
+      if (token !== playToken.current) return;
+      const stream = (quality === "best" ? undefined : streams.find((item) => item.quality === quality)) ?? streams[0];
+      if (!stream) throw new Error("no stream was found");
+      const detail = `${stream.quality} ${playMode} ${stream.provider}`;
+      setStatus({ episode, phase: "opening", detail });
+      await window.aniDesktop.play({ url: stream.url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer });
+      if (token !== playToken.current) return;
+      setAppState(await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
+      setStatus({ episode, phase: "opened", detail });
+    } catch (reason) {
+      if (token === playToken.current) setStatus({ episode, phase: "failed", detail: messageFrom(reason) });
     }
   }
 
-  async function watch() {
-    if (!selectedAnime || !selectedEpisode || streams.length === 0) return;
-    const stream = streams.find((item) => item.quality === selectedQuality) ?? streams[0];
-    const title = `${selectedAnime.title} — Episode ${selectedEpisode.number}`;
-    const played = await run("Starting media player…", () => window.aniDesktop.play({ url: stream.url, title, referrer: stream.referrer }));
-    if (played === undefined) return;
-    const state = await window.aniDesktop.recordHistory(libraryEntry(selectedAnime, selectedEpisode, mode));
-    setAppState(state);
-    setNotice(`Episode ${selectedEpisode.number} opened in your media player.`);
-  }
+  function cancelPlay() { playToken.current += 1; setStatus(undefined); }
 
   async function toggleBookmark() {
     if (!selectedAnime) return;
-    const state = await run("Updating bookmarks…", () =>
-      window.aniDesktop.toggleBookmark(libraryEntry(selectedAnime, selectedEpisode, mode))
-    );
+    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(libraryEntry(selectedAnime, episodes[cursor], mode)));
     if (state) setAppState(state);
   }
 
-  async function saveSettings(event: FormEvent) {
-    event.preventDefault();
-    const state = await run("Saving settings…", () => window.aniDesktop.saveSettings(settingsDraft));
+  async function activate(row: Row) {
+    if (row.anime) { await openAnime(row.anime); return; }
+    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, autoPlay: true, allowRemap: true });
+  }
+
+  async function openRow(row: Row) {
+    if (row.anime) await openAnime(row.anime);
+    else if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, allowRemap: true });
+  }
+
+  async function removeRow(row: Row) {
+    if (!row.entry) return;
+    const id = row.entry.animeId;
+    const state = await run("removing", () => row.kind === "saved" ? window.aniDesktop.removeBookmark(id) : window.aniDesktop.removeHistory(id));
+    if (state) setAppState(state);
+  }
+
+  async function clearHistory() {
+    if (!window.confirm("Clear all recent titles?")) return;
+    const state = await run("clearing history", () => window.aniDesktop.clearHistory());
+    if (state) setAppState(state);
+  }
+
+  async function saveSettings() {
+    const state = await run("saving settings", () => window.aniDesktop.saveSettings(settingsDraft));
     if (state) {
       setAppState(state);
       setMode(state.settings.preferredMode);
-      setSelectedQuality(state.settings.preferredQuality);
+      setQuality(state.settings.preferredQuality);
       setProvider(state.settings.preferredProvider);
-      setSettingsOpen(false);
-      setNotice("Settings saved.");
+      setScreen("home");
+      setNotice("settings saved");
     }
   }
 
-  const library = view === "bookmarks" ? appState.bookmarks : appState.history;
+  const columns = () => {
+    const cells = Array.from(gridRef.current?.children ?? []) as HTMLElement[];
+    if (cells.length === 0) return 1;
+    const firstRow = cells.filter((cell) => cell.offsetTop === cells[0].offsetTop).length;
+    return Math.max(1, firstRow || Math.floor(((gridRef.current?.clientWidth ?? 0) + 6) / EPISODE_CELL));
+  };
+  const moveCursor = (delta: number, length: number) => { if (length) setCursor((current) => Math.min(Math.max(current + delta, 0), length - 1)); };
+
+  keyHandler.current = (event) => {
+    const target = event.target as HTMLElement | null;
+    const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+    const dirty = query.trim() !== "" && query.trim() !== lastQuery;
+    if (event.metaKey || event.ctrlKey) {
+      if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
+      return;
+    }
+    if (event.altKey) return;
+    if (event.key === "Enter" && target?.closest("button:not(.hit)") && !target.closest(".grid")) return;
+    if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
+    if (event.key === "Escape") { event.preventDefault(); goBack(); return; }
+    if (screen === "series") {
+      const moves: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns(), ArrowDown: columns() };
+      if (event.key in moves) {
+        if (typing && (event.key === "ArrowLeft" || event.key === "ArrowRight") && (target as HTMLInputElement).value) return;
+        event.preventDefault(); moveCursor(moves[event.key], episodes.length); return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (target === fieldRef.current && dirty) { void search(); return; }
+        if (episodes[cursor]) void playEpisode(episodes[cursor]);
+        return;
+      }
+      if (!typing && event.key === "s") void toggleBookmark();
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, rows.length); return; }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (screen === "home" && target === fieldRef.current && dirty) { void search(); return; }
+      if (rows[cursor]) void activate(rows[cursor]);
+      return;
+    }
+    if (typing) return;
+    const row = rows[cursor];
+    if (event.key === "x" && row?.entry) void removeRow(row);
+    else if (event.key === "o" && row) void openRow(row);
+    else if (event.key === "/") { event.preventDefault(); fieldRef.current?.focus(); }
+  };
+
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => keyHandler.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  const placeholder = screen === "saved" ? "filter saved titles" : screen === "recent" ? "filter recent titles" : screen === "series" ? "search another title" : "search a title";
+  const searching = busy === "searching";
+  const message = error ?? (searching ? undefined : busy) ?? notice;
+
+  const renderRow = (row: Row, index: number) => {
+    const current = index === cursor;
+    const title = row.anime?.title ?? row.entry?.title ?? "";
+    const poster = row.anime?.poster ?? row.entry?.poster;
+    let sub = "", action = "", side = "";
+    if (row.anime) { action = current ? "open series" : ""; side = row.anime.provider; }
+    if (row.entry) {
+      sub = row.kind === "recent" ? `ep ${row.entry.lastEpisode}, ${when(row.entry.updatedAt)}` : `watched through ${row.entry.lastEpisode}, ${providerOf(row.entry.animeId)}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
+      action = "play next"; side = row.entry.mode;
+    }
+    return (
+      <div key={`${row.kind}:${row.anime?.id ?? row.entry?.animeId}`} className={`item ${row.entry ? "lib" : ""} ${current ? "cur" : ""}`} data-cursor={current}>
+        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={`${row.anime ? "open" : "play next episode of"} ${title}`} />
+        <Art src={poster} />
+        <span><span className="t">{title}</span>{sub && <span className="s">{sub}</span>}</span>
+        <span className="k">{action}</span>
+        <span className="k2">{side}</span>
+        {row.entry && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void removeRow(row); }}>remove</button>}
+      </div>
+    );
+  };
+
+  const section = (kind: RowKind, heading: string) => {
+    const items = rows.map((row, index) => ({ row, index })).filter((item) => item.row.kind === kind);
+    if (items.length === 0) return null;
+    return (
+      <section key={kind} className={`list-section section-${kind}`} aria-labelledby={`${kind}-heading`}>
+        <h2 id={`${kind}-heading`}>{heading}{kind === "results" && <span>{items.length} {items.length === 1 ? "title" : "titles"}</span>}</h2>
+        <div className="section-scroll" role="region" aria-labelledby={`${kind}-heading`} tabIndex={0}
+          onFocus={(event) => { if (event.target === event.currentTarget) setCursor(items[0].index); }}>
+          <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
+        </div>
+      </section>
+    );
+  };
+
+  const backButton = <button type="button" onClick={goBack} aria-label="Back" aria-keyshortcuts="Escape"><b>esc</b> back</button>;
+
+  const footLinks = (
+    <span className="right">
+      {screen !== "home" && <button type="button" onClick={() => go("home")}>search</button>}
+      {screen !== "saved" && <button type="button" onClick={() => go("saved")}>saved</button>}
+      {screen !== "recent" && <button type="button" onClick={() => go("recent")}>recent</button>}
+      {screen !== "settings" && <button type="button" onClick={() => go("settings")}>settings</button>}
+      <span>{player}</span>
+    </span>
+  );
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">A</span>
-          <div><strong>Ani Desktop</strong><small>personal library</small></div>
-        </div>
-        <nav aria-label="Main navigation">
-          <button className={view === "discover" ? "active" : ""} onClick={() => setView("discover")}>
-            <span>⌕</span> Discover
-          </button>
-          <button className={view === "bookmarks" ? "active" : ""} onClick={() => setView("bookmarks")}>
-            <span>♡</span> Bookmarks <em>{appState.bookmarks.length}</em>
-          </button>
-          <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
-            <span>↺</span> History
-          </button>
-        </nav>
-        <button className="settings-button" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
-        <div className="source-status"><i /> v5 · {provider === "auto" ? "AniWave → AniDB" : provider}</div>
-      </aside>
-
-      <main>
-        <header>
-          <div>
-            <p className="eyebrow">{view}</p>
-            <h1>{view === "discover" ? "What are we watching?" : view === "bookmarks" ? "Saved for later" : "Continue watching"}</h1>
-          </div>
-          <div className="header-controls">
-            <label className="provider-picker">Source<select value={provider} onChange={(event) => setProvider(event.target.value as ProviderPreference)}><option value="auto">Auto</option><option value="aniwave">AniWave</option><option value="anidb">AniDB</option></select></label>
-            <div className="mode-switch" aria-label="Audio mode">
-              <button className={mode === "sub" ? "active" : ""} onClick={() => setMode("sub")}>SUB</button>
-              <button className={mode === "dub" ? "active" : ""} onClick={() => setMode("dub")}>DUB</button>
+    <div className="app">
+      <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""}`}>
+        <div className="field">
+          {screen === "settings"
+            ? <span className="crumb big">settings</span>
+            : <div className="search-field">
+                <input ref={fieldRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
+                <span className="search-throbber" aria-hidden="true">
+                  {searching && <><span>·</span><span>·</span><span>·</span></>}
+                </span>
+                <span className="sr-only" role="status">{searching ? "Searching" : ""}</span>
+              </div>}
+          {(screen === "home" || screen === "series") && (
+            <div className="groups">
+              <Chips label="audio" value={mode} options={["sub", "dub"] as const} onChange={setMode} />
+              <Chips label="quality" value={QUALITIES.includes(quality) ? quality : "best"} options={QUALITIES.slice(0, 4)} onChange={setQuality} />
+              <Chips label="source" value={provider} options={PROVIDERS} onChange={setProvider} />
             </div>
-          </div>
-        </header>
+          )}
+          {(screen === "saved" || screen === "recent") && <span className="crumb">{screen}</span>}
+        </div>
+        {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
-        {view === "discover" ? (
+        {screen === "home" && (
+          rows.length === 0 && !message && !searching
+            ? <div className="empty"><b>Type a title and press enter</b>Results, titles you are watching, and saved titles appear here.</div>
+            : <div className="home-sections">
+                {section("results", "results")}
+                {rows.some((row) => row.kind === "continue" || row.kind === "saved") && (
+                  <div className="home-library">{section("continue", "continue")}{section("saved", "saved")}</div>
+                )}
+              </div>
+        )}
+
+        {screen === "saved" && (
+          <section className="list-section library-section" aria-labelledby="saved-heading">
+            <h2 id="saved-heading">saved <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span></h2>
+            <div className="section-scroll" role="region" aria-labelledby="saved-heading" tabIndex={0}>
+            {rows.length === 0
+              ? <div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Saved titles keep their place, so play always picks up at the next episode."}</div>
+              : <div className="list">{rows.map(renderRow)}</div>}
+            </div>
+          </section>
+        )}
+
+        {screen === "recent" && (
+          <section className="list-section library-section" aria-labelledby="recent-heading">
+            <h2 id="recent-heading">recent <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span>{appState.history.length > 0 && <button type="button" className="act" onClick={() => void clearHistory()}>clear history</button>}</h2>
+            <div className="section-scroll" role="region" aria-labelledby="recent-heading" tabIndex={0}>
+            {rows.length === 0
+              ? <div className="empty"><b>{filter ? "No recent titles match" : "Nothing watched yet"}</b>{filter ? "Try a shorter filter." : `Every episode you open in ${player} is listed here.`}</div>
+              : <div className="list">{rows.map(renderRow)}</div>}
+            </div>
+          </section>
+        )}
+
+        {screen === "series" && selectedAnime && (
           <>
-            <form className="search" onSubmit={search}>
-              <span>⌕</span>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anime titles…" autoFocus />
-              <button type="submit" disabled={!query.trim() || Boolean(busy)}>Search</button>
-            </form>
-            {!selectedAnime && results.length === 0 && (
-              <section className="welcome">
-                <div className="orb">▶</div>
-                <h2>Your CLI, with room to breathe.</h2>
-                <p>Search for a series, choose an episode, and send it straight to your media player.</p>
-              </section>
-            )}
-            {!selectedAnime && results.length > 0 && (
-              <section>
-                <div className="section-heading"><h2>Search results</h2><span>{results.length} titles</span></div>
-                <div className="results-grid">
-                  {results.map((anime) => (
-                    <button className="anime-card" key={anime.id} onClick={() => void openAnime(anime)}>
-                      <div className="poster">
-                        {anime.poster?.startsWith("http") ? <img src={anime.poster} alt="" /> : <span>{anime.title.slice(0, 1)}</span>}
-                      </div>
-                      <strong>{anime.title}</strong><small>Open series →</small>
-                      <em className="provider-badge">{anime.provider}</em>
-                    </button>
-                  ))}
+            <div className="head">
+              <Art src={selectedAnime.poster} large />
+              <div>
+                <div className="crumb">{lastQuery || "search"}  /  series</div>
+                <h1>{selectedAnime.title}</h1>
+                <div className="sub">
+                  <span>{episodes.length ? `${episodes.length} episodes` : busy ? "loading episodes" : "no episodes"}</span>
+                  <span>{selectedAnime.provider}</span>
+                  {progress && <span>watched through {progress.lastEpisode}</span>}
                 </div>
-              </section>
+              </div>
+              <div className="acts">
+                <button type="button" className="btn quiet" onClick={goBack}>back</button>
+                <button type="button" className={`btn ${isSaved ? "on" : ""}`} onClick={() => void toggleBookmark()}>{isSaved ? "saved" : "save"}</button>
+              </div>
+            </div>
+            <div className="bar">
+              <span className="crumb">click an episode to play it in {player}</span>
+            </div>
+            <div className="grid" ref={gridRef}>
+              {episodes.map((episode, index) => {
+                const watched = progress ? Number(episode.number) <= Number(progress.lastEpisode) : false;
+                return (
+                  <button type="button" key={episode.id} className={`${watched ? "w" : ""} ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}
+                    onClick={() => void playEpisode(episode)} aria-label={`play episode ${episode.number}`}>{episode.number}</button>
+                );
+              })}
+            </div>
+            {status && (
+              <div className={`line ${status.phase === "failed" ? "err" : ""}`} role="status">
+                <b>episode {status.episode.number}</b>
+                <span>
+                  {status.phase === "finding" && <>finding a stream<span className="dots"> ···</span></>}
+                  {status.phase === "opening" && <>opening {player}<span className="dots"> ···</span></>}
+                  {status.phase === "opened" && `opened in ${player}`}
+                  {status.phase === "failed" && status.detail}
+                </span>
+                {status.phase !== "failed" && <span>{status.detail}</span>}
+                <button type="button" className="btn quiet" onClick={cancelPlay}>{status.phase === "finding" || status.phase === "opening" ? "cancel" : "dismiss"}</button>
+              </div>
             )}
           </>
-        ) : (
-          <section>
-            <div className="section-heading"><h2>{view === "bookmarks" ? "Your bookmarks" : "Recently watched"}</h2><span>{library.length} titles</span></div>
-            {library.length === 0 ? <div className="empty">Nothing here yet.</div> : (
-              <div className="library-list">
-                {library.map((entry) => (
-                  <button key={entry.animeId} onClick={() => { setView("discover"); void openAnime({ id: entry.animeId, title: entry.title, provider: providerOf(entry.animeId) }, entry.lastEpisode, entry.mode, true); }}>
-                    <span className="library-initial">{entry.title.slice(0, 1)}</span>
-                    <span><strong>{entry.title}</strong><small>Last watched · Episode {entry.lastEpisode} · {entry.mode.toUpperCase()} · {providerOf(entry.animeId)}</small></span>
-                    <b>Continue →</b>
+        )}
+
+        {screen === "settings" && (
+          <form className="kv" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
+            <div className="r"><label htmlFor="player">player<small>command or full path. on macOS use IINA's iina-cli</small></label><div className="v"><input id="player" value={settingsDraft.playerPath} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div></div>
+            <div className="r"><span className="k">quality</span><div className="v"><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div></div>
+            <div className="r"><span className="k">audio</span><div className="v"><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div></div>
+            <div className="r"><span className="k">theme<small>presets match common terminal schemes</small></span><div className="v"><div className="chips" role="radiogroup" aria-label="theme">
+              {THEME_NAMES.map((name) => {
+                const colours = resolveTheme(name, settingsDraft.customTheme);
+                return (
+                  <button type="button" key={name} role="radio" aria-checked={settingsDraft.theme === name} className={settingsDraft.theme === name ? "on" : ""}
+                    onClick={() => setSettingsDraft({ ...settingsDraft, theme: name, customTheme: name === "custom" && settingsDraft.theme !== "custom" ? { ...resolveTheme(settingsDraft.theme, settingsDraft.customTheme) } : settingsDraft.customTheme })}>
+                    <i className="sw" style={{ "--sw-bg": colours.background, "--sw-cur": colours.highlight } as React.CSSProperties} />{name.replace("-", " ")}
                   </button>
+                );
+              })}
+            </div></div></div>
+            {settingsDraft.theme === "custom" && (
+              <div className="r"><span className="k">custom colours<small>the rest is mixed from these. highlight marks the cursor row and selected chips</small></span><div className="v">
+                {(["background", "text", "highlight"] as const).map((key) => (
+                  <div className="colour" key={key}>
+                    <span>{key}</span>
+                    <input type="color" value={settingsDraft.customTheme[key]} aria-label={`${key} colour`} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
+                    <input value={settingsDraft.customTheme[key]} aria-label={`${key} hex`} maxLength={7} spellCheck={false} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
+                  </div>
                 ))}
-              </div>
+              </div></div>
             )}
-          </section>
-        )}
-
-        {selectedAnime && (
-          <section className="detail">
-            <button className="back" onClick={() => { setSelectedAnime(undefined); setSelectedEpisode(undefined); setStreams([]); }}>← Results</button>
-            <div className="detail-title">
-              <div className="detail-initial">{selectedAnime.title.slice(0, 1)}</div>
-              <div><p className="eyebrow">Series · {selectedAnime.provider}</p><h2>{selectedAnime.title}</h2><span>{episodes.length} episodes available</span></div>
-              <button className={`bookmark ${isBookmarked ? "saved" : ""}`} onClick={() => void toggleBookmark()}>{isBookmarked ? "♥ Saved" : "♡ Save"}</button>
-            </div>
-            <div className="episode-layout">
-              <div>
-                <div className="section-heading"><h3>Episodes</h3><span>Select one to resolve streams</span></div>
-                <div className="episodes">
-                  {episodes.map((episode) => (
-                    <button className={selectedEpisode?.id === episode.id ? "active" : ""} key={episode.id} onClick={() => void chooseEpisode(episode)}>{episode.number}</button>
-                  ))}
-                </div>
-              </div>
-              <aside className="play-panel">
-                <p className="eyebrow">Ready when you are</p>
-                <h3>{selectedEpisode ? `Episode ${selectedEpisode.number}` : "Choose an episode"}</h3>
-                <label>Quality
-                  <select value={selectedQuality} onChange={(event) => setSelectedQuality(event.target.value)} disabled={streams.length === 0}>
-                    {streams.length === 0 ? <option>—</option> : streams.map((stream) => <option key={stream.quality}>{stream.quality}</option>)}
-                  </select>
-                </label>
-                <button className="watch" disabled={streams.length === 0 || Boolean(busy)} onClick={() => void watch()}>▶ Watch now</button>
-                <small>{mode.toUpperCase()} · external player</small>
-                {streams[0]?.server && <small>{streams[0].server} · {streams[0].provider}</small>}
-              </aside>
-            </div>
-          </section>
-        )}
-
-        {(busy || error || notice) && <div className={`toast ${error ? "error" : ""}`} role={error ? "alert" : "status"}>{error ?? busy ?? notice}</div>}
-      </main>
-
-      {settingsOpen && (
-        <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
-          <form className="modal" onSubmit={saveSettings}>
-            <div className="section-heading"><div><p className="eyebrow">Preferences</p><h2>Settings</h2></div><button type="button" className="close" onClick={() => setSettingsOpen(false)}>×</button></div>
-            <label>Media player executable or full path<input value={settingsDraft.playerPath} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></label>
-            <label>Preferred quality<select value={settingsDraft.preferredQuality} onChange={(event) => setSettingsDraft({ ...settingsDraft, preferredQuality: event.target.value })}><option>best</option><option>1080p</option><option>800p</option><option>720p</option><option>480p</option><option>360p</option></select></label>
-            <label>Preferred mode<select value={settingsDraft.preferredMode} onChange={(event) => setSettingsDraft({ ...settingsDraft, preferredMode: event.target.value as TranslationMode })}><option value="sub">Subtitled</option><option value="dub">Dubbed</option></select></label>
-            <label>Preferred source<select value={settingsDraft.preferredProvider} onChange={(event) => setSettingsDraft({ ...settingsDraft, preferredProvider: event.target.value as ProviderPreference })}><option value="auto">Auto (AniWave, then AniDB)</option><option value="aniwave">AniWave</option><option value="anidb">AniDB</option></select></label>
-            <label>AniWave base URL<input value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></label>
-            <label>AniDB-compatible base URL<input value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></label>
-            <div className="modal-actions"><button type="button" onClick={() => setSettingsOpen(false)}>Cancel</button><button className="primary" type="submit">Save settings</button></div>
+            <div className="r"><span className="k">source<small>auto tries aniwave, then anidb</small></span><div className="v"><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div></div>
+            <div className="r"><label htmlFor="aniwave">aniwave address</label><div className="v"><input id="aniwave" value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></div></div>
+            <div className="r"><label htmlFor="anidb">anidb address</label><div className="v"><input id="anidb" value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></div></div>
+            <div className="acts-row"><button type="button" className="btn quiet" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
           </form>
-        </div>
-      )}
+        )}
+      </div>
+
+      <div className="foot">
+        {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
+          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span>{backButton}</>
+          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? "search or open" : "play"}</span>{screen !== "home" && backButton}</>}
+        {footLinks}
+      </div>
     </div>
   );
 }

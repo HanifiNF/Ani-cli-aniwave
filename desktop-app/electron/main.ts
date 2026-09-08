@@ -17,7 +17,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 920,
     minHeight: 620,
-    backgroundColor: "#0b0d12",
+    backgroundColor: "#1F2023",
     title: "Ani Desktop",
     show: false,
     webPreferences: {
@@ -58,7 +58,10 @@ function registerIpc(): void {
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", (_event, settings: Settings) => store.saveSettings(settings));
   ipcMain.handle("state:bookmark", (_event, entry: LibraryEntry) => store.toggleBookmark(entry));
+  ipcMain.handle("state:bookmark-remove", (_event, animeId: string) => store.removeBookmark(String(animeId)));
   ipcMain.handle("state:history", (_event, entry: LibraryEntry) => store.recordHistory(entry));
+  ipcMain.handle("state:history-remove", (_event, animeId: string) => store.removeHistory(String(animeId)));
+  ipcMain.handle("state:history-clear", () => store.clearHistory());
   ipcMain.handle("state:remap", (_event, oldAnimeId: string, replacement) => store.remapEntry(oldAnimeId, replacement));
   ipcMain.handle("player:play", async (_event, request: PlayRequest) => {
     const url = new URL(request.url);

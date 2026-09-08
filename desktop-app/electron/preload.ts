@@ -9,7 +9,10 @@ const api: AniDesktopApi = {
   getState: () => ipcRenderer.invoke("state:get"),
   saveSettings: (settings: Settings) => ipcRenderer.invoke("state:settings", settings),
   toggleBookmark: (entry: LibraryEntry) => ipcRenderer.invoke("state:bookmark", entry),
+  removeBookmark: (animeId: string) => ipcRenderer.invoke("state:bookmark-remove", animeId),
   recordHistory: (entry: LibraryEntry) => ipcRenderer.invoke("state:history", entry),
+  removeHistory: (animeId: string) => ipcRenderer.invoke("state:history-remove", animeId),
+  clearHistory: () => ipcRenderer.invoke("state:history-clear"),
   remapEntry: (oldAnimeId, replacement) => ipcRenderer.invoke("state:remap", oldAnimeId, replacement)
 };
 
