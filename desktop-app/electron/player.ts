@@ -1,8 +1,21 @@
-import { basename } from "node:path";
+import { basename, win32 } from "node:path";
 import type { PlayRequest } from "../shared/contracts";
 
 export function playerArguments(playerPath: string, request: PlayRequest): string[] {
-  const executable = basename(playerPath).toLowerCase();
+  const executable = win32.basename(basename(playerPath)).toLowerCase();
+
+  if (executable === "iina-cli") {
+    return [
+      "--no-stdin",
+      // Both providers resolve HLS playlists. Some hosts label them as images
+      // and omit .m3u8, which prevents FFmpeg's automatic format detection.
+      "--mpv-demuxer-lavf-format=hls",
+      "--mpv-fullscreen=yes",
+      `--mpv-force-media-title=${request.title}`,
+      ...(request.referrer ? [`--mpv-referrer=${request.referrer}`] : []),
+      request.url
+    ];
+  }
 
   if (executable === "mpv" || executable === "mpv.exe") {
     return ["--fullscreen", `--force-media-title=${request.title}`, ...(request.referrer ? [`--referrer=${request.referrer}`] : []), request.url];
