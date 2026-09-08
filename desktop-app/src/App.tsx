@@ -353,7 +353,8 @@ function App() {
   }, []);
 
   const placeholder = screen === "saved" ? "filter saved titles" : screen === "recent" ? "filter recent titles" : screen === "series" ? "search another title" : "search a title";
-  const message = error ?? busy ?? notice;
+  const searching = busy === "searching";
+  const message = error ?? (searching ? undefined : busy) ?? notice;
 
   const renderRow = (row: Row, index: number) => {
     const current = index === cursor;
@@ -409,7 +410,13 @@ function App() {
         <div className="field">
           {screen === "settings"
             ? <span className="crumb big">settings</span>
-            : <input ref={fieldRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />}
+            : <div className="search-field">
+                <input ref={fieldRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
+                <span className="search-throbber" aria-hidden="true">
+                  {searching && <><span>·</span><span>·</span><span>·</span></>}
+                </span>
+                <span className="sr-only" role="status">{searching ? "Searching" : ""}</span>
+              </div>}
           {(screen === "home" || screen === "series") && (
             <div className="groups">
               <Chips label="audio" value={mode} options={["sub", "dub"] as const} onChange={setMode} />
@@ -422,7 +429,7 @@ function App() {
         {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
         {screen === "home" && (
-          rows.length === 0 && !message
+          rows.length === 0 && !message && !searching
             ? <div className="empty"><b>Type a title and press enter</b>Results, titles you are watching, and saved titles appear here.</div>
             : <div className="home-sections">
                 {section("results", "results")}
