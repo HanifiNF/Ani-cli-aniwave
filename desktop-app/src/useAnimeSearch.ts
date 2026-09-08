@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { AnimeResult, ProviderPreference } from "../shared/contracts";
 
 const DEBOUNCE_MS = 300;
+// Every search scrapes a provider page, and a single letter matches nearly everything, so shorter queries wait for Enter.
+const MIN_QUERY_LENGTH = 2;
 const CACHE_TTL_MS = 60_000;
 const CACHE_LIMIT = 20;
 interface SearchState {
@@ -17,6 +19,8 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
   const cleaned = query.trim();
   const key = JSON.stringify([cleaned, provider, ...sourceUrls]);
   const [state, setState] = useState<SearchState>(initialState);
+  const latest = useRef(state);
+  latest.current = state;
   const generation = useRef(0);
   const flush = useRef(() => {});
   const cache = useRef(new Map<string, { results: AnimeResult[]; expires: number }>());
@@ -26,8 +30,10 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
   useLayoutEffect(() => {
     const token = ++generation.current;
     flush.current = () => {};
-    if (!cleaned) setState(initialState);
     if (!enabled || !cleaned) return;
+    const invalidate = () => { generation.current += 1; };
+    // Re-enabling search (for example returning from a series) keeps results already held for this exact query.
+    if (latest.current.key === key && latest.current.phase === "success") return invalidate;
 
     const accept = (results: AnimeResult[]) => {
       if (generation.current === token) setState({ results, lastQuery: cleaned, key, phase: "success" });
@@ -37,12 +43,14 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
       cache.current.delete(key);
       cache.current.set(key, cached);
       accept(cached.results);
-      return () => { generation.current += 1; };
+      return invalidate;
     }
     cache.current.delete(key);
-    setState((previous) => ({ ...previous, key, phase: "waiting", error: undefined }));
+    const scheduled = cleaned.length >= MIN_QUERY_LENGTH;
+    if (scheduled) setState((previous) => ({ ...previous, key, phase: "waiting", error: undefined }));
 
     let started = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const execute = () => {
       if (started) return;
       started = true;
@@ -65,25 +73,27 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
         }
       });
     };
-    const timer = setTimeout(execute, DEBOUNCE_MS);
+    if (scheduled) timer = setTimeout(execute, DEBOUNCE_MS);
     flush.current = execute;
     return () => {
       clearTimeout(timer);
-      generation.current += 1;
+      invalidate();
       flush.current = () => {};
     };
   }, [cleaned, provider, key, enabled]);
 
   const active = enabled && Boolean(cleaned);
   const current = state.key === key;
+  const short = cleaned.length < MIN_QUERY_LENGTH;
   return {
-    // Keep the empty list stable so cursor-reset effects only run when results change.
-    results: cleaned ? state.results : initialState.results,
-    lastQuery: cleaned ? state.lastQuery : "",
-    pending: active && (!current || state.phase === "waiting" || state.phase === "loading"),
+    // Results outlive the query so they survive visiting other screens; clear() drops them explicitly.
+    results: state.results,
+    lastQuery: state.lastQuery,
+    pending: active && (current ? state.phase === "waiting" || state.phase === "loading" : !short),
     loading: active && current && state.phase === "loading",
     ready: active && current && state.phase === "success",
     error: active && current && state.phase === "error" ? state.error : undefined,
-    searchNow: () => flush.current()
+    searchNow: () => flush.current(),
+    clear: () => setState(initialState)
   };
 }

@@ -189,13 +189,14 @@ function App() {
   }
 
   function goBack() {
-    if (screen === "home") { if (query) setQuery(""); return; }
+    if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series") setSelectedAnime(undefined);
     go("home");
   }
 
   function changeQuery(value: string) {
     setQuery(value);
+    if (!value.trim()) catalogSearch.clear();
     if (screen === "home" || screen === "series") {
       setError(undefined); setNotice(undefined);
       if (screen === "series") {
@@ -433,7 +434,7 @@ function App() {
                   onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
                   maxLength={120} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
                 <span className="search-throbber" aria-hidden="true">
-                  {searching && <><span>·</span><span>·</span><span>·</span></>}
+                  {catalogSearch.pending && <><span>·</span><span>·</span><span>·</span></>}
                 </span>
                 <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${results.length} ${results.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
               </div>}
@@ -566,7 +567,7 @@ function App() {
       <div className="foot">
         {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
           : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
-          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (catalogSearch.pending || searchError ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
+          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (query.trim() && !catalogSearch.ready ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
         {footLinks}
       </div>
     </div>

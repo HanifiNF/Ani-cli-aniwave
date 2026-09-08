@@ -1,6 +1,7 @@
 import type { AnimeResult, Episode, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
 import { findEmbedUrl, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
+const RETRY_DELAY_MS = 750;
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl">;
 
@@ -17,6 +18,8 @@ function absolute(value: string, relativeTo: string): string {
 async function request(url: string, label: string, accept: string, referrer?: string): Promise<Response> {
   let response!: Response;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Live search can fire several requests in quick succession; give a rate limit a moment before retrying.
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     response = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: accept, ...(referrer ? { Referer: referrer } : {}) }, signal: AbortSignal.timeout(15_000) });
     if (response.ok) return response;
     if (response.status !== 429 && response.status < 500) break;

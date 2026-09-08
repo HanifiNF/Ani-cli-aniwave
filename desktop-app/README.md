@@ -60,11 +60,11 @@ playback success is determined by IINA.
 
 ## Using the app
 
-The whole app is driven from one text field. Type a title to search automatically after a short pause (300 ms), or press Enter to search immediately. Results, titles you are
+The whole app is driven from one text field. Type at least two characters to search automatically after a short pause (300 ms), or press Enter to search immediately (also for one-character titles). Results, titles you are
 watching, and saved titles are rows; move with the arrow keys and press Enter to open a series or play the next
 episode. Everything also works with the mouse.
 
-- Search keeps the previous results visible while updating, and only the latest query can update the results or search message. Recent searches are cached for one minute (up to 20 queries, separated by provider and source URLs). Clearing the field clears search results.
+- Search keeps the previous results visible while updating, and only the latest query can update the results or search message. Recent searches are cached for one minute (up to 20 queries, separated by provider and source URLs). Results stay on the home screen while you visit saved, recent, or settings; clearing the field or pressing Escape on the home screen drops them.
 - Opening a series focuses the selected episode. Use all four arrow keys to navigate and Enter to play. Press `/` to focus the search field and replace the current query; typing another title returns to search.
 - On a series, click an episode (or press Enter on the highlighted one) to resolve a stream and open it in your
   player. Watched episodes are dimmed and the next one is highlighted. Audio, quality, and source chips beside the

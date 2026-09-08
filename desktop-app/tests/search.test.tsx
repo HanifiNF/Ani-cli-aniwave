@@ -190,9 +190,13 @@ describe("live catalog search", () => {
     expect(search).toHaveBeenCalledTimes(2);
     await act(async () => pending.resolve(result("frieren"))); expect(titles()).toEqual(["frieren"]);
   });
-  it("supports one-character titles, empty results, and retrying failures with Enter", async () => {
+  it("searches one-character titles only on Enter, shows empty results, and retries failures with Enter", async () => {
     search.mockRejectedValueOnce(new Error("provider unavailable")).mockResolvedValueOnce([]);
-    await type("x"); await advance();
+    await type("x"); await advance(1000);
+    expect(search).not.toHaveBeenCalled();
+    expect(container.querySelector(".search-throbber")?.children).toHaveLength(0);
+    expect(container.querySelector(".foot")?.textContent).toContain("search now");
+    await enter(); expect(search).toHaveBeenCalledExactlyOnceWith("x", "auto");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("provider unavailable");
     await enter(); expect(search).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('nothing found for "x"');
@@ -217,6 +221,30 @@ describe("live catalog search", () => {
     await act(async () => { container.querySelector<HTMLButtonElement>(".section-results .hit")!.click(); });
     await act(async () => pending.reject(new Error("late search failure")));
     expect(container.querySelector("h1")?.textContent).toBe("second"); expect(container.textContent).not.toContain("late search failure");
+  });
+  it("shows the throbber from the first keystroke until results arrive", async () => {
+    const pending = deferred<AnimeResult[]>(); search.mockReturnValueOnce(pending.promise);
+    const throbbing = () => container.querySelector(".search-throbber")?.children.length === 3;
+    await type("fr"); expect(throbbing()).toBe(true);
+    await advance(); expect(throbbing()).toBe(true);
+    await act(async () => pending.resolve(result("fr"))); expect(throbbing()).toBe(false);
+  });
+  it("keeps results while visiting other screens and drops them with Escape on home", async () => {
+    await type("frieren"); await advance();
+    await click("saved"); expect(input().value).toBe(""); expect(titles()).toEqual([]);
+    await press("Escape"); expect(titles()).toEqual(["frieren"]);
+    expect(container.querySelector("#results-heading")?.textContent).toContain('results for "frieren"');
+    expect(container.querySelector(".foot")?.textContent).toContain("open");
+    await press("Enter"); expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:frieren-1");
+    await press("Escape"); expect(titles()).toEqual(["frieren"]);
+    await press("Escape"); expect(titles()).toEqual([]); expect(search).toHaveBeenCalledTimes(1);
+  });
+  it("returns from a series without searching again after the cache expires", async () => {
+    await type("frieren"); await advance(); await enter();
+    expect(container.querySelector("h1")?.textContent).toBe("frieren");
+    await advance(60_001); await press("Escape");
+    expect(titles()).toEqual(["frieren"]); expect(search).toHaveBeenCalledTimes(1);
+    await enter(); expect(api.episodes).toHaveBeenCalledTimes(2);
   });
   it("uses fresh results after a provider URL changes", async () => {
     await type("frieren"); await advance(); await click("settings");
