@@ -26,6 +26,9 @@ async function type(value: string, field = input()) {
   });
 }
 async function advance(ms = 300) { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); }
+async function press(key: string) {
+  await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+}
 async function enter(options: KeyboardEventInit = {}) {
   await act(async () => { input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...options })); });
 }
@@ -66,6 +69,35 @@ afterEach(async () => {
 });
 
 describe("live catalog search", () => {
+  it.each(["home", "saved", "recent"])("navigates %s with an empty field and activates the selected title", async (screen) => {
+    const state = await api.getState();
+    const entries = ["first", "second", "third"].map((title) => ({
+      animeId: `aniwave:${title}-1`, title, lastEpisode: "1", mode: "sub" as const, updatedAt: "2026-09-09T00:00:00Z"
+    }));
+    state.history = entries;
+    state.bookmarks = entries;
+    await act(async () => { root.render(<StrictMode><App key="library" /></StrictMode>); });
+    if (screen !== "home") await click(screen);
+    const selected = () => container.querySelector('.item[data-cursor="true"] .t')?.textContent;
+    expect(input().value).toBe("");
+    expect(selected()).toBe("first");
+    await press("ArrowDown"); expect(selected()).toBe("second");
+    await press("ArrowDown"); expect(selected()).toBe("third");
+    await press("ArrowUp"); expect(selected()).toBe("second");
+    await press("Enter");
+    expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:second-1");
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-1", "sub");
+  });
+
+  it("navigates results, opens the selected series, and returns and clears with Escape", async () => {
+    search.mockResolvedValue([...result("first"), ...result("second")]);
+    await type("title"); await advance();
+    await press("ArrowDown"); await press("Enter");
+    expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:second-1");
+    await press("Escape"); expect(titles()).toEqual(["first", "second"]);
+    await press("Escape"); expect(input().value).toBe(""); expect(titles()).toEqual([]);
+  });
+
   it("debounces typing, trims whitespace, and searches without Enter", async () => {
     await type("f"); await advance(150); await type("fr"); await advance(150);
     await type(" frieren "); await advance(299);

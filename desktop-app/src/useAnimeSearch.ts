@@ -77,7 +77,8 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
   const active = enabled && Boolean(cleaned);
   const current = state.key === key;
   return {
-    results: cleaned ? state.results : [],
+    // Keep the empty list stable so cursor-reset effects only run when results change.
+    results: cleaned ? state.results : initialState.results,
     lastQuery: cleaned ? state.lastQuery : "",
     pending: active && (!current || state.phase === "waiting" || state.phase === "loading"),
     loading: active && current && state.phase === "loading",
