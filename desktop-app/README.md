@@ -65,7 +65,7 @@ watching, and saved titles are rows; move with the arrow keys and press Enter to
 episode. Everything also works with the mouse.
 
 - Search keeps the previous results visible while updating, and only the latest query can update the results or search message. Recent searches are cached for one minute (up to 20 queries, separated by provider and source URLs). Clearing the field clears search results.
-- On a series, typing another title returns to search.
+- Opening a series focuses the selected episode. Use all four arrow keys to navigate and Enter to play. Press `/` to focus the search field and replace the current query; typing another title returns to search.
 - On a series, click an episode (or press Enter on the highlighted one) to resolve a stream and open it in your
   player. Watched episodes are dimmed and the next one is highlighted. Audio, quality, and source chips beside the
   field apply to the next play.

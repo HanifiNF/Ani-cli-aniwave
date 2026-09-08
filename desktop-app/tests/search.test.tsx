@@ -69,6 +69,39 @@ afterEach(async () => {
 });
 
 describe("live catalog search", () => {
+  it.each(["keyboard", "mouse"])("focuses episodes after opening a search result with the %s", async (method) => {
+    const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
+    vi.mocked(api.episodes).mockReturnValue(pending.promise);
+    await type("frieren"); await advance();
+    if (method === "keyboard") await press("Enter");
+    else await act(async () => { container.querySelector<HTMLButtonElement>(".section-results .hit")!.click(); });
+    await act(async () => pending.resolve(Array.from({ length: 6 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1) }))));
+    const cells = [...container.querySelectorAll<HTMLButtonElement>(".grid button")];
+    cells.forEach((cell, index) => Object.defineProperty(cell, "offsetTop", { value: Math.floor(index / 3) * 62 }));
+    expect(document.activeElement).toBe(cells[0]);
+    await press("ArrowRight"); expect(document.activeElement).toBe(cells[1]);
+    await press("ArrowDown"); expect(document.activeElement).toBe(cells[4]);
+    await press("ArrowLeft"); expect(document.activeElement).toBe(cells[3]);
+    await press("ArrowUp"); expect(document.activeElement).toBe(cells[0]);
+    await press("ArrowRight"); await press("Enter");
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-2", "sub");
+    await press("/"); expect(document.activeElement).toBe(input());
+    expect(input().selectionStart).toBe(0); expect(input().selectionEnd).toBe("frieren".length);
+    await press("ArrowLeft");
+    expect(container.querySelector('.grid [data-cursor="true"]')).toBe(cells[1]);
+    await type("another title"); await advance(); expect(titles()).toEqual(["another title"]);
+  });
+
+  it("keeps focus in search if the user returns there before episodes finish loading", async () => {
+    const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
+    vi.mocked(api.episodes).mockReturnValue(pending.promise);
+    await type("frieren"); await advance(); await press("Enter");
+    expect(document.activeElement).toBe(container.querySelector(".grid"));
+    await press("/"); expect(document.activeElement).toBe(input());
+    await act(async () => pending.resolve([{ id: "ep-1", number: "1" }]));
+    expect(document.activeElement).toBe(input());
+  });
+
   it.each(["home", "saved", "recent"])("navigates %s with an empty field and activates the selected title", async (screen) => {
     const state = await api.getState();
     const entries = ["first", "second", "third"].map((title) => ({

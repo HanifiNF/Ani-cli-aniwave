@@ -158,7 +158,17 @@ function App() {
     observer.observe(list);
     return () => observer.disconnect();
   }, [cursor, screen, rows]);
-  useEffect(() => { if (screen !== "settings") fieldRef.current?.focus(); }, [screen]);
+  useEffect(() => {
+    if (screen === "series") gridRef.current?.focus();
+    else if (screen !== "settings") fieldRef.current?.focus();
+  }, [screen]);
+  useEffect(() => {
+    const grid = gridRef.current;
+    // Follow episode selection while navigating the grid, preserving focus if the user leaves it.
+    if (screen === "series" && grid?.contains(document.activeElement)) {
+      grid.querySelector<HTMLButtonElement>('[data-cursor="true"]')?.focus({ preventScroll: true });
+    }
+  }, [screen, cursor, episodes]);
 
   const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id));
   const progress = selectedAnime ? appState.history.find((entry) => entry.animeId === selectedAnime.id) : undefined;
@@ -319,6 +329,9 @@ function App() {
     if (event.key === "Enter" && target?.closest("button:not(.hit)") && !target.closest(".grid")) return;
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
     if (event.key === "Escape") { event.preventDefault(); goBack(); return; }
+    if (!typing && event.key === "/") {
+      event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
+    }
     if (screen === "series") {
       const moves: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns(), ArrowDown: columns() };
       if (event.key in moves) {
@@ -346,7 +359,6 @@ function App() {
     const row = rows[cursor];
     if (event.key === "x" && row?.entry) void removeRow(row);
     else if (event.key === "o" && row) void openRow(row);
-    else if (event.key === "/") { event.preventDefault(); fieldRef.current?.focus(); }
   };
 
   useEffect(() => {
@@ -490,11 +502,12 @@ function App() {
             <div className="bar">
               <span className="crumb">click an episode to play it in {player}</span>
             </div>
-            <div className="grid" ref={gridRef}>
+            <div className="grid" ref={gridRef} tabIndex={-1} role="group" aria-label="Episodes">
               {episodes.map((episode, index) => {
                 const watched = progress ? Number(episode.number) <= Number(progress.lastEpisode) : false;
                 return (
                   <button type="button" key={episode.id} className={`${watched ? "w" : ""} ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}
+                    tabIndex={index === cursor ? 0 : -1} onFocus={() => setCursor(index)}
                     onClick={() => void playEpisode(episode)} aria-label={`play episode ${episode.number}`}>{episode.number}</button>
                 );
               })}
@@ -552,7 +565,7 @@ function App() {
 
       <div className="foot">
         {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
-          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span>{backButton}</>
+          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
           : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (catalogSearch.pending || searchError ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
         {footLinks}
       </div>
