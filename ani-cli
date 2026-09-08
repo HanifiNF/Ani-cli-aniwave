@@ -585,11 +585,13 @@ play_episode() {
             fi
             ;;
         *iina*)
+            # Provider playlists may have extensionless URLs and image MIME types.
+            # Select HLS explicitly so IINA can recognize these streams.
             if pgrep -f "IINA" >/dev/null 2>&1; then
                 # omit --keep-running when an IINA instance exists to prevent hanging
-                nohup $player_function $player_extra_flags --no-stdin --mpv-force-media-title="${anime_title} Episode ${ep_no}" "$video_link" >/dev/null 2>&1 &
+                nohup $player_function $player_extra_flags --no-stdin --mpv-demuxer-lavf-format=hls ${video_referrer:+--mpv-referrer="$video_referrer"} --mpv-force-media-title="${anime_title} Episode ${ep_no}" "$video_link" >/dev/null 2>&1 &
             else
-                nohup $player_function $player_extra_flags --no-stdin --keep-running --mpv-force-media-title="${anime_title} Episode ${ep_no}" "$video_link" >/dev/null 2>&1 &
+                nohup $player_function $player_extra_flags --no-stdin --keep-running --mpv-demuxer-lavf-format=hls ${video_referrer:+--mpv-referrer="$video_referrer"} --mpv-force-media-title="${anime_title} Episode ${ep_no}" "$video_link" >/dev/null 2>&1 &
             fi
             ;;
         *vlc*) nohup $player_function $player_extra_flags --play-and-exit --meta-title="${anime_title} Episode ${ep_no}" ${video_referrer:+--http-referrer=$video_referrer} "$video_link" >/dev/null 2>&1 & ;;

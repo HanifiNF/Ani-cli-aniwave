@@ -33,6 +33,7 @@ A CLI to browse and watch anime (alone and with friends). This custom v5 build s
 
 ## Table of Contents
 
+- [Desktop application](#desktop-application)
 - [Fixing errors](#fixing-errors)
 - [Install](#install)
   - [Tier 1: Linux, Mac, Android](#tier-1-support-linux-mac-android)
@@ -45,6 +46,41 @@ A CLI to browse and watch anime (alone and with friends). This custom v5 build s
 - [Homies](#homies)
 - [Contribution Guidelines](./CONTRIBUTING.md)
 - [Disclaimer](./disclaimer.md)
+
+## Desktop application
+
+This repository includes **Ani Desktop**, an Electron application with search,
+provider selection, bookmarks, history, and external media-player playback. It
+runs from source on macOS; the packaged installer currently targets Windows.
+
+With Node.js 22 or newer installed, run these commands from the repository root:
+
+```sh
+cd desktop-app
+npm install
+npm start
+```
+
+pnpm is also supported: use `pnpm install` and `pnpm start`.
+
+On macOS, install IINA in Applications and set **Settings → Media player executable
+or full path** to:
+
+```text
+/Applications/IINA.app/Contents/MacOS/iina-cli
+```
+
+The desktop app and this repository's `ani-cli` script pass the stream referrer
+to IINA and explicitly select HLS decoding. This handles provider playlists whose
+extensionless URLs and image content types can otherwise cause “Cannot open file
+or stream” errors or leave IINA on “Loading Media.”
+
+After updating the desktop app, quit it completely with **⌘Q** on macOS and run
+`npm start` again from `desktop-app`. The IINA path stays the same while IINA is
+installed in Applications.
+
+See the [desktop README](./desktop-app/README.md) for development commands,
+player setup, and troubleshooting.
 
 ## Fixing errors
 
@@ -141,6 +177,16 @@ brew install curl grep aria2 ffmpeg git fzf yt-dlp && \
 brew install --cask iina
 ```
 *Why iina and not mpv? Drop-in replacement for mpv for MacOS. Integrates well with OSX UI. Excellent support for M1. Open Source.*
+
+This custom build automatically looks for IINA's bundled command-line launcher.
+To select it explicitly, run from this repository's root:
+
+```sh
+ANI_CLI_PLAYER="/Applications/IINA.app/Contents/MacOS/iina-cli" ./ani-cli
+```
+
+The IINA playback fixes are included in this repository's script. If you run an
+installed copy of `ani-cli`, update that copy from this checkout to use the fixes.
 
 </details><details><summary><b>Android</b></summary>
 
