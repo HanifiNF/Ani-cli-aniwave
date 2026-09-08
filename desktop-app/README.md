@@ -88,8 +88,8 @@ npm run dev
 pnpm equivalent: `pnpm dev`.
 
 To work on the renderer in a plain browser without Electron, run `npx vite` and open the printed URL. In that mode
-an in-memory stand-in for the preload API (`src/devApi.ts`) provides sample titles, episodes, and history. Design
-mockups for the current UI and its rejected alternatives live in `design/variants/`.
+an in-memory stand-in for the preload API (`src/devApi.ts`) provides sample titles, episodes, and history. The B2
+Palette with art design reference and its theme previews live in `design/variants/`.
 
 ## Checks
 
