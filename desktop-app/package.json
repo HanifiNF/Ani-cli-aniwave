@@ -25,6 +25,7 @@
     "cross-env": "latest",
     "electron": "latest",
     "electron-builder": "latest",
+    "jsdom": "^30.0.1",
     "typescript": "latest",
     "vite": "latest",
     "vitest": "latest",
