@@ -11,6 +11,7 @@ import type {
   ThemePreset,
   TranslationMode
 } from "../shared/contracts";
+import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme } from "../shared/theme";
 
 type Screen = "home" | "series" | "saved" | "recent" | "settings";
@@ -89,8 +90,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [appState, setAppState] = useState<PersistedState>(emptyState);
   const [query, setQuery] = useState("");
-  const [lastQuery, setLastQuery] = useState("");
-  const [results, setResults] = useState<AnimeResult[]>([]);
+  const [composing, setComposing] = useState(false);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [cursor, setCursor] = useState(0);
@@ -102,6 +102,10 @@ function App() {
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
+
+  const catalogSearch = useAnimeSearch(query, provider,
+    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl], screen === "home" && !composing);
+  const { results, lastQuery } = catalogSearch;
 
   const fieldRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -154,7 +158,17 @@ function App() {
     observer.observe(list);
     return () => observer.disconnect();
   }, [cursor, screen, rows]);
-  useEffect(() => { if (screen !== "settings") fieldRef.current?.focus(); }, [screen]);
+  useEffect(() => {
+    if (screen === "series") gridRef.current?.focus();
+    else if (screen !== "settings") fieldRef.current?.focus();
+  }, [screen]);
+  useEffect(() => {
+    const grid = gridRef.current;
+    // Follow episode selection while navigating the grid, preserving focus if the user leaves it.
+    if (screen === "series" && grid?.contains(document.activeElement)) {
+      grid.querySelector<HTMLButtonElement>('[data-cursor="true"]')?.focus({ preventScroll: true });
+    }
+  }, [screen, cursor, episodes]);
 
   const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id));
   const progress = selectedAnime ? appState.history.find((entry) => entry.animeId === selectedAnime.id) : undefined;
@@ -175,21 +189,20 @@ function App() {
   }
 
   function goBack() {
-    if (screen === "home") { if (query) setQuery(""); return; }
+    if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series") setSelectedAnime(undefined);
     go("home");
   }
 
-  async function search() {
-    const cleaned = query.trim();
-    if (!cleaned) return;
-    setSelectedAnime(undefined);
-    setScreen("home");
-    const found = await run("searching", () => window.aniDesktop.search(cleaned, provider));
-    if (found) {
-      setResults(found);
-      setLastQuery(cleaned);
-      if (found.length === 0) setNotice(`nothing found for "${cleaned}"`);
+  function changeQuery(value: string) {
+    setQuery(value);
+    if (!value.trim()) catalogSearch.clear();
+    if (screen === "home" || screen === "series") {
+      setError(undefined); setNotice(undefined);
+      if (screen === "series") {
+        setSelectedAnime(undefined);
+        setScreen("home");
+      }
     }
   }
 
@@ -308,7 +321,7 @@ function App() {
   keyHandler.current = (event) => {
     const target = event.target as HTMLElement | null;
     const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
-    const dirty = query.trim() !== "" && query.trim() !== lastQuery;
+    if (event.isComposing || composing || event.keyCode === 229) return;
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
       return;
@@ -317,6 +330,9 @@ function App() {
     if (event.key === "Enter" && target?.closest("button:not(.hit)") && !target.closest(".grid")) return;
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
     if (event.key === "Escape") { event.preventDefault(); goBack(); return; }
+    if (!typing && event.key === "/") {
+      event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
+    }
     if (screen === "series") {
       const moves: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns(), ArrowDown: columns() };
       if (event.key in moves) {
@@ -325,7 +341,6 @@ function App() {
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        if (target === fieldRef.current && dirty) { void search(); return; }
         if (episodes[cursor]) void playEpisode(episodes[cursor]);
         return;
       }
@@ -335,7 +350,9 @@ function App() {
     if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, rows.length); return; }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (screen === "home" && target === fieldRef.current && dirty) { void search(); return; }
+      if (screen === "home" && query.trim() && (catalogSearch.pending || (target === fieldRef.current && !catalogSearch.ready))) {
+        catalogSearch.searchNow(); return;
+      }
       if (rows[cursor]) void activate(rows[cursor]);
       return;
     }
@@ -343,7 +360,6 @@ function App() {
     const row = rows[cursor];
     if (event.key === "x" && row?.entry) void removeRow(row);
     else if (event.key === "o" && row) void openRow(row);
-    else if (event.key === "/") { event.preventDefault(); fieldRef.current?.focus(); }
   };
 
   useEffect(() => {
@@ -353,8 +369,11 @@ function App() {
   }, []);
 
   const placeholder = screen === "saved" ? "filter saved titles" : screen === "recent" ? "filter recent titles" : screen === "series" ? "search another title" : "search a title";
-  const searching = busy === "searching";
-  const message = error ?? (searching ? undefined : busy) ?? notice;
+  const searching = catalogSearch.loading;
+  const searchError = catalogSearch.error === undefined ? undefined : messageFrom(catalogSearch.error);
+  const displayError = error ?? searchError;
+  const searchNotice = catalogSearch.ready && results.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
+  const message = displayError ?? busy ?? searchNotice ?? notice;
 
   const renderRow = (row: Row, index: number) => {
     const current = index === cursor;
@@ -383,7 +402,7 @@ function App() {
     if (items.length === 0) return null;
     return (
       <section key={kind} className={`list-section section-${kind}`} aria-labelledby={`${kind}-heading`}>
-        <h2 id={`${kind}-heading`}>{heading}{kind === "results" && <span>{items.length} {items.length === 1 ? "title" : "titles"}</span>}</h2>
+        <h2 id={`${kind}-heading`}>{kind === "results" ? <span className="search-heading" title={heading}>{heading}</span> : heading}{kind === "results" && <span>{items.length} {items.length === 1 ? "title" : "titles"}</span>}</h2>
         <div className="section-scroll" role="region" aria-labelledby={`${kind}-heading`} tabIndex={0}
           onFocus={(event) => { if (event.target === event.currentTarget) setCursor(items[0].index); }}>
           <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
@@ -411,11 +430,13 @@ function App() {
           {screen === "settings"
             ? <span className="crumb big">settings</span>
             : <div className="search-field">
-                <input ref={fieldRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
+                <input ref={fieldRef} value={query} onChange={(event) => changeQuery(event.target.value)}
+                  onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
+                  maxLength={120} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
                 <span className="search-throbber" aria-hidden="true">
-                  {searching && <><span>·</span><span>·</span><span>·</span></>}
+                  {catalogSearch.pending && <><span>·</span><span>·</span><span>·</span></>}
                 </span>
-                <span className="sr-only" role="status">{searching ? "Searching" : ""}</span>
+                <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${results.length} ${results.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
               </div>}
           {(screen === "home" || screen === "series") && (
             <div className="groups">
@@ -426,13 +447,13 @@ function App() {
           )}
           {(screen === "saved" || screen === "recent") && <span className="crumb">{screen}</span>}
         </div>
-        {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+        {message && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
         {screen === "home" && (
-          rows.length === 0 && !message && !searching
-            ? <div className="empty"><b>Type a title and press enter</b>Results, titles you are watching, and saved titles appear here.</div>
-            : <div className="home-sections">
-                {section("results", "results")}
+          rows.length === 0 && !message && !catalogSearch.pending
+            ? <div className="empty"><b>Type a title to search</b>Results, titles you are watching, and saved titles appear here.</div>
+            : <div className="home-sections" aria-busy={catalogSearch.pending}>
+                {section("results", `results for "${lastQuery}"`)}
                 {rows.some((row) => row.kind === "continue" || row.kind === "saved") && (
                   <div className="home-library">{section("continue", "continue")}{section("saved", "saved")}</div>
                 )}
@@ -482,11 +503,12 @@ function App() {
             <div className="bar">
               <span className="crumb">click an episode to play it in {player}</span>
             </div>
-            <div className="grid" ref={gridRef}>
+            <div className="grid" ref={gridRef} tabIndex={-1} role="group" aria-label="Episodes">
               {episodes.map((episode, index) => {
                 const watched = progress ? Number(episode.number) <= Number(progress.lastEpisode) : false;
                 return (
                   <button type="button" key={episode.id} className={`${watched ? "w" : ""} ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}
+                    tabIndex={index === cursor ? 0 : -1} onFocus={() => setCursor(index)}
                     onClick={() => void playEpisode(episode)} aria-label={`play episode ${episode.number}`}>{episode.number}</button>
                 );
               })}
@@ -544,8 +566,8 @@ function App() {
 
       <div className="foot">
         {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
-          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span>{backButton}</>
-          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? "search or open" : "play"}</span>{screen !== "home" && backButton}</>}
+          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
+          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (query.trim() && !catalogSearch.ready ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
         {footLinks}
       </div>
     </div>

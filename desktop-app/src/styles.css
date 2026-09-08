@@ -105,6 +105,8 @@ input { background: none; border: 0; outline: 0; padding: 0; }
 /* rows */
 h2 { font-size: 12px; font-weight: 400; color: var(--muted); margin: 28px 0 6px; display: flex; align-items: baseline; }
 h2 span { margin-left: 12px; color: var(--dim); }
+h2 .search-heading { min-width: 0; margin-left: 0; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h2 .search-heading + span { flex-shrink: 0; }
 h2 .act { margin-left: auto; color: var(--muted); font-size: 12px; }
 h2 .act:hover { color: var(--text); }
 .list { display: grid; gap: 2px; }
