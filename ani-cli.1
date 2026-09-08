@@ -9,7 +9,7 @@ A shell script to browse and search anime from the command-line.
 .PD 0
 .P
 .PD
-This tool scrapes the site allanime.
+This custom build uses switchable AniWave/Vidplay and AniDB provider adapters.
 .PD 0
 .P
 .PD
@@ -21,6 +21,12 @@ Specify the episode numbers to watch. If range is specified it should be quoted 
 .TP
 \fB\-c | --continue\fR
 Continue watching anime from history.
+.TP
+\fB\-b | --bookmark\fR
+Bookmark selected anime. Bookmarks are updated automatically as episodes are watched.
+.TP
+\fB\-B | --bookmarks\fR
+Show bookmarked anime.
 .TP
 \fB\-d | --download\fR
 Download episode.
@@ -58,8 +64,26 @@ Play the dubbed version. Without this flag, it'll always play the subbed version
 \fB\--rofi\fR
 Use rofi instead of fzf for the interactive menu
 .TP
+\fB\--gui\fR
+Use the bundled Python Tkinter interface instead of fzf.
+.TP
+\fB\--source-url\fR \fI\,URL\/\fR
+Use an anidb-compatible mirror for this run.
+.TP
+\fB\--aniwave-url\fR \fI\,URL\/\fR
+Use a different AniWave-compatible base URL for this run.
+.TP
+\fB\--provider\fR \fI\,auto|aniwave|anidb\/\fR
+Choose the provider. Auto tries AniWave first and falls back to AniDB for search.
+.TP
 \fB\--skip\fR
 Use ani-skip to skip the intro of the episode (mpv only)
+.TP
+\fB\--remove-bookmark\fR
+Remove selected anime from bookmarks.
+.TP
+\fB\--clear-bookmarks\fR
+Delete all bookmarks.
 .TP
 \fB\--no-detach\fR
 Don't detach the player (useful for in-terminal playback, mpv only)
@@ -74,6 +98,15 @@ Specify the title to use for ani-skip
 ENVIRONMENT VARIABLES
 .PP
 ani-cli v4 uses environment variables to control unstable/untested and niche features in addition to everything that has an option. Command-line options take precedence over env vars. Note that these are all subject to change.
+.TP
+\fBANI_CLI_BASE_URL\fR
+Sets the base URL for an anidb-compatible source mirror. The default is https://anidb.app.
+.TP
+\fBANI_CLI_ANIWAVE_URL\fR
+Sets the base URL for the AniWave adapter. The default is https://aniwaves.ru.
+.TP
+\fBANI_CLI_PROVIDER\fR
+Sets the provider to auto, aniwave, or anidb. The default is auto.
 .TP
 \fBANI_CLI_MODE\fR
 Controls the scraped media's mode, valid options are sub or dub. Default is sub.

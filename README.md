@@ -22,7 +22,7 @@
 </p>
 
 <h3 align="center">
-A cli to browse and watch anime (alone AND with friends). This tool scrapes the site <a href="https://allmanga.to/">allmanga.</a>
+A CLI to browse and watch anime (alone and with friends). This custom v5 build supports AniWave (Vidplay) and anidb.app through switchable provider adapters.
 </h3>
 
 <h1 align="center">
@@ -534,12 +534,25 @@ Ani-skip uses the external lua script function of mpv and as such â€“ for now â€
 * Can I change subtitle language or turn them off? - No, the subtitles are baked into the video.
 * Can I watch dub? - Yes, use `--dub`.
 * Can I change dub language? - No.
-* Can I change media source? - No (unless you can scrape that source yourself).
+* Can I change media source? - Yes. Use `--provider auto|aniwave|anidb`; `auto` tries AniWave first and falls back to AniDB for search.
 * Can I use vlc? - Yes, use `--vlc` or `export ANI_CLI_PLAYER=vlc`.
 * Can I adjust resolution? - Yes, use `-q resolution`, for example `ani-cli -q 1080`.
 * How can I download? - Use `-d`, it will download into your working directory.
 * Can i change download folder? - Yes, set the `ANI_CLI_DOWNLOAD_DIR` to your desired location.
 * How can I bulk download? - `Use -d -e firstepisode-lastepisode`, for example `ani-cli onepiece -d -e 1-1000`.
+* How can I bookmark anime? - Use `-b` while searching or select `bookmark` from the playback menu. Use `-B` to open bookmarks.
+* Do bookmarks track watched progress? - Yes, bookmarked anime update automatically to the latest watched episode. Use `remove_bookmark` from the playback menu or `--remove-bookmark` to remove one.
+* Can I use a graphical picker? - Yes, use `--gui`. This custom build uses the bundled `ani-cli-gui.py` Tkinter picker and requires Python with Tkinter.
+* Can I change the data source URL? - Yes. `--aniwave-url` / `ANI_CLI_ANIWAVE_URL` configure the AniWave adapter, while `--source-url` / `ANI_CLI_BASE_URL` configure the AniDB-compatible adapter. A replacement URL must expose the routes expected by its adapter.
+
+Provider examples:
+
+```sh
+ani-cli --provider auto naruto
+ani-cli --provider aniwave --aniwave-url "https://aniwaves.ru" naruto
+ANI_CLI_PROVIDER=anidb ANI_CLI_BASE_URL="https://anidb.app" ani-cli naruto
+```
+* How does `ani-cli -U` update this custom build? - It performs a three-way merge against the last upstream base, preserves the GUI and bookmark changes, and saves a versioned backup before replacing the script. If upstream edits conflict with a customization, the current script remains untouched and a `.merge-conflict` file is created for review.
 
 **Note:** All features are documented in `ani-cli --help`.
 
