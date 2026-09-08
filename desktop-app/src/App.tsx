@@ -102,7 +102,6 @@ function App() {
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
-  const [jump, setJump] = useState("");
 
   const fieldRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -128,8 +127,8 @@ function App() {
     if (screen === "home") {
       return [
         ...results.map((anime): Row => ({ kind: "results", anime })),
-        ...appState.history.map((entry): Row => ({ kind: "continue", entry })),
-        ...appState.bookmarks.map((entry): Row => ({ kind: "saved", entry }))
+        ...appState.history.slice(0, 3).map((entry): Row => ({ kind: "continue", entry })),
+        ...appState.bookmarks.slice(0, 3).map((entry): Row => ({ kind: "saved", entry }))
       ];
     }
     if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
@@ -197,7 +196,7 @@ function App() {
   async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
     playToken.current += 1;
     setSelectedAnime(anime);
-    setEpisodes([]); setStatus(undefined); setJump("");
+    setEpisodes([]); setStatus(undefined);
     setScreen("series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
@@ -298,12 +297,6 @@ function App() {
     }
   }
 
-  function jumpTo(value: string) {
-    setJump(value);
-    const index = episodes.findIndex((episode) => episode.number === value.trim());
-    if (index >= 0) setCursor(index);
-  }
-
   const columns = () => {
     const cells = Array.from(gridRef.current?.children ?? []) as HTMLElement[];
     if (cells.length === 0) return 1;
@@ -321,6 +314,7 @@ function App() {
       return;
     }
     if (event.altKey) return;
+    if (event.key === "Enter" && target?.closest("button:not(.hit)") && !target.closest(".grid")) return;
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
     if (event.key === "Escape") { event.preventDefault(); goBack(); return; }
     if (screen === "series") {
@@ -388,7 +382,7 @@ function App() {
     if (items.length === 0) return null;
     return (
       <section key={kind} className={`list-section section-${kind}`} aria-labelledby={`${kind}-heading`}>
-        <h2 id={`${kind}-heading`}>{heading}<span>{items.length} {items.length === 1 ? "title" : "titles"}</span></h2>
+        <h2 id={`${kind}-heading`}>{heading}{kind === "results" && <span>{items.length} {items.length === 1 ? "title" : "titles"}</span>}</h2>
         <div className="section-scroll" role="region" aria-labelledby={`${kind}-heading`} tabIndex={0}
           onFocus={(event) => { if (event.target === event.currentTarget) setCursor(items[0].index); }}>
           <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
@@ -396,6 +390,8 @@ function App() {
       </section>
     );
   };
+
+  const backButton = <button type="button" onClick={goBack} aria-label="Back" aria-keyshortcuts="Escape"><b>esc</b> back</button>;
 
   const footLinks = (
     <span className="right">
@@ -428,7 +424,12 @@ function App() {
         {screen === "home" && (
           rows.length === 0 && !message
             ? <div className="empty"><b>Type a title and press enter</b>Results, titles you are watching, and saved titles appear here.</div>
-            : <div className="home-sections">{section("results", "results")}{section("continue", "continue")}{section("saved", "saved")}</div>
+            : <div className="home-sections">
+                {section("results", "results")}
+                {rows.some((row) => row.kind === "continue" || row.kind === "saved") && (
+                  <div className="home-library">{section("continue", "continue")}{section("saved", "saved")}</div>
+                )}
+              </div>
         )}
 
         {screen === "saved" && (
@@ -473,7 +474,6 @@ function App() {
             </div>
             <div className="bar">
               <span className="crumb">click an episode to play it in {player}</span>
-              <input className="jump" value={jump} onChange={(event) => jumpTo(event.target.value)} placeholder="jump to episode" aria-label="jump to episode" inputMode="decimal" />
             </div>
             <div className="grid" ref={gridRef}>
               {episodes.map((episode, index) => {
@@ -536,9 +536,9 @@ function App() {
       </div>
 
       <div className="foot">
-        {screen === "settings" ? <><span><b>⌘s</b> save</span><span><b>esc</b> back</span></>
-          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>esc</b> back</span></>
-          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? "search or open" : "play"}</span>{screen !== "home" && <span><b>esc</b> back</span>}</>}
+        {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
+          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span>{backButton}</>
+          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? "search or open" : "play"}</span>{screen !== "home" && backButton}</>}
         {footLinks}
       </div>
     </div>
