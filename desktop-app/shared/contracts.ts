@@ -69,6 +69,7 @@ export interface AniDesktopApi {
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
   saveSettings(settings: Settings): Promise<PersistedState>;
+  setAppIcon(pngDataUrl: string): Promise<void>;
   toggleBookmark(entry: LibraryEntry): Promise<PersistedState>;
   removeBookmark(animeId: string): Promise<PersistedState>;
   recordHistory(entry: LibraryEntry): Promise<PersistedState>;

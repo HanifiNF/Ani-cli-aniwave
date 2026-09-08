@@ -56,6 +56,7 @@ beforeEach(async () => {
     search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue([{ id: "ep-1", number: "1" }]),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
+    setAppIcon: vi.fn().mockResolvedValue(undefined),
     toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn()
   };
   window.aniDesktop = api;
@@ -69,6 +70,17 @@ afterEach(async () => {
 });
 
 describe("live catalog search", () => {
+  it("previews icon colours, restores them on cancel, and retains a saved theme", async () => {
+    const icon = () => decodeURIComponent(document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href);
+    await click("settings"); await click("nord");
+    expect(icon()).toContain('fill="#88C0D0"');
+    await click("cancel");
+    expect(icon()).toContain('fill="#1F2023"');
+    await click("settings"); await click("mocha"); await click("save changes");
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ theme: "mocha" }));
+    expect(icon()).toContain('fill="#CBA6F7"');
+  });
+
   it.each(["keyboard", "mouse"])("focuses episodes after opening a search result with the %s", async (method) => {
     const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
     vi.mocked(api.episodes).mockReturnValue(pending.promise);
