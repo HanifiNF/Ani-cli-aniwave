@@ -128,8 +128,8 @@ function App() {
     if (screen === "home") {
       return [
         ...results.map((anime): Row => ({ kind: "results", anime })),
-        ...appState.history.slice(0, 6).map((entry): Row => ({ kind: "continue", entry })),
-        ...appState.bookmarks.slice(0, 6).map((entry): Row => ({ kind: "saved", entry }))
+        ...appState.history.map((entry): Row => ({ kind: "continue", entry })),
+        ...appState.bookmarks.map((entry): Row => ({ kind: "saved", entry }))
       ];
     }
     if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
@@ -138,7 +138,23 @@ function App() {
   }, [screen, results, appState.history, appState.bookmarks, filter]);
 
   useEffect(() => { if (screen !== "series") setCursor(0); }, [screen, results, filter]);
-  useEffect(() => { document.querySelector('[data-cursor="true"]')?.scrollIntoView({ block: "nearest" }); }, [cursor, screen]);
+  useEffect(() => {
+    const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
+    const list = selected?.closest<HTMLElement>(".section-scroll");
+    if (!selected) return;
+    if (!list) { selected.scrollIntoView({ block: "nearest" }); return; }
+    // Move only the selected list so keyboard navigation keeps the other sections in place.
+    const reveal = () => {
+      const rowBounds = selected.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
+      if (rowBounds.top < listBounds.top) list.scrollTop += rowBounds.top - listBounds.top;
+      else if (rowBounds.bottom > listBounds.bottom) list.scrollTop += rowBounds.bottom - listBounds.bottom;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [cursor, screen, rows]);
   useEffect(() => { if (screen !== "settings") fieldRef.current?.focus(); }, [screen]);
 
   const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id));
@@ -352,7 +368,7 @@ function App() {
     let sub = "", action = "", side = "";
     if (row.anime) { action = current ? "open series" : ""; side = row.anime.provider; }
     if (row.entry) {
-      sub = row.kind === "recent" ? `ep ${row.entry.lastEpisode}, ${when(row.entry.updatedAt)}` : `watched through ${row.entry.lastEpisode}, ${providerOf(row.entry.animeId)}`;
+      sub = row.kind === "recent" ? `ep ${row.entry.lastEpisode}, ${when(row.entry.updatedAt)}` : `watched through ${row.entry.lastEpisode}, ${providerOf(row.entry.animeId)}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
       action = "play next"; side = row.entry.mode;
     }
     return (
@@ -371,10 +387,13 @@ function App() {
     const items = rows.map((row, index) => ({ row, index })).filter((item) => item.row.kind === kind);
     if (items.length === 0) return null;
     return (
-      <div key={kind}>
-        <h2>{heading}</h2>
-        <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
-      </div>
+      <section key={kind} className={`list-section section-${kind}`} aria-labelledby={`${kind}-heading`}>
+        <h2 id={`${kind}-heading`}>{heading}<span>{items.length} {items.length === 1 ? "title" : "titles"}</span></h2>
+        <div className="section-scroll" role="region" aria-labelledby={`${kind}-heading`} tabIndex={0}
+          onFocus={(event) => { if (event.target === event.currentTarget) setCursor(items[0].index); }}>
+          <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
+        </div>
+      </section>
     );
   };
 
@@ -390,7 +409,7 @@ function App() {
 
   return (
     <div className="app">
-      <div className="page">
+      <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""}`}>
         <div className="field">
           {screen === "settings"
             ? <span className="crumb big">settings</span>
@@ -409,25 +428,29 @@ function App() {
         {screen === "home" && (
           rows.length === 0 && !message
             ? <div className="empty"><b>Type a title and press enter</b>Results, titles you are watching, and saved titles appear here.</div>
-            : <>{section("results", "results")}{section("continue", "continue")}{section("saved", "saved")}</>
+            : <div className="home-sections">{section("results", "results")}{section("continue", "continue")}{section("saved", "saved")}</div>
         )}
 
         {screen === "saved" && (
-          <>
-            <h2>saved <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span></h2>
+          <section className="list-section library-section" aria-labelledby="saved-heading">
+            <h2 id="saved-heading">saved <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span></h2>
+            <div className="section-scroll" role="region" aria-labelledby="saved-heading" tabIndex={0}>
             {rows.length === 0
               ? <div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Saved titles keep their place, so play always picks up at the next episode."}</div>
               : <div className="list">{rows.map(renderRow)}</div>}
-          </>
+            </div>
+          </section>
         )}
 
         {screen === "recent" && (
-          <>
-            <h2>recent <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span>{appState.history.length > 0 && <button type="button" className="act" onClick={() => void clearHistory()}>clear history</button>}</h2>
+          <section className="list-section library-section" aria-labelledby="recent-heading">
+            <h2 id="recent-heading">recent <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span>{appState.history.length > 0 && <button type="button" className="act" onClick={() => void clearHistory()}>clear history</button>}</h2>
+            <div className="section-scroll" role="region" aria-labelledby="recent-heading" tabIndex={0}>
             {rows.length === 0
               ? <div className="empty"><b>{filter ? "No recent titles match" : "Nothing watched yet"}</b>{filter ? "Try a shorter filter." : `Every episode you open in ${player} is listed here.`}</div>
               : <div className="list">{rows.map(renderRow)}</div>}
-          </>
+            </div>
+          </section>
         )}
 
         {screen === "series" && selectedAnime && (
