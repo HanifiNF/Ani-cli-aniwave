@@ -250,7 +250,7 @@ find_gui_python() {
 }
 
 cleanup() {
-    tput sgr0               # clears colors
+    tput sgr0                                     # clears colors
     [ -n "$histfile" ] && rm -f "${histfile}.new" # remove temporary state files
     [ -n "$bookmarkfile" ] && rm -f "${bookmarkfile}.new"
 }
@@ -285,8 +285,9 @@ anidb_search() {
 
 # extract mal_id and seasons metadata
 anidb_desc() {
+    _description_id=$(provider_value "$1")
     #shellcheck disable=SC2059
-    _page="$(anidb_curl "$(printf "$desc_api" "$(provider_value "$1")")" | tr '\n' ' ' | sed 's|<a href|\n<a href|g')"
+    _page="$(anidb_curl "$(printf "$desc_api" "$_description_id")" | tr '\n' ' ' | sed 's|<a href|\n<a href|g')"
     mal_id="$(printf "%s" "$_page" | sed -nE 's|.*https://myanimelist.net/anime/([0-9]+)/.*|\1|p')"
     seasons="$(printf "%s" "$_page" | sed -n '/>Seasons</,/>Details</p' | sed -nE 's|.*anime/([^"]+-[0-9]+)"[^>]*title="([^"]+)".*|\1\t\2|p' | sed -e "s|&#039;|'|g")"
     [ -n "$seasons" ] && seasons_option="\nchange_season"
@@ -303,10 +304,18 @@ anidb_episodes() {
 aniwave_curl() {
     _attempt=0
     while [ "$_attempt" -lt 2 ]; do
+        # cipher_flag contains multiple curl options and intentionally splits into arguments.
+        #shellcheck disable=SC2086
         _response="$($curl_exe -sL -A "$agent" --max-time 15 $cipher_flag -H "Referer: ${aniwave_referrer:-$aniwave_base_api/}" -w ' %{http_code}' "$@")" || _response=" 000"
         _http_code=${_response##* }
         _response=${_response% *}
-        case "$_http_code" in 2??) printf "%s" "$_response"; return 0 ;; esac
+        case "$_http_code" in
+            2??)
+                printf "%s" "$_response"
+                return 0
+                ;;
+            *) ;;
+        esac
         _attempt=$((_attempt + 1))
     done
     return 1
@@ -372,11 +381,13 @@ provider_search() {
             info "AniWave unavailable; trying AniDB" >&2
             anidb_search "$1"
             ;;
+        *) return 1 ;;
     esac
 }
 
 provider_desc() {
-    [ "$(provider_name "$1")" = anidb ] && anidb_desc "$1"
+    _description_provider=$(provider_name "$1")
+    [ "$_description_provider" = anidb ] && anidb_desc "$1"
     return 0
 }
 
@@ -392,7 +403,8 @@ load_episode_maps() {
     _query=$(printf "%s" "$anime_title" | sed 's| |+|g')
     case "$_other" in aniwave) _candidates=$(aniwave_search "$_query") ;; *) _candidates=$(anidb_search "$_query") ;; esac
     [ -n "$_candidates" ] || return 1
-    _replacement=$(printf "%s" "$_candidates" | nl -w 2 | sed 's/^[[:space:]]//' | nth "$(provider_name "$_old_id") unavailable; select a $_other replacement (Esc cancels): ")
+    _unavailable_provider=$(provider_name "$_old_id")
+    _replacement=$(printf "%s" "$_candidates" | nl -w 2 | sed 's/^[[:space:]]//' | nth "$_unavailable_provider unavailable; select a $_other replacement (Esc cancels): ")
     [ -n "$_replacement" ] || return 1
     anime_id=$(printf "%s" "$_replacement" | cut -f 1)
     anime_title=$(printf "%s" "$_replacement" | cut -f 2)
@@ -442,7 +454,8 @@ get_video_link() {
         *) links=$(anidb_m3u8 "$ep_no" "$mode" | sort -g -r -s) ;;
     esac
     [ -z "$links" ] && die "No sources found for $mode!"
-    info "$(provider_name "$anime_id") links fetched"
+    _link_provider=$(provider_name "$anime_id")
+    info "$_link_provider links fetched"
     select_quality "$quality"
     # should never trigger but just in case
     if printf "%s" "$ep_list" | grep -q "^$ep_no$"; then
@@ -680,7 +693,7 @@ exit_after_play="${ANI_CLI_EXIT_AFTER_PLAY:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
 menu_program="${ANI_CLI_MENU:-fzf}"
 menu_extra_flags="${ANI_CLI_MENU_FLAGS:-""}"
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 gui_script="${ANI_CLI_GUI_SCRIPT:-$script_dir/ani-cli-gui.py}"
 
 # not opening from a terminal
