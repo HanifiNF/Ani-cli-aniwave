@@ -58,6 +58,25 @@ episode, provider, quality, IINA version, and any error message. The app's
 “opened in your media player” notice confirms that the player process started;
 playback success is determined by IINA.
 
+## Using the app
+
+The whole app is driven from one text field. Type a title and press Enter to search. Results, titles you are
+watching, and saved titles are rows; move with the arrow keys and press Enter to open a series or play the next
+episode. Everything also works with the mouse.
+
+- On a series, click an episode (or press Enter on the highlighted one) to resolve a stream and open it in your
+  player. Watched episodes are dimmed and the next one is highlighted. Audio, quality, and source chips beside the
+  field apply to the next play.
+- `saved` and `recent` in the footer open full lists. The field filters them. Each row has `play next` and `remove`.
+- `settings` holds the player path, defaults, provider addresses, and the theme.
+
+### Themes
+
+A theme is three colours: background, text, and highlight. Every other tone is mixed from them. Presets follow
+common terminal schemes: graphite (default), paper, nord, gruvbox, mocha, and solarized light. Choose `custom` to
+edit the three colours with the native colour picker or a hex field. Changes preview immediately and persist with
+`save changes`.
+
 ## Development
 
 Run with the development server:
@@ -67,6 +86,10 @@ npm run dev
 ```
 
 pnpm equivalent: `pnpm dev`.
+
+To work on the renderer in a plain browser without Electron, run `npx vite` and open the printed URL. In that mode
+an in-memory stand-in for the preload API (`src/devApi.ts`) provides sample titles, episodes, and history. Design
+mockups for the current UI and its rejected alternatives live in `design/variants/`.
 
 ## Checks
 
