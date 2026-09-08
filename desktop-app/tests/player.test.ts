@@ -1,0 +1,20 @@
+import { describe, expect, it } from "vitest";
+import { playerArguments } from "../electron/player";
+
+const request = { url: "https://cdn.example.test/episode.m3u8", title: "Example — Episode 1" };
+
+describe("playerArguments", () => {
+  it("adds the media title option for mpv", () => {
+    expect(playerArguments("mpv.exe", request)).toEqual([
+      "--fullscreen",
+      "--force-media-title=Example — Episode 1",
+      request.url
+    ]);
+  });
+
+  it("uses VLC-compatible title and referrer options", () => {
+    expect(playerArguments("C:\\Program Files\\VideoLAN\\VLC\\vlc.exe", { ...request, referrer: "https://play.test/embed" })).toEqual([
+      "--no-one-instance", "--no-qt-start-minimized", "--no-qt-system-tray", "--fullscreen", "--play-and-exit", "--meta-title=Example — Episode 1", "--http-referrer=https://play.test/embed", request.url
+    ]);
+  });
+});
