@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
 import type { LibraryEntry, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
@@ -12,6 +12,8 @@ let store: StateStore;
 
 function createWindow(): void {
   const capturePath = !app.isPackaged ? process.env.ANI_DESKTOP_CAPTURE_PATH : undefined;
+  const icon = nativeImage.createFromPath(join(__dirname, "../icon.png"));
+  if (process.platform === "darwin") app.dock?.setIcon(icon);
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 800,
@@ -19,6 +21,7 @@ function createWindow(): void {
     minHeight: 620,
     backgroundColor: "#1F2023",
     title: "Ani Desktop",
+    icon,
     show: false,
     webPreferences: {
       preload: join(__dirname, "preload.js"),
@@ -52,6 +55,19 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("app:icon", (event, pngDataUrl: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+      throw new Error("Unknown icon sender");
+    }
+    if (typeof pngDataUrl !== "string" || pngDataUrl.length > 2_000_000 || !pngDataUrl.startsWith("data:image/png;base64,")) {
+      throw new Error("Invalid icon image");
+    }
+    const icon = nativeImage.createFromDataURL(pngDataUrl);
+    const size = icon.getSize();
+    if (icon.isEmpty() || size.width !== 1024 || size.height !== 1024) throw new Error("Invalid icon dimensions");
+    if (process.platform === "darwin") app.dock?.setIcon(icon);
+    else mainWindow.setIcon(icon);
+  });
   ipcMain.handle("catalog:search", (_event, query: string, provider?: ProviderPreference) => searchAnime(query, store.snapshot().settings, provider));
   ipcMain.handle("catalog:episodes", (_event, animeId: string) => getEpisodes(animeId, store.snapshot().settings));
   ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));

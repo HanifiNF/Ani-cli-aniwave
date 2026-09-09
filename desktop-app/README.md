@@ -79,6 +79,12 @@ common terminal schemes: graphite (default), paper, nord, gruvbox, mocha, and so
 edit the three colours with the native colour picker or a hex field. Changes preview immediately and persist with
 `save changes`.
 
+The app icon uses the artwork in `../app-icon.svg`: its tile follows the background colour, `ani` follows the text
+colour, and the prompt and cursor follow the highlight colour. The running macOS Dock icon and Windows/Linux window
+icon preview theme changes immediately, including custom colours, and return to the saved theme when you cancel.
+The browser preview's favicon follows the same palette. Builds generate a graphite PNG and multi-size Windows ICO
+from the SVG; the installed executable, installer, and desktop shortcuts use this static graphite icon.
+
 ## Development
 
 Run with the development server:

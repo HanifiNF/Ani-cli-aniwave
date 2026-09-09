@@ -60,6 +60,7 @@ export function installDevApi(): void {
     async play() { await wait(300); return true; },
     async getState() { return snapshot(); },
     async saveSettings(settings) { state.settings = settings; return snapshot(); },
+    async setAppIcon() {},
     async toggleBookmark(entry) {
       const index = state.bookmarks.findIndex((item) => item.animeId === entry.animeId);
       if (index >= 0) state.bookmarks.splice(index, 1); else state.bookmarks.unshift(entry);

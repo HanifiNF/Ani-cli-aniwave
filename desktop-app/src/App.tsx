@@ -13,6 +13,7 @@ import type {
 } from "../shared/contracts";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme } from "../shared/theme";
+import { applyAppIcon } from "./appIcon";
 
 type Screen = "home" | "series" | "saved" | "recent" | "settings";
 type RowKind = "results" | "continue" | "saved" | "recent";
@@ -57,12 +58,13 @@ function when(iso: string): string {
   return date.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
-function applyTheme(theme: ThemePreset, custom: CustomTheme): void {
+function applyTheme(theme: ThemePreset, custom: CustomTheme): () => void {
   const colours = resolveTheme(theme, custom);
   const root = document.documentElement.style;
   root.setProperty("--theme-bg", colours.background);
   root.setProperty("--theme-text", colours.text);
   root.setProperty("--theme-cursor", colours.highlight);
+  return applyAppIcon(colours);
 }
 
 function Art({ src, large }: { src?: string; large?: boolean }) {
