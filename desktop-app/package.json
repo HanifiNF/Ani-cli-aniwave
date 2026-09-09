@@ -10,9 +10,12 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
     "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --x64 --arm64",
     "start": "npm run build && electron ."
   },
   "dependencies": {
+    "@vidstack/react": "1.15.6",
+    "hls.js": "1.7.2",
     "react": "latest",
     "react-dom": "latest"
   },
@@ -32,7 +35,7 @@
     "vitest": "latest",
     "wait-on": "latest"
   },
-  "packageManager": "pnpm@11.19.0",
+  "packageManager": "npm@10.9.8",
   "build": {
     "appId": "dev.hanifi.anidesktop",
     "productName": "Ani Desktop",
@@ -40,14 +43,31 @@
     "directories": {
       "output": "release"
     },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "node_modules/@vidstack/react/LICENSE",
+        "to": "licenses/Vidstack-LICENSE"
+      },
+      {
+        "from": "node_modules/hls.js/LICENSE",
+        "to": "licenses/hls.js-LICENSE"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "build/icons/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icons/icon.icns",
+      "category": "public.app-category.video",
+      "identity": null
     },
     "nsis": {
       "oneClick": false,

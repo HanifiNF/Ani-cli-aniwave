@@ -30,7 +30,7 @@ const emptyState: PersistedState = {
   bookmarks: [],
   history: [],
   settings: {
-    playerPath: "mpv", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
+    playerPath: "", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
   }, providerLinks: [], dismissedMergeKeys: []
 };
@@ -204,7 +204,7 @@ function App() {
 
   const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => overlaps(entry, selectedAnime)));
   const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
-  const player = playerName(appState.settings.playerPath);
+  const player = appState.settings.playbackTarget === "builtin" ? "built-in player" : playerName(appState.settings.playerPath);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError(undefined); setNotice(undefined);
@@ -297,7 +297,8 @@ function App() {
       if (!stream) throw new Error("no stream was found");
       const detail = `${stream.quality} ${playMode} ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
-      await window.aniDesktop.play({ url: stream.url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer });
+      const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
+      await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer });
       if (token !== playToken.current) return;
       setAppState(await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
       setStatus({ episode, phase: "opened", detail });
@@ -611,7 +612,9 @@ function App() {
 
         {screen === "settings" && (
           <form className="kv" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
-            <div className="r"><label htmlFor="player">player<small>command or full path. on macOS use IINA's iina-cli</small></label><div className="v"><input id="player" value={settingsDraft.playerPath} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div></div>
+            <div className="r"><span className="k">playback<small>built-in works without installing another player</small></span><div className="v"><Chips value={settingsDraft.playbackTarget} options={["builtin", "external"] as const} onChange={(playbackTarget) => setSettingsDraft({ ...settingsDraft, playbackTarget })} /></div></div>
+            <div className="r"><span className="k">player window<small>start each video immediately in fullscreen</small></span><div className="v"><Chips value={settingsDraft.startPlayerFullscreen ? "fullscreen" : "windowed"} options={["fullscreen", "windowed"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen: value === "fullscreen" })} /></div></div>
+            <div className="r"><label htmlFor="player">external fallback<small>optional for built-in playback. on macOS use IINA's iina-cli</small></label><div className="v"><input id="player" value={settingsDraft.playerPath} placeholder={settingsDraft.playbackTarget === "external" ? "required" : "optional"} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div></div>
             <div className="r"><span className="k">quality</span><div className="v"><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div></div>
             <div className="r"><span className="k">audio</span><div className="v"><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div></div>
             <div className="r"><span className="k">theme<small>presets match common terminal schemes</small></span><div className="v"><div className="chips" role="radiogroup" aria-label="theme">

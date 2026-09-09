@@ -1,17 +1,17 @@
 # Ani Desktop
 
-A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto (AniWave then AniDB), AniWave/Vidplay, and AniDB providers. Source URLs and the preferred provider are editable in Settings. The Electron main process performs source requests, stores local history and bookmarks, and starts an external media player with any required stream referrer. The React renderer has no direct Node.js access.
+A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, and AniDB providers. HLS video plays in a built-in Vidstack window on Windows and macOS; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
 
 ## Requirements
 
 - Node.js 22 or newer
-- npm (included with Node.js) or pnpm
-- mpv, VLC, or IINA (macOS) available on `PATH`, or its full executable path configured in Settings
+- npm, included with Node.js
+
+No separate media player is required.
 
 ## Run from source
 
-The app runs from source on macOS. The packaged installer currently targets
-Windows. From the repository root:
+The app runs from source on Windows and macOS:
 
 ```sh
 cd desktop-app
@@ -19,85 +19,35 @@ npm install
 npm start
 ```
 
-`npm start` builds and launches the app. If you already ran `npm install`, continue
-with `npm start`. For pnpm, use `pnpm install` and `pnpm start` instead.
+`npm start` builds and launches the Electron app. Use `npm run dev` for the development server or `npx vite` for the renderer-only browser preview.
 
-## IINA on macOS
+## Using the app
 
-Install IINA in Applications, then set **Settings → Media player executable or
-full path** to:
+Type at least two characters to search automatically after a short pause, or press Enter to search immediately. Results, saved titles, and recent titles support mouse and keyboard navigation.
+
+- Auto search combines matching AniWave and AniDB titles while keeping provider-native episode lists.
+- Open a series, select a provider tab, and choose an episode to resolve and play its stream.
+- The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and fullscreen controls.
+- Provider-specific progress, history, bookmarks, source links, preferred quality, audio mode, and theme are stored locally.
+- Settings control the playback target, instant fullscreen, external fallback path, provider addresses, and theme.
+
+If the built-in player reports a fatal error, use **Retry**. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
+
+## Optional external players
+
+Choose **Settings → Playback → external**, or keep built-in playback selected and use the fallback button. The fullscreen/windowed preference applies to both targets.
+
+For IINA on macOS, set the external path to:
 
 ```text
 /Applications/IINA.app/Contents/MacOS/iina-cli
 ```
 
-Use the bundled `iina-cli` executable. This path stays valid while IINA is
-installed in Applications.
+The app supplies the HLS format, referrer, media title, and fullscreen options required by IINA. Equivalent supported arguments are supplied to mpv and VLC.
 
-The app passes these options to IINA:
+## Themes and icons
 
-- `--no-stdin` to open the stream URL without waiting for terminal input.
-- `--mpv-referrer=…` when the stream provides a referrer.
-- `--mpv-demuxer-lavf-format=hls` to recognize HLS playlists even when the host
-  uses extensionless URLs and image content types.
-- Fullscreen and media-title options.
-
-The repository's `ani-cli` script also passes the referrer and explicitly selects
-HLS when launching IINA. These changes apply to IINA playback; mpv and VLC retain
-their existing launch options.
-
-### Troubleshooting playback
-
-If IINA shows “Cannot open file or stream” or stays on “Loading Media,” first
-ensure you are running the updated app. Quit Ani Desktop completely with **⌘Q**,
-then run `npm start` from this directory and select the episode again to resolve
-a fresh stream URL. Keep the IINA path above in Settings.
-
-If the issue persists, try another episode or provider and report the title,
-episode, provider, quality, IINA version, and any error message. The app's
-“opened in your media player” notice confirms that the player process started;
-playback success is determined by IINA.
-
-## Using the app
-
-The whole app is driven from one text field. Type at least two characters to search automatically after a short pause (300 ms), or press Enter to search immediately (also for one-character titles). Results, titles you are
-watching, and saved titles are rows; move with the arrow keys and press Enter to open a series or play the next
-episode. Everything also works with the mouse.
-
-- Search keeps the previous results visible while updating, and only the latest query can update the results or search message. Recent searches are cached for one minute (up to 20 queries, separated by provider and source URLs). Results stay on the home screen while you visit saved, recent, or settings; clearing the field or pressing Escape on the home screen drops them.
-- Opening a series focuses the selected episode. Use all four arrow keys to navigate and Enter to play. Press `/` to focus the search field and replace the current query; typing another title returns to search.
-- On a series, click an episode (or press Enter on the highlighted one) to resolve a stream and open it in your
-  player. Watched episodes are dimmed and the next one is highlighted. Audio, quality, and source chips beside the
-  field apply to the next play.
-- `saved` and `recent` in the footer open full lists. The field filters them. Each row has `play next` and `remove`.
-- `settings` holds the player path, defaults, provider addresses, and the theme.
-
-### Themes
-
-A theme is three colours: background, text, and highlight. Every other tone is mixed from them. Presets follow
-common terminal schemes: graphite (default), paper, nord, gruvbox, mocha, and solarized light. Choose `custom` to
-edit the three colours with the native colour picker or a hex field. Changes preview immediately and persist with
-`save changes`.
-
-The app icon uses the artwork in `../app-icon.svg`: its tile follows the background colour, `ani` follows the text
-colour, and the prompt and cursor follow the highlight colour. The running macOS Dock icon and Windows/Linux window
-icon preview theme changes immediately, including custom colours, and return to the saved theme when you cancel.
-The browser preview's favicon follows the same palette. Builds generate a graphite PNG and multi-size Windows ICO
-from the SVG; the installed executable, installer, and desktop shortcuts use this static graphite icon.
-
-## Development
-
-Run with the development server:
-
-```sh
-npm run dev
-```
-
-pnpm equivalent: `pnpm dev`.
-
-To work on the renderer in a plain browser without Electron, run `npx vite` and open the printed URL. In that mode
-an in-memory stand-in for the preload API (`src/devApi.ts`) provides sample titles, episodes, and history. The B2
-Palette with art design reference and its theme previews live in `design/variants/`.
+Theme presets and custom colours control the interface and running app icon. Builds generate a graphite PNG, multi-size Windows ICO, and Retina-ready macOS ICNS from `../app-icon.svg`.
 
 ## Checks
 
@@ -107,18 +57,37 @@ npm run typecheck
 npm run build
 ```
 
-pnpm equivalents: `pnpm test`, `pnpm typecheck`, and `pnpm build`.
-
 ## Windows installer
 
 ```powershell
 npm run dist:win
 ```
 
-pnpm equivalent: `pnpm dist:win`.
+The x64 NSIS installer is written to `release/`.
 
-The installer is written to `release/`. A media player is intentionally not bundled in this first version; each user must install mpv or VLC and select its executable in Settings.
+## macOS packages
+
+On macOS, build Intel and Apple Silicon DMGs with:
+
+```sh
+npm run dist:mac
+```
+
+The unsigned DMGs are written to `release/`. A downloaded unsigned build may be blocked on first launch; after attempting to open it, a trusted user can approve it with **System Settings → Privacy & Security → Open Anyway**.
+
+## GitHub releases
+
+Set the package version, commit it, and push the matching tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The desktop release workflow tests the app and attaches a Windows x64 installer plus Intel and Apple Silicon macOS DMGs to the tag's GitHub Release. macOS signing and notarization can be added later.
+
+Vidstack and hls.js are bundled JavaScript dependencies; no native player executable or streamed media is included. See [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Security boundary
 
-The renderer uses `contextIsolation`, disables Node integration, and communicates through a small preload API. Source requests and process launching remain in the main process. Do not load remote streaming pages in the application window.
+Both renderers use `contextIsolation`, disable Node integration, and communicate through narrow preload APIs. The video window uses a separate nonpersistent session for HLS requests, referrer handling, and scoped CORS response headers. Navigation, popups, and permission requests are blocked. Source requests and process launching remain in the main process; remote streaming pages are never loaded as application UI.

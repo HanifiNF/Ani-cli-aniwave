@@ -57,6 +57,18 @@ describe("StateStore", () => {
     expect(JSON.parse(await readFile(join(directory, "state.json"), "utf8")).settings.theme).toBe("nord");
   });
 
+  it("defaults legacy settings to built-in fullscreen playback and validates external mode", async () => {
+    await writeFile(join(directory, "state.json"), JSON.stringify({ settings: { playerPath: "C:\\VLC\\vlc.exe" } }));
+    const fresh = new StateStore(join(directory, "state.json"));
+    await fresh.load();
+    expect(fresh.snapshot().settings).toMatchObject({
+      playbackTarget: "builtin", startPlayerFullscreen: true, playerPath: "C:\\VLC\\vlc.exe"
+    });
+    await expect(fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "external", playerPath: "" })).rejects.toThrow(/external player path/i);
+    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false });
+    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "" });
+  });
+
   it("repairs unknown themes and partial custom colours on load", async () => {
     await writeFile(join(directory, "state.json"), JSON.stringify({ settings: { theme: "bogus", customTheme: { background: "#000000", text: 12 } } }));
     const fresh = new StateStore(join(directory, "state.json"));

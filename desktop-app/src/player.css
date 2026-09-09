@@ -1,0 +1,37 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #000; }
+* { box-sizing: border-box; }
+html, body, #player-root, .player-shell { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+.player-shell { display: grid; place-items: center; position: relative; }
+.media-player { width: 100%; height: 100%; background: #000; color: #fff; --video-brand: #8b5cf6; }
+.media-player.is-windowed {
+  --media-controls-padding: 0 0 14px;
+  --video-captions-offset: 96px;
+  --video-sm-captions-offset: 68px;
+}
+.media-player.is-native-fullscreen { --media-controls-padding: 0 0 max(6px, env(safe-area-inset-bottom)); }
+.media-player video { width: 100%; height: 100%; object-fit: contain; }
+.media-player .vds-controls { z-index: 20; }
+.player-seek-button,
+.player-fullscreen-button {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border: 0; border-radius: 4px; color: inherit;
+  background: transparent; cursor: pointer;
+}
+.player-seek-button:hover,
+.player-fullscreen-button:hover { background: rgb(255 255 255 / 12%); }
+.player-seek-button:focus-visible,
+.player-fullscreen-button:focus-visible { outline: 2px solid #a78bfa; outline-offset: -2px; }
+.player-seek-button .vds-icon,
+.player-fullscreen-button .vds-icon { width: 28px; height: 28px; }
+.player-fullscreen-button:disabled { cursor: wait; opacity: .55; }
+.player-message { color: #bbb; font-size: 14px; }
+.player-error {
+  position: absolute; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 14px;
+  padding: 32px; color: #f5f5f5; text-align: center; background: rgb(0 0 0 / 82%);
+}
+.player-error strong { font-size: 22px; }
+.player-error span { max-width: 640px; color: #c7c7c7; }
+.player-error div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.player-error button { border: 1px solid #666; border-radius: 6px; padding: 9px 14px; color: #fff; background: #242424; cursor: pointer; }
+.player-error button:first-child { border-color: #8b5cf6; background: #6d3ed1; }
+.player-error button:disabled { cursor: not-allowed; opacity: .45; }

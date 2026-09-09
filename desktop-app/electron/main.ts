@@ -1,14 +1,99 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
-import type { AnimeResult, LibraryEntry, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
+import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from "electron";
+import type { AnimeResult, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
+import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
+import { validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
 import { StateStore } from "./state";
 
 let mainWindow: BrowserWindow | undefined;
+let playerWindow: BrowserWindow | undefined;
+let activePlayback: PlayRequest | undefined;
 let store: StateStore;
+const PLAYER_PARTITION = "ani-desktop-player";
+
+function playerPayload(): PlayerSession {
+  if (!activePlayback) throw new Error("No stream has been assigned to the player");
+  return {
+    request: activePlayback,
+    canOpenExternal: Boolean(store.snapshot().settings.playerPath.trim()),
+    fullscreen: Boolean(playerWindow?.isFullScreen())
+  };
+}
+
+function configurePlayerSession(): void {
+  const isolated = session.fromPartition(PLAYER_PARTITION);
+  isolated.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  isolated.setPermissionCheckHandler(() => false);
+  const filter = { urls: ["http://*/*", "https://*/*"] };
+  isolated.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    callback({ requestHeaders: withPlaybackReferrer(details.requestHeaders, activePlayback?.referrer) });
+  });
+  isolated.webRequest.onHeadersReceived(filter, (details, callback) => {
+    callback({ responseHeaders: withMediaCors(details.responseHeaders) });
+  });
+}
+
+async function launchExternalPlayer(request: PlayRequest, settings: Settings): Promise<void> {
+  if (!settings.playerPath.trim()) throw new Error("Configure an external player path in Settings first");
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(settings.playerPath, playerArguments(settings.playerPath, request, settings.startPlayerFullscreen), {
+      detached: true,
+      stdio: "ignore",
+      // Hiding the process also hides VLC's actual video window on Windows.
+      windowsHide: false
+    });
+    child.once("error", (error) => reject(new Error(`Could not start ${settings.playerPath}: ${error.message}`)));
+    child.once("spawn", () => { child.unref(); resolve(); });
+  });
+}
+
+async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Promise<void> {
+  activePlayback = request;
+  if (playerWindow && !playerWindow.isDestroyed()) {
+    playerWindow.setFullScreen(settings.startPlayerFullscreen);
+    playerWindow.setTitle(request.title);
+    playerWindow.show();
+    playerWindow.focus();
+    playerWindow.webContents.send("player-window:load", playerPayload());
+    return;
+  }
+
+  const icon = nativeImage.createFromPath(join(__dirname, "../icon.png"));
+  playerWindow = new BrowserWindow({
+    width: 1280,
+    height: 720,
+    minWidth: 640,
+    minHeight: 360,
+    useContentSize: true,
+    fullscreen: settings.startPlayerFullscreen,
+    backgroundColor: "#000000",
+    title: request.title,
+    icon,
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, "player-preload.js"),
+      partition: PLAYER_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  registerPlayerFullscreenEvents(playerWindow);
+  playerWindow.setMenuBarVisibility(false);
+  playerWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  playerWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+  playerWindow.once("ready-to-show", () => playerWindow?.show());
+  playerWindow.once("closed", () => { playerWindow = undefined; activePlayback = undefined; });
+
+  const developmentUrl = process.env.VITE_DEV_SERVER_URL;
+  if (developmentUrl) await playerWindow.loadURL(new URL("player.html", `${developmentUrl}/`).toString());
+  else await playerWindow.loadFile(join(__dirname, "../../dist/player.html"));
+}
 
 function createWindow(): void {
   const capturePath = !app.isPackaged ? process.env.ANI_DESKTOP_CAPTURE_PATH : undefined;
@@ -34,6 +119,7 @@ function createWindow(): void {
   mainWindow.once("ready-to-show", () => {
     if (!capturePath) mainWindow?.show();
   });
+  mainWindow.once("closed", () => { mainWindow = undefined; });
   if (capturePath) {
     mainWindow.webContents.once("did-finish-load", () => {
       setTimeout(async () => {
@@ -86,30 +172,32 @@ function registerIpc(): void {
   ipcMain.handle("state:merge-entries", (_event, firstAnimeId: string, secondAnimeId: string) => store.mergeEntries(firstAnimeId, secondAnimeId));
   ipcMain.handle("state:dismiss-merge", (_event, firstAnimeId: string, secondAnimeId: string) => store.dismissMerge(firstAnimeId, secondAnimeId));
   ipcMain.handle("player:play", async (_event, request: PlayRequest) => {
-    const url = new URL(request.url);
-    if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Invalid playback URL");
+    const validated = validatePlayRequest(request);
     const settings = store.snapshot().settings;
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(settings.playerPath, playerArguments(settings.playerPath, { ...request, url: url.toString() }), {
-        detached: true,
-        stdio: "ignore",
-        // Hiding the process also hides VLC's actual video window on Windows.
-        // GUI players are detached already, so no console window is inherited.
-        windowsHide: false
-      });
-      child.once("error", (error) => reject(new Error(`Could not start ${settings.playerPath}: ${error.message}`)));
-      child.once("spawn", () => {
-        child.unref();
-        resolve();
-      });
-    });
+    if (settings.playbackTarget === "external") await launchExternalPlayer(validated, settings);
+    else await openBuiltinPlayer(validated, settings);
     return true;
+  });
+  ipcMain.handle("player-window:ready", (event) => { assertPlayerSender(playerWindow, event); return playerPayload(); });
+  ipcMain.handle("player-window:fullscreen", (event, fullscreen: unknown) => {
+    assertPlayerSender(playerWindow, event);
+    return setPlayerFullscreen(playerWindow, fullscreen);
+  });
+  ipcMain.handle("player-window:external", async (event) => {
+    assertPlayerSender(playerWindow, event);
+    await launchExternalPlayer(playerPayload().request, store.snapshot().settings);
+    return true;
+  });
+  ipcMain.handle("player-window:close", (event) => {
+    assertPlayerSender(playerWindow, event);
+    playerWindow?.close();
   });
 }
 
 app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  configurePlayerSession();
   registerIpc();
   if (!app.isPackaged && process.env.ANI_DESKTOP_SMOKE_QUERY) {
     const config = store.snapshot().settings;
@@ -126,7 +214,7 @@ app.whenReady().then(async () => {
   }
   createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 }).catch((error: unknown) => {
   console.error(error);
