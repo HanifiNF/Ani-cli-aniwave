@@ -71,6 +71,18 @@ afterEach(async () => {
 });
 
 describe("live catalog search", () => {
+  it.each([false, true])("continues the right episode when completed is %s", async (completed) => {
+    const state = await api.getState();
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "1", mode: "sub", updatedAt: "", completed } } }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [
+      { id: "episode-1", number: "1", provider: "aniwave" }, { id: "episode-2", number: "2", provider: "aniwave" }
+    ] }] });
+    await act(async () => { root.render(<StrictMode><App key="resume" /></StrictMode>); });
+    await press("Enter");
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith(completed ? "episode-2" : "episode-1", "sub");
+  });
+
   it("previews icon colours, restores them on cancel, and retains a saved theme", async () => {
     const icon = () => decodeURIComponent(document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href);
     await click("settings"); await click("nord");
@@ -127,10 +139,10 @@ describe("live catalog search", () => {
     expect(episode).toBeDefined();
     await act(async () => { episode.click(); });
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("anidb:episode-81", "sub");
-    expect(api.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.play).toHaveBeenCalledWith(expect.objectContaining({ episode: expect.objectContaining({ entry: expect.objectContaining({
       lastProvider: "anidb", lastEpisode: "81",
       progressByProvider: expect.objectContaining({ anidb: expect.objectContaining({ lastEpisode: "81" }) })
-    }));
+    }) }) }));
   });
 
   it("keeps focus in search if the user returns there before episodes finish loading", async () => {

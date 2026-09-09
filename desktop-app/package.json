@@ -11,7 +11,10 @@
     "test": "vitest run",
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --x64 --arm64",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "test:player": "npm run build && node scripts/run-player-integration.cjs",
+    "test:player:native": "npm run build && cross-env ANI_PLAYER_NATIVE_TEST=1 node scripts/run-player-integration.cjs",
+    "dist:linux": "npm run build && electron-builder --linux AppImage"
   },
   "dependencies": {
     "@vidstack/react": "1.15.6",
@@ -72,6 +75,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "dist-electron/icon.png",
+      "category": "AudioVideo"
     }
   }
 }

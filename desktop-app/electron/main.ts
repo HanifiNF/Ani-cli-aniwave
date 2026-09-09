@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,16 +9,25 @@ import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen
 import { validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
 import { StateStore } from "./state";
+import { installApplicationMenu } from "./menu";
+import { playbackKey } from "../shared/playback";
 
 let mainWindow: BrowserWindow | undefined;
 let playerWindow: BrowserWindow | undefined;
 let activePlayback: PlayRequest | undefined;
+let activePlaybackId = "";
+const playbackSessions = new Map<string, PlayRequest>();
 let store: StateStore;
 const PLAYER_PARTITION = "ani-desktop-player";
 
 function playerPayload(): PlayerSession {
   if (!activePlayback) throw new Error("No stream has been assigned to the player");
+  const state = store.snapshot();
+  const key = playbackKey(activePlayback);
   return {
+    id: activePlaybackId,
+    preferences: state.playerPreferences ?? {},
+    position: key ? state.playbackPositions?.[key] : undefined,
     request: activePlayback,
     canOpenExternal: Boolean(store.snapshot().settings.playerPath.trim()),
     fullscreen: Boolean(playerWindow?.isFullScreen())
@@ -53,8 +63,12 @@ async function launchExternalPlayer(request: PlayRequest, settings: Settings): P
 
 async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Promise<void> {
   activePlayback = request;
+  activePlaybackId = randomUUID();
+  playbackSessions.set(activePlaybackId, request);
+  if (playbackSessions.size > 8) playbackSessions.delete(playbackSessions.keys().next().value!);
+  if (request.episode) await store.recordHistory({ ...request.episode.entry, completed: false });
   if (playerWindow && !playerWindow.isDestroyed()) {
-    playerWindow.setFullScreen(settings.startPlayerFullscreen);
+    // Preserve the viewer's current window mode when replacing an episode.
     playerWindow.setTitle(request.title);
     playerWindow.show();
     playerWindow.focus();
@@ -69,7 +83,9 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
     minWidth: 640,
     minHeight: 360,
     useContentSize: true,
-    fullscreen: settings.startPlayerFullscreen,
+    fullscreen: false,
+    fullscreenable: true,
+    resizable: true,
     backgroundColor: "#000000",
     title: request.title,
     icon,
@@ -83,12 +99,20 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
       sandbox: true
     }
   });
-  registerPlayerFullscreenEvents(playerWindow);
+  const win = playerWindow;
+  registerPlayerFullscreenEvents(win);
   playerWindow.setMenuBarVisibility(false);
   playerWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   playerWindow.webContents.on("will-navigate", (event) => event.preventDefault());
-  playerWindow.once("ready-to-show", () => playerWindow?.show());
-  playerWindow.once("closed", () => { playerWindow = undefined; activePlayback = undefined; });
+  win.once("ready-to-show", () => {
+    win.show();
+    if (settings.startPlayerFullscreen) {
+      void setPlayerFullscreen(win, true).catch((error: unknown) => {
+        if (!win.isDestroyed()) win.webContents.send("player-window:notice", error instanceof Error ? error.message : "Fullscreen could not be entered");
+      });
+    }
+  });
+  playerWindow.once("closed", () => { playerWindow = undefined; activePlayback = undefined; playbackSessions.clear(); });
 
   const developmentUrl = process.env.VITE_DEV_SERVER_URL;
   if (developmentUrl) await playerWindow.loadURL(new URL("player.html", `${developmentUrl}/`).toString());
@@ -183,6 +207,12 @@ function registerIpc(): void {
     assertPlayerSender(playerWindow, event);
     return setPlayerFullscreen(playerWindow, fullscreen);
   });
+  ipcMain.handle("player-window:storage", async (event, sessionId: string, update: unknown) => {
+    assertPlayerSender(playerWindow, event);
+    const request = playbackSessions.get(sessionId);
+    if (!request) throw new Error("Unknown playback session");
+    await store.savePlayerStorage(request, update);
+  });
   ipcMain.handle("player-window:external", async (event) => {
     assertPlayerSender(playerWindow, event);
     await launchExternalPlayer(playerPayload().request, store.snapshot().settings);
@@ -197,6 +227,8 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  app.setName("Ani Desktop");
+  installApplicationMenu(() => playerWindow);
   configurePlayerSession();
   registerIpc();
   if (!app.isPackaged && process.env.ANI_DESKTOP_SMOKE_QUERY) {

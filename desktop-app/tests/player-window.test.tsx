@@ -8,6 +8,8 @@ const cleanup = vi.hoisted(() => vi.fn());
 vi.mock("@vidstack/react", async () => {
   const React = await import("react");
   return {
+    ...await vi.importActual<typeof import("@vidstack/react")>("@vidstack/react"),
+    useMediaContext: () => ({}),
     MediaPlayer: ({ children, className, src, title, viewType, streamType, load, controlsDelay, hideControlsOnMouseLeave, keyShortcuts, onError }: {
       children: React.ReactNode;
       className: string;
@@ -76,6 +78,7 @@ let load: (session: PlayerSession) => void;
 let fullscreenChange: (fullscreen: boolean) => void;
 let api: AniPlayerApi;
 const session = (url: string, canOpenExternal = true, fullscreen = false): PlayerSession => ({
+  id: url, preferences: {},
   request: { url, title: "Example — Episode 1", referrer: "https://embed.test/watch" }, canOpenExternal, fullscreen
 });
 
@@ -83,6 +86,9 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   cleanup.mockClear();
   api = {
+    onCommand: vi.fn(() => vi.fn()),
+    onNotice: vi.fn(() => vi.fn()),
+    saveStorage: vi.fn().mockResolvedValue(undefined),
     ready: vi.fn().mockResolvedValue(session("https://cdn.test/first.m3u8")),
     onLoad: vi.fn((listener) => { load = listener; return vi.fn(); }),
     onFullscreenChange: vi.fn((listener) => { fullscreenChange = listener; return vi.fn(); }),

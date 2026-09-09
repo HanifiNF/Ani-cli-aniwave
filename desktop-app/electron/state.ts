@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AnimeResult, CustomTheme, LibraryEntry, PersistedState, Settings } from "../shared/contracts";
+import type { AnimeResult, CustomTheme, LibraryEntry, PersistedState, Settings, PlayRequest } from "../shared/contracts";
+import { playbackKey, validateStorageUpdate } from "../shared/playback";
 import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
 
@@ -33,7 +34,7 @@ function normalizePoster(value: unknown): string | undefined {
   }
 }
 
-function normalizeEntry(entry: LibraryEntry): LibraryEntry {
+export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!/^(?:(?:aniwave|anidb):)?[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
   if (!entry.title.trim() || entry.title.length > 240) throw new Error("Invalid anime title");
   if (!/^\d+(?:\.\d+)?$/.test(entry.lastEpisode)) throw new Error("Invalid episode number");
@@ -41,8 +42,13 @@ function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   const sources = animeSources(entry).map((source) => ({ ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) }));
   const lastProvider = entry.lastProvider ?? sources[0].provider;
   const updatedAt = new Date().toISOString();
-  const progressByProvider = entry.progressByProvider ?? { [lastProvider]: { lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt } };
-  return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt, sources, lastProvider, progressByProvider, ...(poster ? { poster } : {}) };
+  const completed = entry.completed !== false;
+  const progressByProvider = { ...entry.progressByProvider };
+  progressByProvider[lastProvider] = {
+    ...(progressByProvider[lastProvider] ?? { lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt }),
+    ...(entry.completed !== undefined ? { completed } : {})
+  };
+  return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt, sources, lastProvider, progressByProvider, completed, ...(poster ? { poster } : {}) };
 }
 
 function migrateEntry(entry: LibraryEntry): LibraryEntry {
@@ -65,7 +71,7 @@ function combineEntries(left: LibraryEntry, right: LibraryEntry): LibraryEntry {
     animeId: primary.id,
     title: primary.title || latest.title,
     poster: primary.poster ?? left.poster ?? right.poster,
-    lastEpisode: progress.lastEpisode, mode: progress.mode, updatedAt: latest.updatedAt,
+    lastEpisode: progress.lastEpisode, mode: progress.mode, updatedAt: latest.updatedAt, completed: progress.completed ?? latest.completed,
     sources, lastProvider, progressByProvider
   };
 }
@@ -95,6 +101,8 @@ export class StateStore {
         history: Array.isArray(parsed.history) ? parsed.history.map(migrateEntry) : [],
         providerLinks: Array.isArray(parsed.providerLinks) ? parsed.providerLinks : [],
         dismissedMergeKeys: Array.isArray(parsed.dismissedMergeKeys) ? parsed.dismissedMergeKeys : [],
+        playerPreferences: parsed.playerPreferences ? validateStorageUpdate(parsed.playerPreferences) : {},
+        playbackPositions: parsed.playbackPositions ?? {},
         settings: {
           ...settings,
           playbackTarget: settings.playbackTarget === "external" ? "external" : "builtin",
@@ -110,6 +118,31 @@ export class StateStore {
 
   snapshot(): PersistedState {
     return structuredClone(this.state);
+  }
+
+  async savePlayerStorage(request: PlayRequest, value: unknown): Promise<void> {
+    const { time, completed, ...preferences } = validateStorageUpdate(value);
+    this.state.playerPreferences = { ...this.state.playerPreferences, ...preferences };
+    const key = playbackKey(request);
+    if (key && time !== undefined) {
+      const positions = this.state.playbackPositions ?? {};
+      positions[key] = { time: completed ? 0 : time, completed: completed ?? false, updatedAt: new Date().toISOString(), animeId: request.episode?.entry.animeId };
+      this.state.playbackPositions = Object.fromEntries(Object.entries(positions)
+        .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt)).slice(0, 500));
+    }
+    if (completed && request.episode) {
+      const playing = request.episode.entry;
+      const provider = playing.lastProvider ?? animeSources(playing)[0].provider;
+      for (const list of [this.state.history, this.state.bookmarks]) {
+        for (const entry of list) {
+          const progress = entry.progressByProvider?.[provider];
+          if (!overlaps(entry, playing) || progress?.lastEpisode !== playing.lastEpisode || progress.mode !== playing.mode) continue;
+          progress.completed = true;
+          if (entry.lastProvider === provider) entry.completed = true;
+        }
+      }
+    }
+    await this.persist();
   }
 
   async saveSettings(settings: Settings): Promise<PersistedState> {
@@ -168,6 +201,10 @@ export class StateStore {
   }
 
   async removeHistory(animeId: string): Promise<PersistedState> {
+    const entry = this.state.history.find((item) => item.animeId === animeId);
+    const ids = entry ? sourceIds(entry) : [animeId];
+    this.state.playbackPositions = Object.fromEntries(Object.entries(this.state.playbackPositions ?? {})
+      .filter(([, position]) => !position.animeId || !ids.includes(position.animeId)));
     this.state.history = this.state.history.filter((item) => item.animeId !== animeId);
     await this.persist();
     return this.snapshot();
@@ -175,6 +212,7 @@ export class StateStore {
 
   async clearHistory(): Promise<PersistedState> {
     this.state.history = [];
+    this.state.playbackPositions = {};
     await this.persist();
     return this.snapshot();
   }
@@ -230,7 +268,7 @@ export class StateStore {
 
   private async persist(): Promise<void> {
     const serialized = `${JSON.stringify(this.state, null, 2)}\n`;
-    this.writeQueue = this.writeQueue.then(async () => {
+    this.writeQueue = this.writeQueue.catch(() => undefined).then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
       const temporary = `${this.filePath}.new`;
       await writeFile(temporary, serialized, "utf8");

@@ -38,6 +38,7 @@ export interface ProviderProgress {
   lastEpisode: string;
   mode: TranslationMode;
   updatedAt: string;
+  completed?: boolean;
 }
 
 export interface Stream {
@@ -59,6 +60,7 @@ export interface LibraryEntry {
   sources?: AnimeSource[];
   lastProvider?: ProviderName;
   progressByProvider?: Partial<Record<ProviderName, ProviderProgress>>;
+  completed?: boolean;
 }
 
 /** Three colours define a theme; every other tone is mixed from background and text. */
@@ -87,13 +89,28 @@ export interface PersistedState {
   settings: Settings;
   providerLinks?: string[][];
   dismissedMergeKeys?: string[];
+  playerPreferences?: PlayerPreferences;
+  playbackPositions?: Record<string, PlaybackPosition>;
 }
 
 export interface PlayRequest {
   url: string;
   title: string;
   referrer?: string;
+  episode?: { id: string; entry: LibraryEntry };
 }
+
+export interface PlayerPreferences {
+  volume?: number;
+  muted?: boolean;
+  rate?: number;
+  captions?: boolean;
+  lang?: string | null;
+}
+
+export interface PlaybackPosition { time: number; completed: boolean; updatedAt: string; animeId?: string; }
+export interface PlayerStorageUpdate extends PlayerPreferences { time?: number; completed?: boolean; }
+export type PlayerCommand = "play-pause" | "seek-backward" | "seek-forward" | "volume-up" | "volume-down" | "mute" | "captions" | "speed-up" | "speed-down" | "pip" | "fullscreen" | "shortcuts";
 
 export interface AniDesktopApi {
   search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
@@ -115,15 +132,21 @@ export interface AniDesktopApi {
 }
 
 export interface PlayerSession {
+  id: string;
   request: PlayRequest;
   canOpenExternal: boolean;
   fullscreen: boolean;
+  preferences: PlayerPreferences;
+  position?: PlaybackPosition;
 }
 
 export interface AniPlayerApi {
   ready(): Promise<PlayerSession>;
   onLoad(listener: (session: PlayerSession) => void): () => void;
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
+  onCommand(listener: (command: PlayerCommand) => void): () => void;
+  onNotice(listener: (message: string) => void): () => void;
+  saveStorage(sessionId: string, update: PlayerStorageUpdate): Promise<void>;
   setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;
   close(): Promise<void>;

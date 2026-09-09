@@ -1,11 +1,15 @@
 import type { PlayRequest } from "../shared/contracts";
+import { normalizeEntry } from "./state";
 
 export function validatePlayRequest(value: PlayRequest): PlayRequest {
   if (!value || typeof value !== "object") throw new Error("Invalid playback request");
   const url = validatedHttpUrl(value.url, "playback");
   if (typeof value.title !== "string" || !value.title.trim() || value.title.length > 300) throw new Error("Invalid playback title");
   const referrer = value.referrer ? validatedHttpUrl(value.referrer, "referrer") : undefined;
-  return { url, title: value.title.trim(), ...(referrer ? { referrer } : {}) };
+  const episode = value.episode;
+  if (episode && (typeof episode.id !== "string" || !episode.id || episode.id.length > 512)) throw new Error("Invalid episode identifier");
+  return { url, title: value.title.trim(), ...(referrer ? { referrer } : {}),
+    ...(episode ? { episode: { id: episode.id, entry: normalizeEntry(episode.entry) } } : {}) };
 }
 
 function validatedHttpUrl(value: string, label: string): string {

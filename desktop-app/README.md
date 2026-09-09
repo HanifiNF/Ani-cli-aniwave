@@ -1,6 +1,6 @@
 # Ani Desktop
 
-A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, and AniDB providers. HLS video plays in a built-in Vidstack window on Windows and macOS; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
+A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, and AniDB providers. HLS video plays in a built-in Vidstack window on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ No separate media player is required.
 
 ## Run from source
 
-The app runs from source on Windows and macOS:
+The app runs from source on Windows, macOS, and Linux:
 
 ```sh
 cd desktop-app
@@ -27,9 +27,31 @@ Type at least two characters to search automatically after a short pause, or pre
 
 - Auto search combines matching AniWave and AniDB titles while keeping provider-native episode lists.
 - Open a series, select a provider tab, and choose an episode to resolve and play its stream.
-- The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and fullscreen controls.
-- Provider-specific progress, history, bookmarks, source links, preferred quality, audio mode, and theme are stored locally.
+- The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and native fullscreen controls. Video keeps its aspect ratio with black bars filling the remaining window area.
+- Volume, mute, playback speed, caption visibility/language, and episode resume positions are saved locally. Positions use provider episode IDs and audio mode, so refreshed stream URLs resume correctly.
+- Built-in episodes are recorded as started on opening and completed when playback reaches the end. Continue resumes an unfinished episode; completed episodes advance to the next one. Existing history retains its previous completed interpretation. External-player completion remains untracked and uses the existing launch-based history behavior.
+- Clearing history also clears resume positions. Bookmarks, source links, preferred quality, audio mode, and theme are stored locally.
 - Settings control the playback target, instant fullscreen, external fallback path, provider addresses, and theme.
+
+The player listens for shortcuts immediately after opening. Text fields, sliders, and menus keep their own keyboard navigation. **?** or **Help → Keyboard Shortcuts** opens the shortcut reference; **Playback** contains native menu commands. On Linux, Alt reveals the hidden menu bar.
+
+| Shortcut | Action |
+| --- | --- |
+| Space / K | Play or pause |
+| Left / Right / J / L | Seek 10 seconds |
+| Shift + Left / Right | Seek 20 seconds |
+| Up / Down | Adjust volume |
+| M | Mute |
+| C | Toggle captions |
+| < / > | Change speed in 0.25× steps |
+| 0–9 | Seek to 0–90% |
+| I | Picture in picture |
+| F / double-click | Native fullscreen |
+| Ctrl+Cmd+F (macOS), F11 (Linux/Windows) | Native fullscreen |
+| Escape | Close an open menu first, then leave fullscreen |
+| Tab / Shift+Tab | Move between controls |
+
+The startup fullscreen preference applies when creating the player window. Selecting another episode preserves the current window mode. Fullscreen follows confirmed window-manager events and ignores repeated toggles during a transition. A failed transition displays a dismissible notice while playback continues.
 
 If the built-in player reports a fatal error, use **Retry**. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
 
@@ -57,6 +79,15 @@ npm run typecheck
 npm run build
 ```
 
+The real-player integration suite needs `ffmpeg` on PATH. It generates silent HLS fixtures in a temporary directory and uses an isolated Electron profile, leaving personal history untouched:
+
+```sh
+npm run test:player
+npm run test:player:native
+```
+
+The first command tests actual Vidstack controls, HLS loading under the production CSP, captions, transient network recovery, resume across URL changes, and measured black bars. The second also opens a window and tests native fullscreen, window geometry, and application menus. CI configures macOS plus Linux X11/Openbox and Wayland/Weston runs. Compositor, multiple-display, and hardware media-key behavior should also be checked on the target desktop.
+
 ## Windows installer
 
 ```powershell
@@ -75,6 +106,14 @@ npm run dist:mac
 
 The unsigned DMGs are written to `release/`. A downloaded unsigned build may be blocked on first launch; after attempting to open it, a trusted user can approve it with **System Settings → Privacy & Security → Open Anyway**.
 
+## Linux package
+
+```sh
+npm run dist:linux
+```
+
+The AppImage is written to `release/`. Linux runs through Electron on X11 or Wayland. For display-specific testing, pass `--ozone-platform=x11` or `--ozone-platform=wayland` to Electron.
+
 ## GitHub releases
 
 Set the package version, commit it, and push the matching tag:
@@ -84,9 +123,9 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The desktop release workflow tests the app and attaches a Windows x64 installer plus Intel and Apple Silicon macOS DMGs to the tag's GitHub Release. macOS signing and notarization can be added later.
+The desktop release workflow tests the app and attaches a Windows x64 installer, Linux x64 AppImage, and Intel and Apple Silicon macOS DMGs to the tag's GitHub Release. macOS signing and notarization can be added later.
 
-Vidstack and hls.js are bundled JavaScript dependencies; no native player executable or streamed media is included. See [Third-party notices](THIRD_PARTY_NOTICES.md).
+Vidstack loads the bundled hls.js module directly, so the player requires no CDN script permission. Vidstack and hls.js are bundled JavaScript dependencies; no native player executable or streamed media is included. See [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Security boundary
 

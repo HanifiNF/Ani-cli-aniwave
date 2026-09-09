@@ -137,6 +137,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const refresh = () => { void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason))); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
+
+  useEffect(() => {
     if (!stateLoaded || mergePromptActive.current) return;
     const entries = [...appState.history, ...appState.bookmarks].filter((entry, index, all) => all.findIndex((item) => item.animeId === entry.animeId) === index);
     const dismissed = new Set(appState.dismissedMergeKeys ?? []);
@@ -278,7 +284,8 @@ function App() {
     const resumeAfter = sourceProgress?.lastEpisode ?? options.resumeAfter ?? (animeProgress?.lastProvider === active ? animeProgress.lastEpisode : undefined);
     if (resumeAfter) {
       const previous = list.findIndex((episode) => episode.number === resumeAfter);
-      index = Math.min(previous + 1, list.length - 1);
+      const completed = sourceProgress ? sourceProgress.completed !== false : animeProgress?.completed !== false;
+      index = Math.max(0, Math.min(previous + (completed ? 1 : 0), list.length - 1));
     }
     setCursor(Math.max(index, 0));
     if (options.autoPlay && list[index]) void playEpisode(list[index], anime, sourceProgress?.mode ?? options.mode ?? mode);
@@ -298,9 +305,11 @@ function App() {
       const detail = `${stream.quality} ${playMode} ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
-      await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer });
+      await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
       if (token !== playToken.current) return;
-      setAppState(await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
+      setAppState(appState.settings.playbackTarget === "builtin"
+        ? await window.aniDesktop.getState()
+        : await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
       setStatus({ episode, phase: "opened", detail });
     } catch (reason) {
       if (token === playToken.current) setStatus({ episode, phase: "failed", detail: messageFrom(reason) });
@@ -320,7 +329,7 @@ function App() {
     const sourceProgress = progress?.progressByProvider?.[next];
     const list = episodeGroups.find((group) => group.provider === next)?.episodes ?? [];
     const previous = sourceProgress ? list.findIndex((episode) => episode.number === sourceProgress.lastEpisode) : -1;
-    setCursor(Math.max(0, Math.min(previous + 1, list.length - 1)));
+    setCursor(Math.max(0, Math.min(previous + (sourceProgress?.completed === false ? 0 : 1), list.length - 1)));
     setStatus(undefined);
   }
 
@@ -456,13 +465,13 @@ function App() {
     if (row.anime) { action = current ? "open series" : ""; side = animeSources(row.anime).map((source) => source.provider).join(" + "); }
     if (row.entry) {
       const progressText = Object.entries(row.entry.progressByProvider ?? {}).map(([name, value]) => `${name} ${value?.lastEpisode}`).join(" · ");
-      sub = row.kind === "recent" ? `${progressText || `ep ${row.entry.lastEpisode}`}, ${when(row.entry.updatedAt)}` : `watched through ${progressText || row.entry.lastEpisode}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
-      action = "play next"; side = row.entry.mode;
+      sub = row.kind === "recent" ? `${progressText || `ep ${row.entry.lastEpisode}`}, ${when(row.entry.updatedAt)}` : `${row.entry.completed === false ? "started" : "watched through"} ${progressText || row.entry.lastEpisode}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
+      action = row.entry.completed === false ? "resume" : "play next"; side = row.entry.mode;
     }
     const canMerge = row.anime ? Boolean(mergeCandidate(row.anime)) : row.entry ? Boolean(libraryMergeCandidate(row.entry)) : false;
     return (
       <div key={`${row.kind}:${row.anime?.id ?? row.entry?.animeId}`} className={`item ${row.entry ? "lib" : ""} ${canMerge ? "has-merge" : ""} ${current ? "cur" : ""}`} data-cursor={current}>
-        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={`${row.anime ? "open" : "play next episode of"} ${title}`} />
+        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={`${row.anime ? "open" : row.entry?.completed === false ? "resume" : "play next episode of"} ${title}`} />
         <Art src={poster} />
         <span><span className="t">{title}</span>{sub && <span className="s">{sub}</span>}</span>
         <span className="k">{action}</span>
@@ -569,7 +578,7 @@ function App() {
                 <div className="sub">
                   <span>{episodes.length ? `${episodes.length} episodes` : busy ? "loading episodes" : "no episodes"}</span>
                   <span>{animeSources(selectedAnime).map((source) => source.provider).join(" + ")}</span>
-                  {progress && <span>watched through {progress.lastEpisode}</span>}
+                  {progress && <span>{progress.completed === false ? "started" : "watched through"} {progress.lastEpisode}</span>}
                 </div>
               </div>
               <div className="acts">
@@ -586,7 +595,7 @@ function App() {
             {activeEpisodeGroup?.error && <div className="line err" role="alert"><b>{activeEpisodeProvider}</b><span>{activeEpisodeGroup.error}</span><button type="button" className="act" onClick={() => void openAnime(selectedAnime)}>retry</button></div>}
             <div className="grid" ref={gridRef} tabIndex={-1} role="group" aria-label="Episodes">
               {episodes.map((episode, index) => {
-                const watched = progress ? Number(episode.number) <= Number(progress.lastEpisode) : false;
+                const watched = progress ? (Number(episode.number) < Number(progress.lastEpisode) || (episode.number === progress.lastEpisode && progress.completed !== false)) : false;
                 return (
                   <button type="button" key={episode.id} className={`${watched ? "w" : ""} ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}
                     tabIndex={index === cursor ? 0 : -1} onFocus={() => setCursor(index)}

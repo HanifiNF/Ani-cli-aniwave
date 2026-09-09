@@ -1,28 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
-import {
-  PLAYER_FULLSCREEN_CHANGED,
-  assertPlayerSender,
-  registerPlayerFullscreenEvents,
-  setPlayerFullscreen
-} from "../electron/player-window";
+import { PLAYER_FULLSCREEN_CHANGED, assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "../electron/player-window";
 
 function windowMock() {
-  const listeners = new Map<string, () => void>();
-  const webContents = {
-    isDestroyed: vi.fn(() => false),
-    mainFrame: {},
-    send: vi.fn()
-  };
-  const playerWindow = {
-    isDestroyed: vi.fn(() => false),
-    isFullScreen: vi.fn(() => false),
-    setFullScreen: vi.fn(),
-    on: vi.fn((event: string, listener: () => void) => { listeners.set(event, listener); }),
-    webContents
-  } as unknown as BrowserWindow;
-  return { playerWindow, webContents, listeners };
+  const events = new EventEmitter();
+  const webContents = { isDestroyed: vi.fn(() => false), mainFrame: {}, send: vi.fn() };
+  const playerWindow = Object.assign(events, {
+    isDestroyed: vi.fn(() => false), isFullScreen: vi.fn(() => false), setFullScreen: vi.fn(), webContents
+  }) as unknown as BrowserWindow;
+  return { playerWindow, webContents, events };
 }
+afterEach(() => vi.useRealTimers());
 
 describe("native player window fullscreen", () => {
   it("accepts only the player main frame as an IPC sender", () => {
@@ -30,20 +19,46 @@ describe("native player window fullscreen", () => {
     const valid = { sender: webContents, senderFrame: webContents.mainFrame } as unknown as IpcMainInvokeEvent;
     expect(() => assertPlayerSender(playerWindow, valid)).not.toThrow();
     expect(() => assertPlayerSender(playerWindow, { ...valid, senderFrame: {} } as IpcMainInvokeEvent)).toThrow("Unknown player sender");
-  });
-
-  it("validates and applies requested fullscreen state", () => {
-    const { playerWindow } = windowMock();
-    expect(setPlayerFullscreen(playerWindow, true)).toBe(true);
-    expect(playerWindow.setFullScreen).toHaveBeenCalledWith(true);
     expect(() => setPlayerFullscreen(playerWindow, "true")).toThrow("Fullscreen state must be a boolean");
   });
 
+  it("waits for the native transition and suppresses repeated toggles", async () => {
+    const { playerWindow, events } = windowMock();
+    const done = vi.fn();
+    const first = setPlayerFullscreen(playerWindow, true);
+    first.then(done);
+    expect(setPlayerFullscreen(playerWindow, false)).toBe(first);
+    await Promise.resolve();
+    expect(done).not.toHaveBeenCalled();
+    expect(playerWindow.setFullScreen).toHaveBeenCalledExactlyOnceWith(true);
+    events.emit("enter-full-screen");
+    await expect(first).resolves.toBe(true);
+    expect(events.listenerCount("enter-full-screen")).toBe(0);
+  });
+
+  it("reports rejected window manager transitions and allows another attempt", async () => {
+    vi.useFakeTimers();
+    const { playerWindow, events } = windowMock();
+    const failed = expect(setPlayerFullscreen(playerWindow, true)).rejects.toThrow("window manager");
+    await vi.advanceTimersByTimeAsync(5000);
+    await failed;
+    const retry = setPlayerFullscreen(playerWindow, true);
+    events.emit("enter-full-screen");
+    await expect(retry).resolves.toBe(true);
+  });
+
+  it("cleans up an outstanding transition when the window closes", async () => {
+    const { playerWindow, events } = windowMock();
+    const pending = setPlayerFullscreen(playerWindow, true);
+    events.emit("closed");
+    await expect(pending).rejects.toThrow("closed");
+    expect(events.listenerCount("leave-full-screen")).toBe(0);
+  });
+
   it("publishes native enter and leave events to the renderer", () => {
-    const { playerWindow, webContents, listeners } = windowMock();
+    const { playerWindow, webContents, events } = windowMock();
     registerPlayerFullscreenEvents(playerWindow);
-    listeners.get("enter-full-screen")?.();
-    listeners.get("leave-full-screen")?.();
+    events.emit("enter-full-screen"); events.emit("leave-full-screen");
     expect(webContents.send).toHaveBeenNthCalledWith(1, PLAYER_FULLSCREEN_CHANGED, true);
     expect(webContents.send).toHaveBeenNthCalledWith(2, PLAYER_FULLSCREEN_CHANGED, false);
   });

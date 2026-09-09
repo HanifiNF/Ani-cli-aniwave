@@ -118,3 +118,26 @@ describe("StateStore", () => {
     expect(store.snapshot().dismissedMergeKeys).toEqual(["anidb:second-2|aniwave:first-1"]);
   });
 });
+
+
+describe("playback positions and completion", () => {
+  it("keeps resume positions across URL changes and only completes on playback end", async () => {
+    const request = { url: "https://cdn.test/old-token", title: "Episode", episode: { id: "aniwave:episode-12", entry: entry() } };
+    await store.recordHistory({ ...entry(), completed: false });
+    expect(store.snapshot().history[0].completed).toBe(false);
+    await store.savePlayerStorage(request, { time: 90, volume: 0.4, captions: true, lang: "en", rate: 1.25 });
+    const fresh = new StateStore(join(directory, "state.json"));
+    await fresh.load();
+    expect(fresh.snapshot().playbackPositions?.["aniwave:episode-12:sub"]).toMatchObject({ time: 90, completed: false });
+    expect(fresh.snapshot().playerPreferences).toMatchObject({ volume: 0.4, captions: true, lang: "en", rate: 1.25 });
+    await fresh.savePlayerStorage({ ...request, url: "https://cdn.test/new-token" }, { time: 150, completed: true });
+    expect(fresh.snapshot().history[0]).toMatchObject({ completed: true, progressByProvider: { aniwave: { completed: true } } });
+    expect(fresh.snapshot().playbackPositions?.["aniwave:episode-12:sub"]).toMatchObject({ time: 0, completed: true });
+  });
+
+  it("keeps a late completion from changing the currently started episode", async () => {
+    await store.recordHistory({ ...entry({ lastEpisode: "13" }), completed: false });
+    await store.savePlayerStorage({ url: "https://cdn.test/12", title: "Episode", episode: { id: "aniwave:episode-12", entry: entry() } }, { time: 100, completed: true });
+    expect(store.snapshot().history[0]).toMatchObject({ lastEpisode: "13", completed: false });
+  });
+});
