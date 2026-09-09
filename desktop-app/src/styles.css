@@ -66,7 +66,8 @@ input { background: none; border: 0; outline: 0; padding: 0; }
   margin: 0 -16px; padding: 4px 16px;
   overscroll-behavior-y: contain; scrollbar-gutter: stable;
 }
-.foot { flex-shrink: 0; padding: 12px 56px; color: var(--muted); font-size: 12px; display: flex; gap: 28px; align-items: center; border-top: 1px solid var(--rule); }
+.foot { flex-shrink: 0; padding: 12px 56px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 28px; align-items: center; border-top: 1px solid var(--rule); }
+.foot > span { white-space: nowrap; }
 .foot b { color: var(--text); font-weight: 400; }
 .foot .right { margin-left: auto; display: flex; gap: 20px; }
 .foot button { color: var(--muted); }
@@ -195,3 +196,8 @@ h1 { font-size: 22px; font-weight: 400; margin: 6px 0 4px; line-height: 1.3; }
   .field .groups { flex-wrap: wrap; gap: 16px; }
   .page-lists .item .k { min-width: 80px; }
 }
+
+/* player screen: the video takes the page, the footer keeps the key hints */
+.page-player { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.app.is-fullscreen .page-player { padding: 0; }
+.app.is-fullscreen .foot { display: none; }

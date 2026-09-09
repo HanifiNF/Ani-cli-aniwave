@@ -1,6 +1,6 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
-import type { AniDesktopApi, AnimeResult, Episode, LibraryEntry, PersistedState } from "../shared/contracts";
+import type { AniDesktopApi, AniPlayerApi, AnimeResult, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
 import { animeSources, mergeKey } from "../shared/catalog";
 import { THEME_PRESETS } from "../shared/theme";
 
@@ -45,8 +45,34 @@ const upsert = (entry: LibraryEntry) => {
   state.bookmarks = state.bookmarks.map((item) => item.animeId === entry.animeId ? { ...entry, updatedAt: new Date().toISOString() } : item);
 };
 
+let sessions = 0;
+const loadListeners = new Set<(session: PlayerSession) => void>();
+const subscribe = <T>(set: Set<(value: T) => void>, listener: (value: T) => void) => { set.add(listener); return () => { set.delete(listener); }; };
+const fullscreenListeners = new Set<(fullscreen: boolean) => void>();
+document.addEventListener("fullscreenchange", () => { for (const listener of fullscreenListeners) listener(Boolean(document.fullscreenElement)); });
+
+const player: AniPlayerApi = {
+  async ready() { return undefined; },
+  onLoad: (listener) => subscribe(loadListeners, listener),
+  onFullscreenChange: (listener) => subscribe(fullscreenListeners, listener),
+  onCommand: () => () => undefined,
+  onNotice: () => () => undefined,
+  onDiagnosticsChange: () => () => undefined,
+  logDiagnostic() {},
+  async saveStorage() {},
+  async setFullscreen(fullscreen) {
+    // Browser fullscreen stands in for the native window. It needs a user gesture, which keys and clicks provide.
+    try { if (fullscreen) await document.documentElement.requestFullscreen(); else if (document.fullscreenElement) await document.exitFullscreen(); }
+    catch { /* not allowed outside a gesture */ }
+    return Boolean(document.fullscreenElement);
+  },
+  async openExternal() { throw new Error("External players are available in the desktop app"); },
+  async setActive() {}
+};
+
 export function installDevApi(): void {
   const api: AniDesktopApi = {
+    player,
     async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : results; },
     async episodes(anime) {
       await wait(300);
@@ -59,7 +85,15 @@ export function installDevApi(): void {
       if (episodeId.endsWith(":7")) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} Vidplay server is available`);
       return [{ quality: "1080p", url: "https://cdn.example/1080.m3u8", provider: "aniwave" }, { quality: "720p", url: "https://cdn.example/720.m3u8", provider: "aniwave" }];
     },
-    async play() { await wait(300); return true; },
+    async play(request) {
+      await wait(300);
+      if (state.settings.playbackTarget !== "builtin") return true;
+      // A public HLS test stream stands in for provider streams while working in the browser.
+      const session: PlayerSession = { id: String(++sessions), request: { ...request, url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+        canOpenExternal: false, fullscreen: Boolean(document.fullscreenElement), preferences: {} };
+      for (const listener of loadListeners) listener(session);
+      return true;
+    },
     async getState() { return snapshot(); },
     async saveSettings(settings) { state.settings = settings; return snapshot(); },
     async openPlayerLogs() { throw new Error("Player logs are available in the desktop app"); },

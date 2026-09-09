@@ -1,15 +1,16 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
 import type { PlayerCommand } from "../shared/contracts";
 
-export function installApplicationMenu(getPlayer: () => BrowserWindow | undefined): void {
+/** Builds the application menu. Playback items follow the player screen inside the app window. Returns a refresh function. */
+export function installApplicationMenu(getWindow: () => BrowserWindow | undefined, isPlayerActive: () => boolean): () => void {
   const update = () => {
-    const player = getPlayer();
-    const inPlayer = Boolean(player && !player.isDestroyed() && player === BrowserWindow.getFocusedWindow());
+    const window = getWindow();
+    const inPlayer = Boolean(window && !window.isDestroyed() && isPlayerActive());
     const command = (label: string, action: PlayerCommand, accelerator?: string): MenuItemConstructorOptions => ({
       label, enabled: inPlayer, accelerator,
       click: () => {
-        const window = getPlayer();
-        if (window && !window.isDestroyed()) window.webContents.send("player-window:command", action);
+        const target = getWindow();
+        if (target && !target.isDestroyed() && isPlayerActive()) target.webContents.send("player:command", action);
       }
     });
     const fullscreen: MenuItemConstructorOptions = inPlayer
@@ -37,4 +38,5 @@ export function installApplicationMenu(getPlayer: () => BrowserWindow | undefine
   };
   app.on("browser-window-focus", update);
   update();
+  return update;
 }

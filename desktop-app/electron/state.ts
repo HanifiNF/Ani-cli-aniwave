@@ -14,6 +14,7 @@ const defaults: PersistedState = {
     playerPath: "",
     playbackTarget: "builtin",
     startPlayerFullscreen: true,
+    autoplayNext: true,
     playerDiagnostics: false,
     preferredQuality: "best",
     preferredMode: "sub",
@@ -108,6 +109,7 @@ export class StateStore {
           ...settings,
           playbackTarget: settings.playbackTarget === "external" ? "external" : "builtin",
           startPlayerFullscreen: typeof settings.startPlayerFullscreen === "boolean" ? settings.startPlayerFullscreen : true,
+          autoplayNext: settings.autoplayNext !== false,
           playerDiagnostics: settings.playerDiagnostics === true,
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
@@ -159,6 +161,7 @@ export class StateStore {
       playerPath: settings.playerPath.trim(),
       playbackTarget: settings.playbackTarget,
       startPlayerFullscreen: Boolean(settings.startPlayerFullscreen),
+      autoplayNext: settings.autoplayNext !== false,
       playerDiagnostics: settings.playerDiagnostics === true,
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",

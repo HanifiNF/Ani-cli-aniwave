@@ -34,3 +34,8 @@ export function withMediaCors(headers: Record<string, string[]> = {}): Record<st
     "Access-Control-Allow-Headers": ["*"]
   };
 }
+
+/** Header rewriting applies only to stream traffic. Page assets and poster images keep their own headers. */
+export function isPlaybackRequest(resourceType: string): boolean {
+  return resourceType === "xhr" || resourceType === "media";
+}

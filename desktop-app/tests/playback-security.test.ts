@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePlayRequest, withMediaCors, withPlaybackReferrer } from "../electron/playback-security";
+import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "../electron/playback-security";
 
 describe("built-in playback security", () => {
   it("accepts only HTTP media and referrer URLs", () => {
@@ -25,5 +25,10 @@ describe("built-in playback security", () => {
       "Access-Control-Allow-Methods": ["GET, HEAD, OPTIONS"],
       "Access-Control-Allow-Headers": ["*"]
     });
+  });
+
+  it("rewrites headers for stream traffic only, leaving posters and page assets alone", () => {
+    expect(["xhr", "media"].every(isPlaybackRequest)).toBe(true);
+    expect(["image", "mainFrame", "script", "stylesheet", "font", "webSocket"].some(isPlaybackRequest)).toBe(false);
   });
 });

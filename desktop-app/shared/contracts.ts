@@ -74,6 +74,7 @@ export interface Settings {
   playerPath: string;
   playbackTarget: PlaybackTarget;
   startPlayerFullscreen: boolean;
+  autoplayNext?: boolean;
   playerDiagnostics?: boolean;
   preferredQuality: string;
   preferredMode: TranslationMode;
@@ -114,6 +115,7 @@ export interface PlayerStorageUpdate extends PlayerPreferences { time?: number; 
 export type PlayerCommand = "play-pause" | "seek-backward" | "seek-forward" | "volume-up" | "volume-down" | "mute" | "captions" | "speed-up" | "speed-down" | "pip" | "fullscreen" | "shortcuts";
 
 export interface AniDesktopApi {
+  player: AniPlayerApi;
   search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
   episodes(anime: AnimeResult): Promise<EpisodeCatalog>;
   streams(episodeId: string, mode: TranslationMode): Promise<Stream[]>;
@@ -143,8 +145,10 @@ export interface PlayerSession {
   diagnostics?: boolean;
 }
 
+/** Built-in playback inside the main window. A session describes one stream loaded into the player screen. */
 export interface AniPlayerApi {
-  ready(): Promise<PlayerSession>;
+  /** The active session, if the main process is holding one for this window. */
+  ready(): Promise<PlayerSession | undefined>;
   onLoad(listener: (session: PlayerSession) => void): () => void;
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
   onCommand(listener: (command: PlayerCommand) => void): () => void;
@@ -154,5 +158,6 @@ export interface AniPlayerApi {
   saveStorage(sessionId: string, update: PlayerStorageUpdate): Promise<void>;
   setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;
-  close(): Promise<void>;
+  /** Tell the main process whether the player screen is showing, so menus and diagnostics follow it. */
+  setActive(active: boolean): Promise<void>;
 }

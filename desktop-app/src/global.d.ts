@@ -1,9 +1,8 @@
-import type { AniDesktopApi, AniPlayerApi } from "../shared/contracts";
+import type { AniDesktopApi } from "../shared/contracts";
 
 declare global {
   interface Window {
     aniDesktop: AniDesktopApi;
-    aniPlayer: AniPlayerApi;
   }
 }
 

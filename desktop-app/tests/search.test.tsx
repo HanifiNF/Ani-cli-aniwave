@@ -3,7 +3,7 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
-import type { AniDesktopApi, AnimeResult, PersistedState } from "../shared/contracts";
+import type { AniDesktopApi, AnimeResult, PersistedState, PlayerSession } from "../shared/contracts";
 import { THEME_PRESETS } from "../shared/theme";
 
 const result = (title: string): AnimeResult[] => [{ id: `aniwave:${title}-1`, title, provider: "aniwave" }];
@@ -17,6 +17,16 @@ let container: HTMLDivElement;
 let root: Root;
 let search: ReturnType<typeof vi.fn<AniDesktopApi["search"]>>;
 let api: AniDesktopApi;
+let load: (session: PlayerSession) => void;
+const playerStub = vi.hoisted(() => ({ props: undefined as Record<string, unknown> | undefined }));
+vi.mock("../src/PlayerScreen", async () => {
+  const React = await import("react");
+  return { default: (props: { session: { request: { title: string } }; episodeCount?: number; onBack: () => void; onNext?: () => void; onPrev?: () => void }) => {
+    playerStub.props = props;
+    React.useEffect(() => { void window.aniDesktop.player.setActive(true); return () => { void window.aniDesktop.player.setActive(false); }; }, []);
+    return <div data-testid="player">{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}<button type="button" onClick={props.onBack}>leave player</button><button type="button" disabled={!props.onNext} onClick={props.onNext}>next episode</button></div>;
+  } };
+});
 const input = () => container.querySelector("input")!;
 const titles = () => [...container.querySelectorAll(".section-results .t")].map((node) => node.textContent);
 async function type(value: string, field = input()) {
@@ -53,6 +63,12 @@ beforeEach(async () => {
   };
   search = vi.fn<AniDesktopApi["search"]>().mockImplementation(async (query) => result(query));
   api = {
+    player: {
+      ready: vi.fn().mockResolvedValue(undefined), onLoad: vi.fn((listener) => { load = listener; return vi.fn(); }),
+      onFullscreenChange: vi.fn(() => vi.fn()), onCommand: vi.fn(() => vi.fn()), onNotice: vi.fn(() => vi.fn()), onDiagnosticsChange: vi.fn(() => vi.fn()),
+      logDiagnostic: vi.fn(), saveStorage: vi.fn().mockResolvedValue(undefined), setFullscreen: vi.fn(async (fullscreen: boolean) => fullscreen),
+      openExternal: vi.fn().mockResolvedValue(true), setActive: vi.fn().mockResolvedValue(undefined)
+    },
     search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
@@ -69,6 +85,43 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   vi.useRealTimers(); vi.unstubAllGlobals();
+});
+
+describe("built-in player screen", () => {
+  const session = (id: string, episodeId: string): PlayerSession => ({ id, preferences: {}, canOpenExternal: false, fullscreen: false,
+    request: { url: `https://cdn.test/${episodeId}.m3u8`, title: `Frieren — Episode ${episodeId.slice(-1)}`, episode: { id: episodeId,
+      entry: { animeId: "aniwave:frieren-1", title: "Frieren", lastEpisode: episodeId.slice(-1), mode: "sub", updatedAt: "" } } } });
+
+  it("shows the player in place of the page and returns to the episode grid", async () => {
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
+    await type("frieren"); await advance(); await enter();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    expect(api.play).toHaveBeenCalledOnce();
+    await act(async () => load(session("s1", "ep-2")));
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Frieren — Episode 2 of 3");
+    expect(container.querySelector(".field")).toBeNull();
+    expect(container.querySelector(".foot")?.textContent).toContain("next");
+    expect(api.player.setActive).toHaveBeenLastCalledWith(true);
+    expect(playerStub.props?.onPrev).toBeDefined();
+
+    // Keys belong to the player screen while it is showing.
+    await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(container.querySelector('[data-testid="player"]')).not.toBeNull();
+
+    await click("next episode");
+    expect(api.streams).toHaveBeenLastCalledWith("ep-3", "sub");
+    await act(async () => load(session("s2", "ep-3")));
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 3 of 3");
+    expect(playerStub.props?.onNext).toBeUndefined();
+
+    const refreshes = vi.mocked(api.getState).mock.calls.length;
+    await click("leave player");
+    expect(container.querySelector('[data-testid="player"]')).toBeNull();
+    expect(api.player.setActive).toHaveBeenLastCalledWith(false);
+    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+    expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
+  });
 });
 
 describe("live catalog search", () => {

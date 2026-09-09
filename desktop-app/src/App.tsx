@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnimeResult,
   CustomTheme,
@@ -6,6 +6,7 @@ import type {
   EpisodeGroup,
   LibraryEntry,
   PersistedState,
+  PlayerSession,
   ProviderName,
   ProviderPreference,
   Settings,
@@ -13,14 +14,18 @@ import type {
   TranslationMode
 } from "../shared/contracts";
 import { useAnimeSearch } from "./useAnimeSearch";
-import { THEME_NAMES, THEME_PRESETS, resolveTheme } from "../shared/theme";
+import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
 import { applyAppIcon } from "./appIcon";
 import { animeSources, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 
-type Screen = "home" | "series" | "saved" | "recent" | "settings";
+type Screen = "home" | "series" | "saved" | "recent" | "settings" | "player";
+// Vidstack and hls.js load with the first playback, not at startup.
+const loadPlayerScreen = () => import("./PlayerScreen");
+const PlayerScreen = lazy(loadPlayerScreen);
 type RowKind = "results" | "continue" | "saved" | "recent";
 interface Row { kind: RowKind; anime?: AnimeResult; entry?: LibraryEntry; }
 interface PlayStatus { episode: Episode; phase: "finding" | "opening" | "opened" | "failed"; detail: string; }
+interface NowPlaying { episodeId: string; detail: string; mode: TranslationMode; }
 
 const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
 const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb"];
@@ -30,7 +35,7 @@ const emptyState: PersistedState = {
   bookmarks: [],
   history: [],
   settings: {
-    playerPath: "", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
+    playerPath: "", playbackTarget: "builtin", startPlayerFullscreen: true, autoplayNext: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
   }, providerLinks: [], dismissedMergeKeys: []
 };
@@ -69,6 +74,9 @@ function applyTheme(theme: ThemePreset, custom: CustomTheme): () => void {
   root.setProperty("--theme-bg", colours.background);
   root.setProperty("--theme-text", colours.text);
   root.setProperty("--theme-cursor", colours.highlight);
+  const brand = videoBrand(colours);
+  root.setProperty("--theme-video-brand", brand.colour);
+  root.setProperty("--theme-video-brand-text", brand.text);
   return applyAppIcon(colours);
 }
 
@@ -109,6 +117,9 @@ function App() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
+  const [session, setSession] = useState<PlayerSession>();
+  const [playerFullscreen, setPlayerFullscreen] = useState(false);
+  const [nowPlaying, setNowPlaying] = useState<NowPlaying>();
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
   const [stateLoaded, setStateLoaded] = useState(false);
 
@@ -141,6 +152,21 @@ function App() {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, []);
+
+  // The main process loads streams into this window. A load replaces the current session and shows the player screen.
+  useEffect(() => {
+    const player = window.aniDesktop.player;
+    const show = (next: PlayerSession | undefined) => {
+      if (!next) return;
+      setSession(next); setPlayerFullscreen(next.fullscreen);
+      setScreen("player"); setStatus(undefined); setError(undefined); setNotice(undefined);
+    };
+    const unsubscribe = player.onLoad(show);
+    const unsubscribeFullscreen = player.onFullscreenChange(setPlayerFullscreen);
+    player.ready().then(show, () => undefined);
+    return () => { unsubscribe(); unsubscribeFullscreen(); };
+  }, []);
+  useEffect(() => { if (stateLoaded && appState.settings.playbackTarget === "builtin") void loadPlayerScreen(); }, [stateLoaded, appState.settings.playbackTarget]);
 
   useEffect(() => {
     if (!stateLoaded || mergePromptActive.current) return;
@@ -178,7 +204,7 @@ function App() {
     return [];
   }, [screen, unifiedResults, appState.history, appState.bookmarks, filter]);
 
-  useEffect(() => { if (screen !== "series") setCursor(0); }, [screen, results, filter]);
+  useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, results, filter]);
   useEffect(() => {
     const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
     const list = selected?.closest<HTMLElement>(".section-scroll");
@@ -198,7 +224,7 @@ function App() {
   }, [cursor, screen, rows]);
   useEffect(() => {
     if (screen === "series") gridRef.current?.focus();
-    else if (screen !== "settings") fieldRef.current?.focus();
+    else if (screen !== "settings" && screen !== "player") fieldRef.current?.focus();
   }, [screen]);
   useEffect(() => {
     const grid = gridRef.current;
@@ -220,13 +246,22 @@ function App() {
   }
 
   function go(next: Screen) {
+    if (screen === "player" && next !== "player") setSession(undefined);
     setScreen(next);
     setError(undefined); setNotice(undefined);
     if (next !== "home" && next !== "series") setQuery("");
     if (next === "settings") setSettingsDraft(appState.settings);
   }
 
+  function leavePlayer() {
+    setSession(undefined); setStatus(undefined); setError(undefined); setNotice(undefined);
+    setScreen(selectedAnime ? "series" : "home");
+    // Watched marks and resume points changed while the player had the store.
+    void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason)));
+  }
+
   function goBack() {
+    if (screen === "player") { leavePlayer(); return; }
     if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series") setSelectedAnime(undefined);
     go("home");
@@ -304,6 +339,7 @@ function App() {
       if (!stream) throw new Error("no stream was found");
       const detail = `${stream.quality} ${playMode} ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
+      setNowPlaying({ episodeId: episode.id, detail, mode: playMode });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
       await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
       if (token !== playToken.current) return;
@@ -404,6 +440,7 @@ function App() {
     const target = event.target as HTMLElement | null;
     const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
     if (event.isComposing || composing || event.keyCode === 229) return;
+    if (screen === "player") return; // The player screen owns its keys.
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
       return;
@@ -499,6 +536,19 @@ function App() {
 
   const backButton = <button type="button" onClick={goBack} aria-label="Back" aria-keyshortcuts="Escape"><b>esc</b> back</button>;
 
+  const playingId = session?.request.episode?.id;
+  const playingIndex = playingId ? episodes.findIndex((episode) => episode.id === playingId) : -1;
+  const current = nowPlaying && nowPlaying.episodeId === playingId ? nowPlaying : undefined;
+  const playingMode = current?.mode ?? mode;
+  const playNeighbour = (offset: number) => {
+    const target = playingIndex >= 0 ? episodes[playingIndex + offset] : undefined;
+    return target ? () => { void playEpisode(target, selectedAnime, playingMode); } : undefined;
+  };
+  const playerMessage = status && status.episode.id !== playingId
+    ? status.phase === "failed" ? { text: `episode ${status.episode.number}: ${status.detail}`, error: true }
+      : status.phase === "opened" ? undefined : { text: `episode ${status.episode.number}: finding a stream ···` }
+    : undefined;
+
   const footLinks = (
     <span className="right">
       {screen !== "home" && <button type="button" onClick={() => go("home")}>search</button>}
@@ -510,9 +560,25 @@ function App() {
   );
 
   return (
-    <div className="app">
-      <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""}`}>
-        <div className="field">
+    <div className={`app ${screen === "player" && playerFullscreen ? "is-fullscreen" : ""}`}>
+      <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""} ${screen === "player" ? "page-player" : ""}`}>
+        {screen === "player" && session && (
+          <Suspense fallback={<div className="player-message">loading player ···</div>}>
+            <PlayerScreen
+              session={session}
+              fullscreen={playerFullscreen}
+              onFullscreenChange={setPlayerFullscreen}
+              episodeCount={playingIndex >= 0 ? episodes.length : undefined}
+              detail={current?.detail}
+              message={playerMessage}
+              autoplayNext={appState.settings.autoplayNext !== false}
+              onPrev={playNeighbour(-1)}
+              onNext={playNeighbour(1)}
+              onBack={leavePlayer}
+            />
+          </Suspense>
+        )}
+        {screen !== "player" && <div className="field">
           {screen === "settings"
             ? <span className="crumb big">settings</span>
             : <div className="search-field">
@@ -532,8 +598,8 @@ function App() {
             </div>
           )}
           {(screen === "saved" || screen === "recent") && <span className="crumb">{screen}</span>}
-        </div>
-        {message && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+        </div>}
+        {message && screen !== "player" && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
         {screen === "home" && (
           rows.length === 0 && !message && !catalogSearch.pending
@@ -622,7 +688,8 @@ function App() {
         {screen === "settings" && (
           <form className="kv" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
             <div className="r"><span className="k">playback<small>built-in works without installing another player</small></span><div className="v"><Chips value={settingsDraft.playbackTarget} options={["builtin", "external"] as const} onChange={(playbackTarget) => setSettingsDraft({ ...settingsDraft, playbackTarget })} /></div></div>
-            <div className="r"><span className="k">player window<small>start each video immediately in fullscreen</small></span><div className="v"><Chips value={settingsDraft.startPlayerFullscreen ? "fullscreen" : "windowed"} options={["fullscreen", "windowed"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen: value === "fullscreen" })} /></div></div>
+            <div className="r"><span className="k">start playback<small>go fullscreen as soon as an episode starts</small></span><div className="v"><Chips value={settingsDraft.startPlayerFullscreen ? "fullscreen" : "windowed"} options={["fullscreen", "windowed"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen: value === "fullscreen" })} /></div></div>
+            <div className="r"><span className="k">next episode<small>built-in player only. autoplay waits five seconds and can be cancelled</small></span><div className="v"><Chips value={settingsDraft.autoplayNext !== false ? "autoplay" : "manual"} options={["autoplay", "manual"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, autoplayNext: value === "autoplay" })} /></div></div>
             <div className="r"><span className="k">player diagnostics<small>local keyboard and playback logs for troubleshooting</small></span><div className="v diagnostics-controls"><Chips label="logging" value={settingsDraft.playerDiagnostics ? "on" : "off"} options={["off", "on"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, playerDiagnostics: value === "on" })} /><button type="button" className="btn quiet" onClick={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }}>open logs</button></div></div>
             <div className="r"><label htmlFor="player">external fallback<small>optional for built-in playback. on macOS use IINA's iina-cli</small></label><div className="v"><input id="player" value={settingsDraft.playerPath} placeholder={settingsDraft.playbackTarget === "external" ? "required" : "optional"} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div></div>
             <div className="r"><span className="k">quality</span><div className="v"><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div></div>
@@ -659,6 +726,7 @@ function App() {
 
       <div className="foot">
         {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
+          : screen === "player" ? <><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>n</b> next</span><span><b>f</b> fullscreen</span>{backButton}</>
           : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
           : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (query.trim() && !catalogSearch.ready ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
         {footLinks}

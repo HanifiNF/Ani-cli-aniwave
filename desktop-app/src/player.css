@@ -1,14 +1,32 @@
-:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #000; }
-* { box-sizing: border-box; }
-html, body, #player-root, .player-shell { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
-.player-shell { position: relative; }
-/* Size the playback surface from the window, independently of the video's
+/* The player screen lives inside the app page. The video surface is always black;
+   the controls take the theme highlight, which the renderer keeps visible on black. */
+.player-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.now { display: flex; align-items: baseline; gap: 24px; padding-bottom: 12px; flex-shrink: 0; min-width: 0; }
+.now .now-title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.now .now-ep { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.now .now-detail { color: var(--dim); font-size: 13px; white-space: nowrap; }
+.now .now-detail.err { color: var(--danger); }
+.now .now-acts { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
+.now .now-acts button { padding: 2px 9px; border-radius: 4px; color: var(--muted); font-size: 13px; }
+.now .now-acts button:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.now .now-acts button:disabled { color: var(--dim); cursor: default; }
+.player-shell.is-fullscreen .now { display: none; }
+
+.player-surface { position: relative; flex: 1; min-height: 0; margin: 0 -56px; background: #000; overflow: hidden; }
+.player-shell.is-fullscreen .player-surface { margin: 0; }
+
+/* Size the playback surface from its box, independently of the video's
    intrinsic ratio and Vidstack's default 16:9 sizing. The video supplies bars. */
 .media-player[data-media-player] {
   position: absolute; inset: 0; display: block;
   width: 100%; height: 100%; min-width: 0; min-height: 0; aspect-ratio: auto;
   border: 0; border-radius: 0; background: #000; color: #fff;
-  --video-brand: #8b5cf6; --video-border: 0; --video-border-radius: 0;
+  --media-brand: var(--theme-video-brand, #fff);
+  --video-brand: var(--theme-video-brand, #fff);
+  --media-font-family: "Fragment Mono", ui-monospace, monospace;
+  --video-font-family: "Fragment Mono", ui-monospace, monospace;
+  --video-border: 0; --video-border-radius: 0;
 }
 .media-player [data-media-provider] {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -38,26 +56,41 @@ html, body, #player-root, .player-shell { width: 100%; height: 100%; margin: 0; 
 .player-seek-button:hover,
 .player-fullscreen-button:hover { background: rgb(255 255 255 / 12%); }
 .player-seek-button:focus-visible,
-.player-fullscreen-button:focus-visible { outline: 2px solid #a78bfa; outline-offset: -2px; }
+.player-fullscreen-button:focus-visible { outline: 2px solid var(--theme-video-brand, #fff); outline-offset: -2px; }
 .player-seek-button .vds-icon,
 .player-fullscreen-button .vds-icon { width: 28px; height: 28px; }
 .player-fullscreen-button:disabled { cursor: wait; opacity: .55; }
-.player-message { color: #bbb; font-size: 14px; }
-.player-shortcuts { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 24px; border: 1px solid #666; border-radius: 10px; color: #eee; background: #202020; }
-.player-shortcuts::backdrop { background: rgb(0 0 0 / 65%); }
-.player-shortcuts h2 { margin-top: 0; font-size: 20px; }
-.player-shortcuts dl { display: grid; grid-template-columns: auto 1fr; gap: 12px 20px; font-size: 14px; }
-.player-shortcuts dt { font-weight: 600; }
-.player-shortcuts dd { margin: 0; color: #ccc; }
-.player-shortcuts button, .player-notice button { padding: 8px 14px; color: #fff; background: #333; border: 1px solid #777; border-radius: 5px; cursor: pointer; }
-.player-notice { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 90; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; color: white; background: #292929; border-radius: 6px; }
+
+/* Overlays on the video keep the black surface. */
+.player-message { padding: 48px 0; color: var(--muted); font-size: 13px; }
+.player-next {
+  position: absolute; inset: 0; z-index: 90; display: grid; place-content: center; justify-items: center; gap: 12px;
+  color: #fff; text-align: center; background: rgb(0 0 0 / 65%);
+}
+.player-next b { font-weight: 400; font-size: 16px; }
+.player-next > span { color: rgb(255 255 255 / 60%); font-size: 13px; }
+.player-next div { display: flex; gap: 8px; margin-top: 6px; }
+.player-next button { padding: 5px 12px; border: 1px solid rgb(255 255 255 / 30%); border-radius: 4px; color: #fff; font-size: 13px; }
+.player-next button.primary { background: var(--theme-video-brand, #fff); color: var(--theme-video-brand-text, #000); border-color: var(--theme-video-brand, #fff); }
+.player-notice { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 95; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; color: #fff; font-size: 13px; background: #292929; border-radius: 6px; }
+.player-notice button { padding: 4px 10px; color: #fff; background: #333; border: 1px solid #777; border-radius: 5px; cursor: pointer; }
 .player-error {
   position: absolute; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 14px;
   padding: 32px; color: #f5f5f5; text-align: center; background: rgb(0 0 0 / 82%);
 }
-.player-error strong { font-size: 22px; }
-.player-error span { max-width: 640px; color: #c7c7c7; }
+.player-error strong { font-size: 18px; font-weight: 400; }
+.player-error span { max-width: 640px; font-size: 13px; color: #c7c7c7; }
 .player-error div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.player-error button { border: 1px solid #666; border-radius: 6px; padding: 9px 14px; color: #fff; background: #242424; cursor: pointer; }
-.player-error button:first-child { border-color: #8b5cf6; background: #6d3ed1; }
+.player-error button { border: 1px solid rgb(255 255 255 / 30%); border-radius: 4px; padding: 5px 12px; font-size: 13px; color: #fff; cursor: pointer; }
+.player-error button:first-child { background: var(--theme-video-brand, #fff); color: var(--theme-video-brand-text, #000); border-color: var(--theme-video-brand, #fff); }
 .player-error button:disabled { cursor: not-allowed; opacity: .45; }
+
+/* The shortcuts sheet sits over the app, so it follows the app theme. */
+.player-shortcuts { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 24px; border: 1px solid var(--rule); border-radius: 8px; color: var(--text); background: var(--bg); }
+.player-shortcuts::backdrop { background: rgb(0 0 0 / 65%); }
+.player-shortcuts h2 { margin: 0 0 16px; font-size: 16px; color: var(--text); display: block; }
+.player-shortcuts dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; font-size: 13px; margin: 0 0 20px; }
+.player-shortcuts dt { color: var(--text); }
+.player-shortcuts dd { margin: 0; color: var(--muted); }
+.player-shortcuts button { padding: 5px 12px; color: var(--text); border: 1px solid var(--rule); border-radius: 4px; font-size: 13px; cursor: pointer; }
+.player-shortcuts button:hover { background: var(--raised); border-color: var(--muted); }

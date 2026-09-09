@@ -42,3 +42,25 @@ Regenerate the reference previews from `desktop-app/`:
 ```sh
 env -u ELECTRON_RUN_AS_NODE npx electron design/variants/capture.cjs
 ```
+
+## Built-in player inside the main window
+
+`player-in-window.html` explores folding the built-in player into the main window instead of a second
+BrowserWindow. Both layouts keep the B2 system: one line of context in Fragment Mono, chips and quiet
+text buttons, key hints in the footer, and the three theme colours.
+
+- **A1, player takes the page.** The video fills the page area edge to edge. Above it one line shows the
+  title, "episode n of m", and the stream detail, with prev, next, and episodes on the right. Escape returns
+  to the series grid with the cursor on the current episode. When an episode ends the next one is announced
+  in the video area with a short countdown; Enter plays now and Escape stays. Native fullscreen shows only
+  the video, with the title fading in alongside the controls.
+- **A2, video above the grid.** No new screen. The series header collapses to a single row with a small
+  cover, a fixed-height video panel sits under it, and the source bar and episode grid follow. Tab moves
+  focus between the video and the grid. The panel is pillarboxed at the default window size, which is
+  the trade-off for keeping the grid in view.
+
+The video surface is always black. Vidstack's controls take the theme's highlight colour. A dark highlight,
+such as paper's, would vanish on black, so the renderer falls back to white for the player controls
+(`videoBrand` in `shared/theme.ts`).
+
+Capture these previews with `env -u ELECTRON_RUN_AS_NODE npx electron design/variants/capture.cjs player-in-window mocha,paper`.

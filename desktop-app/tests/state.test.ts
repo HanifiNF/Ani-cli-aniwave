@@ -75,8 +75,9 @@ describe("StateStore", () => {
       playbackTarget: "builtin", startPlayerFullscreen: true, playerPath: "C:\\VLC\\vlc.exe"
     });
     await expect(fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "external", playerPath: "" })).rejects.toThrow(/external player path/i);
-    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false });
-    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "" });
+    expect(fresh.snapshot().settings.autoplayNext).toBe(true);
+    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false, autoplayNext: false });
+    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "", autoplayNext: false });
   });
 
   it("repairs unknown themes and partial custom colours on load", async () => {

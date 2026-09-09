@@ -1,5 +1,5 @@
-/* Runs the production player, preload and fullscreen bridge in an isolated Electron app.
-   Requires ffmpeg on PATH. ANI_PLAYER_NATIVE_TEST=1 also exercises the native window manager. */
+/* Runs the production app, preload and fullscreen bridge in an isolated Electron app and drives the
+   built-in player screen. Requires ffmpeg on PATH. ANI_PLAYER_NATIVE_TEST=1 also exercises the native window manager. */
 const { app, BrowserWindow, ipcMain, session, Menu } = require('electron');
 const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
@@ -24,6 +24,8 @@ let current;
 const contexts = new Map();
 let fullscreenRequests = 0;
 let simulatedFullscreen = false;
+let playerActive = false;
+let refreshMenu = () => {};
 let rejectedMediaRequest = false;
 const errors = [];
 const requests = [];
@@ -35,7 +37,7 @@ async function waitFor(expression, label, timeout = 10000) {
     if (await evaluate(expression)) return;
     await delay(50);
   }
-  throw new Error(`Timed out: ${label}\n${JSON.stringify(await evaluate("({html:document.body.innerText, video:document.querySelector('video')?.error?.message})"))}`);
+  throw new Error(`Timed out: ${label}\n${JSON.stringify(await evaluate("(() => { const v=document.querySelector('video'); return {html:document.body.innerText, error:v?.error?.message, paused:v?.paused, time:v?.currentTime, width:v?.videoWidth, src:v?.currentSrc, menu:document.querySelector('.vds-menu-items[data-open]')?.className, active:document.activeElement?.className, buffered:v && [...Array(v.buffered.length)].map((_,i)=>[v.buffered.start(i),v.buffered.end(i)]), frames:v?.getVideoPlaybackQuality?.().totalVideoFrames, qualities:[...document.querySelectorAll('.vds-quality-radio')].map(e=>e.textContent+(e.getAttribute('aria-checked')==='true'?'*':''))}; })()"))}`);
 }
 const key = async (value, extra = {}) => evaluate(`(() => {
   const target = document.activeElement || document.body;
@@ -51,25 +53,32 @@ async function load(path, episode = 'one') {
     episode: { id: `aniwave:fixture-${episode}`, entry: { animeId:'aniwave:fixture-1', title:'Player fixture', lastEpisode:episode === 'one' ? '1' : '2', mode:'sub', updatedAt:'', lastProvider:'aniwave' } } };
   contexts.set(String(id), current);
   await store.recordHistory({ ...current.episode.entry, completed:false });
-  if (id === 1) await win.loadFile(resolve('dist/player.html'));
-  else win.webContents.send('player-window:load', payload());
+  if (id === 1) { await win.loadFile(resolve('dist/index.html')); await waitFor("!!document.querySelector('.app .field')", 'app shell'); }
+  win.webContents.send('player:load', payload());
   await waitFor(`document.title === ${JSON.stringify(current.title)} && document.querySelector('video')?.readyState >= 3`, 'HLS ready');
   await waitFor("document.querySelector('video')?.currentSrc.startsWith('blob:')", 'bundled HLS engine');
 }
 async function checkGeometry(width, height, aspect = 16/9) {
   if (width && height) win.setContentSize(width, height);
   await delay(150);
+  // The playback surface fills the page between the header line and the footer; in fullscreen it fills the window.
   const geometry = await evaluate(`(() => {
     const r=e=>{const b=e.getBoundingClientRect();return [b.x,b.y,b.width,b.height]};
-    return {viewport:[innerWidth,innerHeight], boxes:[...document.querySelectorAll('.player-shell,[data-media-player],[data-media-provider],video')].map(r),fit:getComputedStyle(document.querySelector('video')).objectFit};
+    const surface=r(document.querySelector('.player-surface'));
+    return {viewport:[innerWidth,innerHeight], surface, fullscreen:!!document.querySelector('.player-shell.is-fullscreen'),
+      boxes:[...document.querySelectorAll('[data-media-player],[data-media-provider],video')].map(r),fit:getComputedStyle(document.querySelector('video')).objectFit};
   })()`);
+  const [sx,sy,sw,sh] = geometry.surface;
+  assert.ok(Math.abs(sx)<1 && Math.abs(sw-geometry.viewport[0])<1, JSON.stringify(geometry));
+  if (geometry.fullscreen) assert.ok(Math.abs(sy)<1 && Math.abs(sh-geometry.viewport[1])<1, JSON.stringify(geometry));
+  else assert.ok(sy>0 && sh>geometry.viewport[1]*0.6, JSON.stringify(geometry));
   for (const [x,y,w,h] of geometry.boxes) {
-    assert.ok(Math.abs(x)<1 && Math.abs(y)<1 && Math.abs(w-geometry.viewport[0])<1 && Math.abs(h-geometry.viewport[1])<1, JSON.stringify(geometry));
+    assert.ok(Math.abs(x-sx)<1 && Math.abs(y-sy)<1 && Math.abs(w-sw)<1 && Math.abs(h-sh)<1, JSON.stringify(geometry));
   }
   assert.equal(geometry.fit,'contain');
   const video = await info();
   assert.ok(Math.abs(video.width/video.height - aspect)<0.01);
-  if (Math.abs(geometry.viewport[0]/geometry.viewport[1] - aspect) < 0.01) return;
+  if (Math.abs(sw/sh - aspect) < 0.01) return;
   const shot = await win.webContents.capturePage();
   if (process.env.ANI_PLAYER_CAPTURE_DIR) {
     mkdirSync(process.env.ANI_PLAYER_CAPTURE_DIR,{recursive:true});
@@ -77,7 +86,8 @@ async function checkGeometry(width, height, aspect = 16/9) {
   }
   const bitmap = shot.toBitmap(), size = shot.getSize();
   // Test a point deep inside a letterbox/pillarbox, away from controls and focus rings.
-  const [x,y] = geometry.viewport[0]/geometry.viewport[1] > aspect ? [5,Math.floor(size.height/2)] : [Math.floor(size.width/2),5];
+  const scale = size.width/geometry.viewport[0];
+  const [x,y] = sw/sh > aspect ? [Math.floor((sx+5)*scale),Math.floor((sy+sh/2)*scale)] : [Math.floor((sx+sw/2)*scale),Math.floor((sy+5)*scale)];
   const pixel = [...bitmap.subarray((y*size.width+x)*4,(y*size.width+x)*4+3)];
   assert.ok(pixel.every(value => value<12), `Expected black bars, got ${pixel}`);
 }
@@ -105,28 +115,40 @@ app.whenReady().then(async () => {
     requests.push(details.url);
     callback({cancel:!details.url.startsWith('http://127.0.0.1:')});
   });
+  // Offscreen rendering keeps Chromium painting and decoding video in the hidden window; otherwise it can
+  // drop the video track for a background player and resolution changes never surface.
   win = new BrowserWindow({width:960,height:640,useContentSize:true,show:false,backgroundColor:'#000000',fullscreenable:true,resizable:true,
-    webPreferences:{preload:resolve('dist-electron/electron/player-preload.js'),partition:'ani-player-integration',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+    webPreferences:{preload:resolve('dist-electron/electron/preload.js'),partition:'ani-player-integration',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:!native}});
   win.webContents.on('console-message', (event) => { if (/violates|Uncaught/.test(event.message)) errors.push(event.message); });
   registerPlayerFullscreenEvents(win);
-  installApplicationMenu(()=>win);
-  ipcMain.handle('player-window:ready',event=>{assertPlayerSender(win,event);return payload();});
-  ipcMain.handle('player-window:storage',async(event,sessionId,update)=>{assertPlayerSender(win,event);await store.savePlayerStorage(contexts.get(sessionId),update);});
-  ipcMain.on('player-window:diagnostic',(event,sessionId,record)=>{
+  refreshMenu = installApplicationMenu(()=>win, ()=>playerActive);
+  ipcMain.handle('state:get',()=>store.snapshot());
+  ipcMain.handle('app:icon',()=>undefined);
+  ipcMain.handle('player:ready',event=>{assertPlayerSender(win,event);return current ? payload() : undefined;});
+  ipcMain.handle('player:active',(event,active)=>{assertPlayerSender(win,event);playerActive=active===true;refreshMenu();});
+  ipcMain.handle('player:storage',async(event,sessionId,update)=>{assertPlayerSender(win,event);await store.savePlayerStorage(contexts.get(sessionId),update);});
+  ipcMain.on('player:diagnostic',(event,sessionId,record)=>{
     assertPlayerSender(win,event);
     if(contexts.has(sessionId)) diagnostics.record(sessionId,record);
   });
-  ipcMain.handle('player-window:fullscreen',async(event,fullscreen)=>{
+  ipcMain.handle('player:fullscreen',async(event,fullscreen)=>{
     assertPlayerSender(win,event); fullscreenRequests++;
     if(native) return setPlayerFullscreen(win,fullscreen);
-    await delay(80); simulatedFullscreen=fullscreen; win.webContents.send('player-window:fullscreen-change',fullscreen);return fullscreen;
+    await delay(80); simulatedFullscreen=fullscreen; win.webContents.send('player:fullscreen-change',fullscreen);return fullscreen;
   });
-  ipcMain.handle('player-window:external',()=>false);
-  ipcMain.handle('player-window:close',()=>win.close());
+  ipcMain.handle('player:external',()=>false);
 
   if(native) {win.show();win.focus();}
   await load('master.m3u8');
-  console.log('PASS: bundled HLS startup with production CSP');
+  await waitFor("document.querySelector('.now')?.textContent.includes('Player fixture') && document.querySelector('.now')?.textContent.includes('episode 1')", 'episode header');
+  assert.equal(await evaluate("!!document.querySelector('.app .field')"), false, 'search field hidden while playing');
+  if (process.env.ANI_PLAYER_CAPTURE_DIR) {
+    mkdirSync(process.env.ANI_PLAYER_CAPTURE_DIR,{recursive:true});
+    await evaluate("document.querySelector('[data-media-player]').dispatchEvent(new PointerEvent('pointermove',{bubbles:true}))");
+    await delay(200);
+    writeFileSync(join(process.env.ANI_PLAYER_CAPTURE_DIR,'player-screen.png'),(await win.webContents.capturePage()).toPNG());
+  }
+  console.log('PASS: bundled HLS startup with production CSP inside the app window');
   await waitFor("!document.querySelector('video').paused", 'autoplay');
   await key('k'); await waitFor("document.querySelector('video').paused", 'K before click');
   await key(' '); await waitFor("!document.querySelector('video').paused", 'Space before click');
@@ -207,12 +229,13 @@ app.whenReady().then(async () => {
   assert.equal((await info()).volume,saved.volume);
   console.log('PASS: preferences and resume survive changing stream URLs');
   await key('k');
-  await checkGeometry(640,360,16/9);
-  await checkGeometry(960,640,16/9);
-  await checkGeometry(900,400,16/9);
-  await load('classic/index.m3u8','two'); await key('k'); await checkGeometry(960,600,4/3);
-  await load('portrait/index.m3u8','three'); await key('k'); await checkGeometry(960,600,9/16);
-  console.log('PASS: full-window sizing and black bars for 16:9, 4:3 and portrait video');
+  // Sizes stay at or above the app window minimum of 920 by 620.
+  await checkGeometry(920,620,16/9);
+  await checkGeometry(1240,800,16/9);
+  await checkGeometry(1400,620,16/9);
+  await load('classic/index.m3u8','two'); await key('k'); await checkGeometry(960,640,4/3);
+  await load('portrait/index.m3u8','three'); await key('k'); await checkGeometry(960,640,9/16);
+  console.log('PASS: page sizing and black bars for 16:9, 4:3 and portrait video');
   await evaluate("document.querySelector('video').currentTime=31.8; document.querySelector('video').play()");
   await waitFor("document.querySelector('video').ended",'end playback'); await delay(400);
   assert.equal(store.snapshot().history[0].completed,true);
@@ -266,12 +289,18 @@ app.whenReady().then(async () => {
   assert.ok(records.some(row=>row.event==='seeked' && Math.abs(row.seekTime-25)<0.1));
   assert.ok(!log.includes('http://') && !log.includes('Integration one'));
   diagnostics.setEnabled(false);
-  win.webContents.send('player-window:diagnostics-change',false);
+  win.webContents.send('player:diagnostics-change',false);
   await delay(100); await diagnostics.flush();
   const disabledLog = readFileSync(diagnostics.filePath,'utf8');
   await key('ArrowRight',{shiftKey:true}); await delay(150); await diagnostics.flush();
   assert.equal(readFileSync(diagnostics.filePath,'utf8'),disabledLog);
   console.log('PASS: keyboard and seek diagnostics reach local logs; disabling stops recording');
+  await key('Escape');
+  await waitFor("!document.querySelector('.player-surface') && !!document.querySelector('.app .field')", 'Escape returns to the app');
+  await waitFor(`document.title === 'Ani Desktop'`, 'window title restored');
+  assert.equal(playerActive, false, 'player reported inactive');
+  assert.ok(!Menu.getApplicationMenu().items.find(item=>item.label==='Playback').submenu.items.find(item=>item.label==='Play / Pause').enabled, 'playback menu disabled outside the player');
+  console.log('PASS: Escape leaves the player screen and hands the window back to the app');
   await diagnostics.close();
   win.destroy();server.close();await delay(100);rmSync(directory,{recursive:true,force:true});app.exit(0);
 }).catch(error=>{console.error(error);if(win&&!win.isDestroyed())win.destroy();server?.close();app.exit(1);});

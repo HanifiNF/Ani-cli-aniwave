@@ -50,8 +50,14 @@ A CLI to browse and watch anime (alone and with friends). This custom v5 build s
 ## Desktop application
 
 This repository includes **Ani Desktop**, an Electron application with search,
-provider selection, bookmarks, history, and external media-player playback. It
-runs from source on macOS; the packaged installer currently targets Windows.
+provider selection, bookmarks, history, and a built-in player. Episodes play
+inside the app window: the video takes the page, one line above it shows the
+title, episode, and stream details with previous and next, and the footer keeps
+the key hints. Escape closes an open menu, then leaves fullscreen, then returns
+to the episode grid. When an episode ends the next one starts after a short
+countdown, which Settings can turn off. An external player such as mpv, VLC, or
+IINA can be used instead. It runs from source on macOS; the packaged installer
+currently targets Windows.
 
 With Node.js 22 or newer installed, run these commands from the repository root:
 
