@@ -11,12 +11,14 @@ const { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen 
 const { StateStore } = require('../dist-electron/electron/state.js');
 const { playbackKey } = require('../dist-electron/shared/playback.js');
 const { installApplicationMenu } = require('../dist-electron/electron/menu.js');
+const { PlayerDiagnostics } = require('../dist-electron/electron/player-diagnostics.js');
 
 const directory = mkdtempSync(join(tmpdir(), 'ani-player-integration-'));
 app.setPath('userData', join(directory, 'user-data'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 const native = process.env.ANI_PLAYER_NATIVE_TEST === '1';
 let win, server, store;
+let diagnostics;
 let id = 0;
 let current;
 const contexts = new Map();
@@ -40,7 +42,7 @@ const key = async (value, extra = {}) => evaluate(`(() => {
   for (const type of ['keydown','keyup']) target.dispatchEvent(new KeyboardEvent(type, {key:${JSON.stringify(value)}, bubbles:true, cancelable:true, ...${JSON.stringify(extra)}}));
 })()`);
 const info = () => evaluate(`(() => {const v=document.querySelector('video'); return {time:v.currentTime, paused:v.paused, volume:v.volume, muted:v.muted, rate:v.playbackRate, source:v.currentSrc, width:v.videoWidth,height:v.videoHeight};})()`);
-const payload = () => ({ id: String(id), request: current, canOpenExternal: false,
+const payload = () => ({ id: String(id), request: current, canOpenExternal: false, diagnostics: true,
   fullscreen: native ? win.isFullScreen() : simulatedFullscreen,
   preferences: store.snapshot().playerPreferences ?? {}, position: store.snapshot().playbackPositions?.[playbackKey(current)] });
 async function load(path, episode = 'one') {
@@ -83,6 +85,7 @@ async function checkGeometry(width, height, aspect = 16/9) {
 app.whenReady().then(async () => {
   generateFixtures(join(directory,'media'));
   store = new StateStore(join(directory,'state.json')); await store.load();
+  diagnostics = new PlayerDiagnostics(join(directory,'logs')); diagnostics.setEnabled(true);
   server = createServer((req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.includes('..')) { res.writeHead(400).end(); return; }
@@ -109,6 +112,10 @@ app.whenReady().then(async () => {
   installApplicationMenu(()=>win);
   ipcMain.handle('player-window:ready',event=>{assertPlayerSender(win,event);return payload();});
   ipcMain.handle('player-window:storage',async(event,sessionId,update)=>{assertPlayerSender(win,event);await store.savePlayerStorage(contexts.get(sessionId),update);});
+  ipcMain.on('player-window:diagnostic',(event,sessionId,record)=>{
+    assertPlayerSender(win,event);
+    if(contexts.has(sessionId)) diagnostics.record(sessionId,record);
+  });
   ipcMain.handle('player-window:fullscreen',async(event,fullscreen)=>{
     assertPlayerSender(win,event); fullscreenRequests++;
     if(native) return setPlayerFullscreen(win,fullscreen);
@@ -250,5 +257,21 @@ app.whenReady().then(async () => {
     }
   }
   console.log('PASS: Shift+Arrow seeks 20 seconds with player/timeline focus, repeats, and playback boundaries');
+  await delay(100); await diagnostics.flush();
+  const log = readFileSync(diagnostics.filePath,'utf8');
+  const records = log.trim().split('\n').map(line=>JSON.parse(line));
+  assert.ok(records.some(row=>row.event==='keyboard' && row.key==='ArrowRight' && row.shift && row.phase==='keydown'));
+  assert.ok(records.some(row=>row.event==='keyboard' && row.key==='ArrowRight' && row.shift && row.phase==='keyup'));
+  assert.ok(records.some(row=>row.event==='media-seek-request' && Math.abs(row.seekTime-25)<0.1));
+  assert.ok(records.some(row=>row.event==='seeked' && Math.abs(row.seekTime-25)<0.1));
+  assert.ok(!log.includes('http://') && !log.includes('Integration one'));
+  diagnostics.setEnabled(false);
+  win.webContents.send('player-window:diagnostics-change',false);
+  await delay(100); await diagnostics.flush();
+  const disabledLog = readFileSync(diagnostics.filePath,'utf8');
+  await key('ArrowRight',{shiftKey:true}); await delay(150); await diagnostics.flush();
+  assert.equal(readFileSync(diagnostics.filePath,'utf8'),disabledLog);
+  console.log('PASS: keyboard and seek diagnostics reach local logs; disabling stops recording');
+  await diagnostics.close();
   win.destroy();server.close();await delay(100);rmSync(directory,{recursive:true,force:true});app.exit(0);
 }).catch(error=>{console.error(error);if(win&&!win.isDestroyed())win.destroy();server?.close();app.exit(1);});

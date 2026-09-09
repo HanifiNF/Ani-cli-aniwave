@@ -62,6 +62,7 @@ export function installDevApi(): void {
     async play() { await wait(300); return true; },
     async getState() { return snapshot(); },
     async saveSettings(settings) { state.settings = settings; return snapshot(); },
+    async openPlayerLogs() { throw new Error("Player logs are available in the desktop app"); },
     async setAppIcon() {},
     async toggleBookmark(entry) {
       const index = state.bookmarks.findIndex((item) => item.animeId === entry.animeId);

@@ -56,6 +56,7 @@ beforeEach(async () => {
     search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
+    openPlayerLogs: vi.fn().mockResolvedValue(undefined),
     setAppIcon: vi.fn().mockResolvedValue(undefined),
     toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn(),
     linkSources: vi.fn(), mergeEntries: vi.fn(), dismissMerge: vi.fn()
@@ -71,6 +72,17 @@ afterEach(async () => {
 });
 
 describe("live catalog search", () => {
+  it("saves opt-in diagnostics and opens the log folder from settings", async () => {
+    await click("settings");
+    const group = container.querySelector('[role="radiogroup"][aria-label="logging"]')!;
+    expect(group.querySelector('[aria-checked="true"]')?.textContent).toBe("off");
+    await act(async () => { [...group.querySelectorAll("button")].find(button => button.textContent === "on")!.click(); });
+    await click("open logs");
+    expect(api.openPlayerLogs).toHaveBeenCalledOnce();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    await click("save changes");
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ playerDiagnostics: true }));
+  });
   it.each([false, true])("continues the right episode when completed is %s", async (completed) => {
     const state = await api.getState();
     state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed,

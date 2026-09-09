@@ -20,6 +20,16 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 describe("StateStore", () => {
+  it("keeps player diagnostics opt-in and persists the setting", async () => {
+    expect(store.snapshot().settings.playerDiagnostics).toBe(false);
+    await store.saveSettings({ ...store.snapshot().settings, playerDiagnostics: true });
+    const reloaded = new StateStore(join(directory, "state.json"));
+    await reloaded.load();
+    expect(reloaded.snapshot().settings.playerDiagnostics).toBe(true);
+    await reloaded.saveSettings({ ...reloaded.snapshot().settings, playerDiagnostics: false });
+    await store.load();
+    expect(store.snapshot().settings.playerDiagnostics).toBe(false);
+  });
   it("keeps a valid poster and drops unsafe ones", async () => {
     await store.recordHistory(entry());
     expect(store.snapshot().history[0].poster).toBe("https://cdn.test/frieren.jpg");

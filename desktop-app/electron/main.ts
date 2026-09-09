@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from "electron";
 import type { AnimeResult, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
@@ -10,6 +10,7 @@ import { validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./play
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
+import { PlayerDiagnostics } from "./player-diagnostics";
 import { playbackKey } from "../shared/playback";
 
 let mainWindow: BrowserWindow | undefined;
@@ -18,6 +19,7 @@ let activePlayback: PlayRequest | undefined;
 let activePlaybackId = "";
 const playbackSessions = new Map<string, PlayRequest>();
 let store: StateStore;
+let diagnostics: PlayerDiagnostics;
 const PLAYER_PARTITION = "ani-desktop-player";
 
 function playerPayload(): PlayerSession {
@@ -26,6 +28,7 @@ function playerPayload(): PlayerSession {
   const key = playbackKey(activePlayback);
   return {
     id: activePlaybackId,
+    diagnostics: state.settings.playerDiagnostics === true,
     preferences: state.playerPreferences ?? {},
     position: key ? state.playbackPositions?.[key] : undefined,
     request: activePlayback,
@@ -64,6 +67,7 @@ async function launchExternalPlayer(request: PlayRequest, settings: Settings): P
 async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Promise<void> {
   activePlayback = request;
   activePlaybackId = randomUUID();
+  diagnostics.record(activePlaybackId, { event: "session-start", version: app.getVersion() });
   playbackSessions.set(activePlaybackId, request);
   if (playbackSessions.size > 8) playbackSessions.delete(playbackSessions.keys().next().value!);
   if (request.episode) await store.recordHistory({ ...request.episode.entry, completed: false });
@@ -100,6 +104,21 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
     }
   });
   const win = playerWindow;
+  const logWindow = (event: string) => {
+    if (win.isDestroyed()) return;
+    const [width, height] = win.getContentSize();
+    diagnostics.record(activePlaybackId, { event, width, height, fullscreen: win.isFullScreen() });
+  };
+  win.on("enter-full-screen", () => logWindow("enter-full-screen"));
+  win.on("leave-full-screen", () => logWindow("leave-full-screen"));
+  win.on("resize", () => logWindow("resize"));
+  win.on("focus", () => logWindow("focus"));
+  win.on("blur", () => logWindow("blur"));
+  win.on("unresponsive", () => logWindow("unresponsive"));
+  win.on("responsive", () => logWindow("responsive"));
+  win.on("closed", () => diagnostics.record(activePlaybackId, { event: "closed" }));
+  win.webContents.on("render-process-gone", (_event, details) => diagnostics.record(activePlaybackId,
+    { event: "renderer-gone", reason: details.reason, exitCode: details.exitCode }));
   registerPlayerFullscreenEvents(win);
   playerWindow.setMenuBarVisibility(false);
   playerWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -107,7 +126,9 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
   win.once("ready-to-show", () => {
     win.show();
     if (settings.startPlayerFullscreen) {
+      diagnostics.record(activePlaybackId, { event: "fullscreen-request", fullscreen: true });
       void setPlayerFullscreen(win, true).catch((error: unknown) => {
+        diagnostics.record(activePlaybackId, { event: "fullscreen-error" });
         if (!win.isDestroyed()) win.webContents.send("player-window:notice", error instanceof Error ? error.message : "Fullscreen could not be entered");
       });
     }
@@ -185,7 +206,20 @@ function registerIpc(): void {
   ipcMain.handle("catalog:episodes", (_event, anime: AnimeResult) => getEpisodes(anime, store.snapshot().settings));
   ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));
   ipcMain.handle("state:get", () => store.snapshot());
-  ipcMain.handle("state:settings", (_event, settings: Settings) => store.saveSettings(settings));
+  ipcMain.handle("state:settings", async (_event, settings: Settings) => {
+    const state = await store.saveSettings(settings);
+    const enabled = state.settings.playerDiagnostics === true;
+    diagnostics.setEnabled(enabled);
+    if (playerWindow && !playerWindow.isDestroyed()) playerWindow.webContents.send("player-window:diagnostics-change", enabled);
+    return state;
+  });
+  ipcMain.handle("player:open-logs", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Unknown settings sender");
+    await diagnostics.flush();
+    await mkdir(diagnostics.directory, { recursive: true });
+    const error = await shell.openPath(diagnostics.directory);
+    if (error) throw new Error("Could not open the player logs folder");
+  });
   ipcMain.handle("state:bookmark", (_event, entry: LibraryEntry) => store.toggleBookmark(entry));
   ipcMain.handle("state:bookmark-remove", (_event, animeId: string) => store.removeBookmark(String(animeId)));
   ipcMain.handle("state:history", (_event, entry: LibraryEntry) => store.recordHistory(entry));
@@ -203,9 +237,22 @@ function registerIpc(): void {
     return true;
   });
   ipcMain.handle("player-window:ready", (event) => { assertPlayerSender(playerWindow, event); return playerPayload(); });
-  ipcMain.handle("player-window:fullscreen", (event, fullscreen: unknown) => {
+  ipcMain.on("player-window:diagnostic", (event, sessionId: unknown, record: unknown) => {
+    try { assertPlayerSender(playerWindow, event); } catch { return; }
+    if (typeof sessionId === "string" && playbackSessions.has(sessionId)) diagnostics.record(sessionId, record);
+  });
+  ipcMain.handle("player-window:fullscreen", async (event, fullscreen: unknown) => {
     assertPlayerSender(playerWindow, event);
-    return setPlayerFullscreen(playerWindow, fullscreen);
+    const id = activePlaybackId;
+    diagnostics.record(id, { event: "fullscreen-request", fullscreen });
+    try {
+      const result = await setPlayerFullscreen(playerWindow, fullscreen);
+      diagnostics.record(id, { event: "fullscreen-result", fullscreen: result });
+      return result;
+    } catch (error) {
+      diagnostics.record(id, { event: "fullscreen-error" });
+      throw error;
+    }
   });
   ipcMain.handle("player-window:storage", async (event, sessionId: string, update: unknown) => {
     assertPlayerSender(playerWindow, event);
@@ -227,6 +274,8 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  diagnostics = new PlayerDiagnostics(join(app.getPath("userData"), "logs"));
+  diagnostics.setEnabled(store.snapshot().settings.playerDiagnostics === true);
   app.setName("Ani Desktop");
   installApplicationMenu(() => playerWindow);
   configurePlayerSession();
@@ -255,4 +304,13 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+let flushingDiagnostics = false;
+app.on("before-quit", (event) => {
+  if (flushingDiagnostics || !diagnostics) return;
+  flushingDiagnostics = true;
+  event.preventDefault();
+  const timeout = setTimeout(() => app.quit(), 2000);
+  void diagnostics.close().then(() => { clearTimeout(timeout); app.quit(); });
 });

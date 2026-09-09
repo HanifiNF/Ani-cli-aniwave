@@ -11,6 +11,7 @@ import {
 } from "@vidstack/react";
 import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
 import { DesktopMediaStorage } from "./player-storage";
+import { observePlayerDiagnostics } from "./player-diagnostics";
 import type { PlayerCommand, PlayerSession } from "../shared/contracts";
 
 function errorMessage(value: unknown): string {
@@ -76,12 +77,23 @@ export default function PlayerApp() {
   const [fullscreenBusy, setFullscreenBusy] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(false);
   const player = useRef<MediaPlayerInstance>(null);
   const shell = useRef<HTMLElement>(null);
   const shortcutsDialog = useRef<HTMLDialogElement>(null);
   const transition = useRef(false);
   const storage = useMemo(() => session ? new DesktopMediaStorage(session, window.aniPlayer,
     (reason) => setNotice(`Could not save playback preferences: ${errorMessage(reason)}`)) : undefined, [session]);
+
+  const logDiagnostic = useCallback((record: Record<string, unknown>) => {
+    if (diagnostics && session) window.aniPlayer.logDiagnostic(session.id, record);
+  }, [diagnostics, session?.id]);
+  useEffect(() => window.aniPlayer.onDiagnosticsChange(setDiagnostics), []);
+  useEffect(() => {
+    if (!diagnostics || !session || !shell.current) return;
+    logDiagnostic({ event: "renderer-ready", time: player.current?.state.currentTime });
+    return observePlayerDiagnostics(shell.current, () => player.current, logDiagnostic);
+  }, [diagnostics, session?.id, attempt, logDiagnostic]);
 
   useEffect(() => { if (session) document.title = session.request.title; }, [session]);
 
@@ -108,6 +120,7 @@ export default function PlayerApp() {
     const accept = (next: PlayerSession) => {
       if (!active) return;
       setSession((current) => current?.id === next.id ? current : next);
+      setDiagnostics(next.diagnostics === true);
       setFullscreen(nativeFullscreen ?? next.fullscreen); setError(undefined); setNotice(undefined);
     };
     let receivedLoad = false;
@@ -131,6 +144,7 @@ export default function PlayerApp() {
   }, []);
 
   const runCommand = useCallback((command: PlayerCommand) => {
+    logDiagnostic({ event: "command", command, time: player.current?.state.currentTime });
     if (command === "shortcuts") { setShowShortcuts(true); return; }
     if (showShortcuts || error) return;
     if (command === "fullscreen") { void changeFullscreen(!fullscreen); return; }
@@ -151,7 +165,7 @@ export default function PlayerApp() {
       case "speed-up": remote.changePlaybackRate(Math.min(2, media.state.playbackRate + 0.25)); break;
       case "speed-down": remote.changePlaybackRate(Math.max(0.25, media.state.playbackRate - 0.25)); break;
     }
-  }, [changeFullscreen, fullscreen, showShortcuts, error]);
+  }, [changeFullscreen, fullscreen, showShortcuts, error, logDiagnostic]);
 
   useEffect(() => window.aniPlayer.onCommand(runCommand), [runCommand]);
 

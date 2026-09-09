@@ -8,6 +8,7 @@ const api: AniDesktopApi = {
   play: (request: PlayRequest) => ipcRenderer.invoke("player:play", request),
   getState: () => ipcRenderer.invoke("state:get"),
   saveSettings: (settings: Settings) => ipcRenderer.invoke("state:settings", settings),
+  openPlayerLogs: () => ipcRenderer.invoke("player:open-logs"),
   setAppIcon: (pngDataUrl: string) => ipcRenderer.invoke("app:icon", pngDataUrl),
   toggleBookmark: (entry: LibraryEntry) => ipcRenderer.invoke("state:bookmark", entry),
   removeBookmark: (animeId: string) => ipcRenderer.invoke("state:bookmark-remove", animeId),

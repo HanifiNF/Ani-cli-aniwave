@@ -53,6 +53,12 @@ The player listens for shortcuts immediately after opening. Text fields, sliders
 
 The startup fullscreen preference applies when creating the player window. Selecting another episode preserves the current window mode. Fullscreen follows confirmed window-manager events and ignores repeated toggles during a transition. A failed transition displays a dismissible notice while playback continues.
 
+For troubleshooting, turn **Settings → player diagnostics → on**, then save. This takes effect in an open player immediately and stays enabled across restarts until you turn it off and save. **Open logs** opens the local log folder. Logging is off by default.
+
+`media-player.jsonl` contains timestamped JSON records grouped by playback session: key down/up, modifiers, repeats, focused control, whether the key's default action was prevented, seek requests and results, playback/buffering, volume, speed, track/quality changes, errors, native fullscreen, window size/focus, and renderer failures. Keyboard records include the input timestamp (`inputTime`, milliseconds since the Unix epoch) and playback position so they can be correlated with resulting media events. A prevented key alone does not prove that a seek succeeded; check the subsequent `seeked` record.
+
+Logs live in the app's user-data `logs` folder. The single `media-player.jsonl` file retains the latest **five minutes** of events, with cleanup once per second while the app is open, including when diagnostics are turned off. Startup and **Open logs** also trim expired entries. Time-based retention replaces the size limit and backup rotation; any existing backup is merged into the five-minute window and removed. Files left while the app is closed are trimmed at the next launch. Log writing runs asynchronously with a bounded queue; a `dropped` count identifies records omitted under heavy load. Text-field/composition input, stream URLs, titles, and arbitrary error messages are excluded. Nothing is uploaded. To report an issue, enable diagnostics, reproduce it, then promptly copy the log file before those events expire.
+
 If the built-in player reports a fatal error, use **Retry**. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
 
 ## Optional external players

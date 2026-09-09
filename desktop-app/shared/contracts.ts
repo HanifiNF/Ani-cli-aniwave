@@ -74,6 +74,7 @@ export interface Settings {
   playerPath: string;
   playbackTarget: PlaybackTarget;
   startPlayerFullscreen: boolean;
+  playerDiagnostics?: boolean;
   preferredQuality: string;
   preferredMode: TranslationMode;
   preferredProvider: ProviderPreference;
@@ -119,6 +120,7 @@ export interface AniDesktopApi {
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
   saveSettings(settings: Settings): Promise<PersistedState>;
+  openPlayerLogs(): Promise<void>;
   setAppIcon(pngDataUrl: string): Promise<void>;
   toggleBookmark(entry: LibraryEntry): Promise<PersistedState>;
   removeBookmark(animeId: string): Promise<PersistedState>;
@@ -138,6 +140,7 @@ export interface PlayerSession {
   fullscreen: boolean;
   preferences: PlayerPreferences;
   position?: PlaybackPosition;
+  diagnostics?: boolean;
 }
 
 export interface AniPlayerApi {
@@ -146,6 +149,8 @@ export interface AniPlayerApi {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
   onCommand(listener: (command: PlayerCommand) => void): () => void;
   onNotice(listener: (message: string) => void): () => void;
+  onDiagnosticsChange(listener: (enabled: boolean) => void): () => void;
+  logDiagnostic(sessionId: string, record: Record<string, unknown>): void;
   saveStorage(sessionId: string, update: PlayerStorageUpdate): Promise<void>;
   setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;

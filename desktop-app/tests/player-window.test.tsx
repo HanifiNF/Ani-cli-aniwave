@@ -86,6 +86,8 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   cleanup.mockClear();
   api = {
+    onDiagnosticsChange: vi.fn(() => vi.fn()),
+    logDiagnostic: vi.fn(),
     onCommand: vi.fn(() => vi.fn()),
     onNotice: vi.fn(() => vi.fn()),
     saveStorage: vi.fn().mockResolvedValue(undefined),

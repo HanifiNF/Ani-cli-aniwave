@@ -2,7 +2,7 @@ import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 
 export const PLAYER_FULLSCREEN_CHANGED = "player-window:fullscreen-change";
 
-export function assertPlayerSender(playerWindow: BrowserWindow | undefined, event: IpcMainInvokeEvent): asserts playerWindow is BrowserWindow {
+export function assertPlayerSender(playerWindow: BrowserWindow | undefined, event: Pick<IpcMainInvokeEvent, "sender" | "senderFrame">): asserts playerWindow is BrowserWindow {
   if (
     !playerWindow
     || playerWindow.isDestroyed()
