@@ -1,4 +1,5 @@
-import type { AnimeResult, Episode, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
+import type { AnimeResult, Episode, EpisodeCatalog, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
+import { animeSources, unifyAnimeResults } from "../shared/catalog";
 import { findEmbedUrl, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
@@ -44,22 +45,21 @@ async function searchOne(query: string, provider: ProviderName, config: SourceCo
   return parseSearchPage(await fetchText(`${root}/browse?q=${encodeURIComponent(query)}`, "AniDB search", `${root}/`));
 }
 
-export async function searchAnime(query: string, config: SourceConfig, requested?: ProviderPreference): Promise<AnimeResult[]> {
+export async function searchAnime(query: string, config: SourceConfig, requested?: ProviderPreference, links: string[][] = []): Promise<AnimeResult[]> {
   const cleaned = query.trim();
   if (!cleaned) return [];
   if (cleaned.length > 120) throw new Error("Search query is too long");
   const preference = requested ?? config.preferredProvider;
   if (preference !== "auto") return searchOne(cleaned, preference, config);
-  const failures: string[] = [];
-  for (const provider of ["aniwave", "anidb"] as const) {
-    try { const found = await searchOne(cleaned, provider, config); if (found.length) return found; }
-    catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+  const settled = await Promise.allSettled((["aniwave", "anidb"] as const).map((provider) => searchOne(cleaned, provider, config)));
+  const found = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  if (settled.every((result) => result.status === "rejected")) {
+    throw new Error(`All providers failed: ${settled.map((result) => result.status === "rejected" && (result.reason instanceof Error ? result.reason.message : String(result.reason))).join("; ")}`);
   }
-  if (failures.length === 2) throw new Error(`All providers failed: ${failures.join("; ")}`);
-  return [];
+  return unifyAnimeResults(found, links);
 }
 
-export async function getEpisodes(animeId: string, config: SourceConfig): Promise<Episode[]> {
+async function getProviderEpisodes(animeId: string, config: SourceConfig): Promise<Episode[]> {
   const { provider, value } = splitId(animeId);
   if (provider === "aniwave") {
     if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniWave anime identifier");
@@ -69,6 +69,16 @@ export async function getEpisodes(animeId: string, config: SourceConfig): Promis
   if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniDB anime identifier");
   const numeric = value.slice(value.lastIndexOf("-") + 1);
   return parseEpisodes(await fetchJson(`${sourceBase(config.anidbBaseUrl)}/api/frontend/anime/${numeric}/episodes`, "AniDB episode lookup"));
+}
+
+export async function getEpisodes(anime: AnimeResult, config: SourceConfig): Promise<EpisodeCatalog> {
+  const sources = animeSources(anime).filter((source, index, all) => all.findIndex((item) => item.provider === source.provider) === index);
+  const settled = await Promise.allSettled(sources.map((source) => getProviderEpisodes(source.id, config)));
+  return {
+    groups: sources.map((source, index) => settled[index].status === "fulfilled"
+      ? { provider: source.provider, episodes: (settled[index] as PromiseFulfilledResult<Episode[]>).value }
+      : { provider: source.provider, episodes: [], error: (settled[index] as PromiseRejectedResult).reason instanceof Error ? (settled[index] as PromiseRejectedResult).reason.message : String((settled[index] as PromiseRejectedResult).reason) })
+  };
 }
 
 export async function getStreams(episodeId: string, mode: TranslationMode, config: SourceConfig): Promise<Stream[]> {

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
-import type { LibraryEntry, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
+import type { AnimeResult, LibraryEntry, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
 import { StateStore } from "./state";
@@ -68,8 +68,11 @@ function registerIpc(): void {
     if (process.platform === "darwin") app.dock?.setIcon(icon);
     else mainWindow.setIcon(icon);
   });
-  ipcMain.handle("catalog:search", (_event, query: string, provider?: ProviderPreference) => searchAnime(query, store.snapshot().settings, provider));
-  ipcMain.handle("catalog:episodes", (_event, animeId: string) => getEpisodes(animeId, store.snapshot().settings));
+  ipcMain.handle("catalog:search", (_event, query: string, provider?: ProviderPreference) => {
+    const state = store.snapshot();
+    return searchAnime(query, state.settings, provider, state.providerLinks);
+  });
+  ipcMain.handle("catalog:episodes", (_event, anime: AnimeResult) => getEpisodes(anime, store.snapshot().settings));
   ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", (_event, settings: Settings) => store.saveSettings(settings));
@@ -79,6 +82,9 @@ function registerIpc(): void {
   ipcMain.handle("state:history-remove", (_event, animeId: string) => store.removeHistory(String(animeId)));
   ipcMain.handle("state:history-clear", () => store.clearHistory());
   ipcMain.handle("state:remap", (_event, oldAnimeId: string, replacement) => store.remapEntry(oldAnimeId, replacement));
+  ipcMain.handle("state:link-sources", (_event, sourceIds: string[]) => store.linkSources(sourceIds));
+  ipcMain.handle("state:merge-entries", (_event, firstAnimeId: string, secondAnimeId: string) => store.mergeEntries(firstAnimeId, secondAnimeId));
+  ipcMain.handle("state:dismiss-merge", (_event, firstAnimeId: string, secondAnimeId: string) => store.dismissMerge(firstAnimeId, secondAnimeId));
   ipcMain.handle("player:play", async (_event, request: PlayRequest) => {
     const url = new URL(request.url);
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Invalid playback URL");
@@ -109,7 +115,8 @@ app.whenReady().then(async () => {
     const config = store.snapshot().settings;
     const results = await searchAnime(process.env.ANI_DESKTOP_SMOKE_QUERY, config);
     if (results.length === 0) throw new Error("Smoke test search returned no results");
-    const episodes = await getEpisodes(results[0].id, config);
+    const catalog = await getEpisodes(results[0], config);
+    const episodes = catalog.groups.find((group) => group.episodes.length)?.episodes ?? [];
     if (episodes.length === 0) throw new Error("Smoke test found no episodes");
     const streams = await getStreams(episodes[0].id, "sub", config);
     if (streams.length === 0) throw new Error("Smoke test found no streams");

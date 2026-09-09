@@ -1,11 +1,14 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AnimeResult, CustomTheme, LibraryEntry, PersistedState, Settings } from "../shared/contracts";
+import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
 
 const defaults: PersistedState = {
   bookmarks: [],
   history: [],
+  providerLinks: [],
+  dismissedMergeKeys: [],
   settings: {
     playerPath: process.platform === "win32" ? "mpv.exe" : "mpv",
     preferredQuality: "best",
@@ -33,7 +36,36 @@ function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!entry.title.trim() || entry.title.length > 240) throw new Error("Invalid anime title");
   if (!/^\d+(?:\.\d+)?$/.test(entry.lastEpisode)) throw new Error("Invalid episode number");
   const poster = normalizePoster(entry.poster);
-  return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt: new Date().toISOString(), ...(poster ? { poster } : {}) };
+  const sources = animeSources(entry).map((source) => ({ ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) }));
+  const lastProvider = entry.lastProvider ?? sources[0].provider;
+  const updatedAt = new Date().toISOString();
+  const progressByProvider = entry.progressByProvider ?? { [lastProvider]: { lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt } };
+  return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt, sources, lastProvider, progressByProvider, ...(poster ? { poster } : {}) };
+}
+
+function migrateEntry(entry: LibraryEntry): LibraryEntry {
+  const sources = animeSources(entry);
+  const lastProvider = entry.lastProvider ?? sources[0].provider;
+  return {
+    ...entry, sources, lastProvider,
+    progressByProvider: entry.progressByProvider ?? { [lastProvider]: { lastEpisode: entry.lastEpisode, mode: entry.mode, updatedAt: entry.updatedAt } }
+  };
+}
+
+function combineEntries(left: LibraryEntry, right: LibraryEntry): LibraryEntry {
+  const sources = [...animeSources(left), ...animeSources(right)].filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index);
+  const progressByProvider = { ...(left.progressByProvider ?? migrateEntry(left).progressByProvider), ...(right.progressByProvider ?? migrateEntry(right).progressByProvider) };
+  const latest = new Date(left.updatedAt).getTime() >= new Date(right.updatedAt).getTime() ? left : right;
+  const lastProvider = latest.lastProvider ?? animeSources(latest)[0].provider;
+  const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
+  const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
+  return {
+    animeId: primary.id,
+    title: primary.title || latest.title,
+    poster: primary.poster ?? left.poster ?? right.poster,
+    lastEpisode: progress.lastEpisode, mode: progress.mode, updatedAt: latest.updatedAt,
+    sources, lastProvider, progressByProvider
+  };
 }
 
 function normalizeTheme(value: unknown): CustomTheme {
@@ -57,8 +89,10 @@ export class StateStore {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<PersistedState>;
       const settings = { ...defaults.settings, ...(parsed.settings ?? {}) };
       this.state = {
-        bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
-        history: Array.isArray(parsed.history) ? parsed.history : [],
+        bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks.map(migrateEntry) : [],
+        history: Array.isArray(parsed.history) ? parsed.history.map(migrateEntry) : [],
+        providerLinks: Array.isArray(parsed.providerLinks) ? parsed.providerLinks : [],
+        dismissedMergeKeys: Array.isArray(parsed.dismissedMergeKeys) ? parsed.dismissedMergeKeys : [],
         settings: {
           ...settings,
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
@@ -97,9 +131,12 @@ export class StateStore {
 
   async toggleBookmark(rawEntry: LibraryEntry): Promise<PersistedState> {
     const entry = normalizeEntry(rawEntry);
-    const existing = this.state.bookmarks.findIndex((item) => item.animeId === entry.animeId);
+    const existing = this.state.bookmarks.findIndex((item) => overlaps(item, entry));
     if (existing >= 0) this.state.bookmarks.splice(existing, 1);
-    else this.state.bookmarks.unshift(entry);
+    else {
+      const historyEntry = this.state.history.find((item) => overlaps(item, entry));
+      this.state.bookmarks.unshift(historyEntry ? combineEntries(historyEntry, entry) : entry);
+    }
     await this.persist();
     return this.snapshot();
   }
@@ -112,10 +149,12 @@ export class StateStore {
 
   async recordHistory(rawEntry: LibraryEntry): Promise<PersistedState> {
     const entry = normalizeEntry(rawEntry);
-    const bookmarkIndex = this.state.bookmarks.findIndex((item) => item.animeId === entry.animeId);
-    const known = entry.poster ?? this.state.history.find((item) => item.animeId === entry.animeId)?.poster ?? this.state.bookmarks[bookmarkIndex]?.poster;
-    const merged = known ? { ...entry, poster: known } : entry;
-    this.state.history = [merged, ...this.state.history.filter((item) => item.animeId !== entry.animeId)].slice(0, 100);
+    const bookmarkIndex = this.state.bookmarks.findIndex((item) => overlaps(item, entry));
+    const historyEntry = this.state.history.find((item) => overlaps(item, entry));
+    const known = entry.poster ?? historyEntry?.poster ?? this.state.bookmarks[bookmarkIndex]?.poster;
+    let merged = known ? { ...entry, poster: known } : entry;
+    if (historyEntry) merged = combineEntries(historyEntry, merged);
+    this.state.history = [merged, ...this.state.history.filter((item) => !overlaps(item, entry))].slice(0, 100);
     if (bookmarkIndex >= 0) this.state.bookmarks[bookmarkIndex] = merged;
     await this.persist();
     return this.snapshot();
@@ -142,6 +181,42 @@ export class StateStore {
       : entry;
     this.state.bookmarks = this.state.bookmarks.map(remap);
     this.state.history = this.state.history.map(remap);
+    await this.persist();
+    return this.snapshot();
+  }
+
+  async linkSources(ids: string[]): Promise<PersistedState> {
+    const unique = [...new Set(ids.filter((id) => /^(?:aniwave|anidb):/i.test(id)))];
+    if (unique.length < 2) return this.snapshot();
+    const links = this.state.providerLinks ?? [];
+    const touching = links.filter((group) => group.some((id) => unique.includes(id)));
+    const combined = [...new Set([...unique, ...touching.flat()])];
+    this.state.providerLinks = [...links.filter((group) => !touching.includes(group)), combined];
+    await this.persist();
+    return this.snapshot();
+  }
+
+  async mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState> {
+    const all = [...this.state.bookmarks, ...this.state.history];
+    const first = all.find((entry) => entry.animeId === firstAnimeId), second = all.find((entry) => entry.animeId === secondAnimeId);
+    if (!first || !second) throw new Error("Duplicate entries were not found");
+    const merged = combineEntries(first, second);
+    const mergeList = (entries: LibraryEntry[]) => {
+      const affected = entries.filter((entry) => overlaps(entry, first) || overlaps(entry, second));
+      if (affected.length === 0) return entries;
+      const firstIndex = entries.findIndex((entry) => affected.includes(entry));
+      return entries.flatMap((entry, index) => index === firstIndex ? [merged] : affected.includes(entry) ? [] : [entry]);
+    };
+    await this.linkSources([...sourceIds(first), ...sourceIds(second)]);
+    this.state.bookmarks = mergeList(this.state.bookmarks);
+    this.state.history = mergeList(this.state.history);
+    this.state.dismissedMergeKeys = [...new Set([...(this.state.dismissedMergeKeys ?? []), mergeKey(firstAnimeId, secondAnimeId)])];
+    await this.persist();
+    return this.snapshot();
+  }
+
+  async dismissMerge(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState> {
+    this.state.dismissedMergeKeys = [...new Set([...(this.state.dismissedMergeKeys ?? []), mergeKey(firstAnimeId, secondAnimeId)])];
     await this.persist();
     return this.snapshot();
   }

@@ -18,11 +18,12 @@ export function parseSearchPage(html: string): AnimeResult[] {
     const title = attributes.match(/alt=["']([^"']+)["']/i)?.[1];
     if (!title) continue;
     const poster = attributes.match(/(?:src|data-src)=["']([^"']+)["']/i)?.[1];
+    const decodedTitle = decodeEntities(title.trim());
+    const id = `anidb:${match[1]}`;
+    const decodedPoster = poster ? decodeEntities(poster) : undefined;
     results.set(match[1], {
-      id: `anidb:${match[1]}`,
-      title: decodeEntities(title.trim()),
-      poster: poster ? decodeEntities(poster) : undefined,
-      provider: "anidb"
+      id, title: decodedTitle, poster: decodedPoster, provider: "anidb",
+      sources: [{ id, provider: "anidb", title: decodedTitle, aliases: [decodedTitle], poster: decodedPoster }]
     });
   }
 
@@ -30,7 +31,8 @@ export function parseSearchPage(html: string): AnimeResult[] {
   if (results.size === 0) {
     const fallback = /anime\/([a-z0-9-]+-\d+)["'][^>]*[\s\S]*?alt=["']([^"']+)["']/gi;
     for (const match of normalized.matchAll(fallback)) {
-      results.set(match[1], { id: `anidb:${match[1]}`, title: decodeEntities(match[2].trim()), provider: "anidb" });
+      const id = `anidb:${match[1]}`, title = decodeEntities(match[2].trim());
+      results.set(match[1], { id, title, provider: "anidb", sources: [{ id, provider: "anidb", title, aliases: [title] }] });
     }
   }
 
@@ -55,7 +57,7 @@ export function parseEpisodes(payload: unknown): Episode[] {
     const id = Number(record.id);
     const number = record.number;
     if (Number.isFinite(id) && (typeof number === "number" || typeof number === "string")) {
-      episodes.set(id, { id: `anidb:${id}`, number: String(number) });
+      episodes.set(id, { id: `anidb:${id}`, number: String(number), provider: "anidb" });
     }
   });
   return [...episodes.values()].sort((a, b) => Number(a.number) - Number(b.number));
@@ -113,11 +115,15 @@ export function parseAniwaveSearch(html: string): AnimeResult[] {
   const anchors = /<a\b([^>]*\bclass=["'][^"']*\b(?:name|d-title)\b[^"']*["'][^>]*)>([\s\S]*?)<\/a>/gi;
   for (const match of html.matchAll(anchors)) {
     const href = match[1].match(/\bhref=["']\/watch\/([^"'/?#]+)["']/i)?.[1];
-    const title = match[1].match(/\bdata-jp=["']([^"']+)["']/i)?.[1] ?? match[2].replace(/<[^>]+>/g, "").trim();
+    const romanized = match[1].match(/\bdata-jp=["']([^"']+)["']/i)?.[1];
+    const displayed = match[2].replace(/<[^>]+>/g, "").trim();
+    const title = displayed || romanized;
     if (!href || !title || !/-\d+$/.test(href)) continue;
     const vicinity = html.slice(Math.max(0, match.index! - 900), match.index! + match[0].length);
     const poster = vicinity.match(/<img[^>]+(?:data-src|src)=["']([^"']+)["']/i)?.[1];
-    results.set(href, { id: `aniwave:${href}`, title: decodeEntities(title), poster: poster ? decodeEntities(poster) : undefined, provider: "aniwave" });
+    const id = `aniwave:${href}`, decodedTitle = decodeEntities(title), decodedPoster = poster ? decodeEntities(poster) : undefined;
+    const aliases = [...new Set([decodedTitle, romanized && decodeEntities(romanized)].filter((value): value is string => Boolean(value)))];
+    results.set(href, { id, title: decodedTitle, poster: decodedPoster, provider: "aniwave", sources: [{ id, provider: "aniwave", title: decodedTitle, aliases, poster: decodedPoster }] });
   }
   return [...results.values()];
 }
@@ -131,7 +137,7 @@ export function parseAniwaveEpisodes(payload: unknown, animeNumericId: string): 
   const episodes = new Map<string, Episode>();
   for (const match of resultHtml(payload).matchAll(/<a\b[^>]*\bdata-num=["']([^"']+)["'][^>]*>/gi)) {
     const number = decodeEntities(match[1]);
-    episodes.set(number, { id: `aniwave:${animeNumericId}:${number}`, number });
+    episodes.set(number, { id: `aniwave:${animeNumericId}:${number}`, number, provider: "aniwave" });
   }
   return [...episodes.values()].sort((a, b) => Number(a.number) - Number(b.number));
 }

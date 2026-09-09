@@ -3,16 +3,40 @@ export type ProviderPreference = "auto" | "aniwave" | "anidb";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
 export type ThemePreset = "graphite" | "paper" | "nord" | "gruvbox" | "mocha" | "solarized-light" | "custom";
 
+export interface AnimeSource {
+  id: string;
+  provider: ProviderName;
+  title: string;
+  aliases: string[];
+  poster?: string;
+}
+
 export interface AnimeResult {
   id: string;
   title: string;
   poster?: string;
   provider: ProviderName;
+  sources?: AnimeSource[];
 }
 
 export interface Episode {
   id: string;
   number: string;
+  provider: ProviderName;
+}
+
+export interface EpisodeGroup {
+  provider: ProviderName;
+  episodes: Episode[];
+  error?: string;
+}
+
+export interface EpisodeCatalog { groups: EpisodeGroup[]; }
+
+export interface ProviderProgress {
+  lastEpisode: string;
+  mode: TranslationMode;
+  updatedAt: string;
 }
 
 export interface Stream {
@@ -30,6 +54,9 @@ export interface LibraryEntry {
   mode: TranslationMode;
   updatedAt: string;
   poster?: string;
+  sources?: AnimeSource[];
+  lastProvider?: ProviderName;
+  progressByProvider?: Partial<Record<ProviderName, ProviderProgress>>;
 }
 
 /** Three colours define a theme; every other tone is mixed from background and text. */
@@ -54,6 +81,8 @@ export interface PersistedState {
   bookmarks: LibraryEntry[];
   history: LibraryEntry[];
   settings: Settings;
+  providerLinks?: string[][];
+  dismissedMergeKeys?: string[];
 }
 
 export interface PlayRequest {
@@ -64,7 +93,7 @@ export interface PlayRequest {
 
 export interface AniDesktopApi {
   search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
-  episodes(animeId: string): Promise<Episode[]>;
+  episodes(anime: AnimeResult): Promise<EpisodeCatalog>;
   streams(episodeId: string, mode: TranslationMode): Promise<Stream[]>;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
@@ -76,4 +105,7 @@ export interface AniDesktopApi {
   removeHistory(animeId: string): Promise<PersistedState>;
   clearHistory(): Promise<PersistedState>;
   remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState>;
+  linkSources(sourceIds: string[]): Promise<PersistedState>;
+  mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
+  dismissMerge(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
 }
