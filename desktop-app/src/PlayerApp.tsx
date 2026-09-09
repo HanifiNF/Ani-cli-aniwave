@@ -215,7 +215,12 @@ export default function PlayerApp() {
         hideControlsOnMouseLeave
         keyTarget="document"
         keyDisabled={showShortcuts || Boolean(error)}
-        keyShortcuts={{ ...MEDIA_KEY_SHORTCUTS, toggleFullscreen: null }}
+        keyShortcuts={{
+          ...MEDIA_KEY_SHORTCUTS,
+          seekBackward: `${MEDIA_KEY_SHORTCUTS.seekBackward} Shift+ArrowLeft`,
+          seekForward: `${MEDIA_KEY_SHORTCUTS.seekForward} Shift+ArrowRight`,
+          toggleFullscreen: null
+        }}
         storage={storage}
         onPause={() => {
           if (player.current?.state.canPlay) void storage?.setTime(player.current.state.currentTime);

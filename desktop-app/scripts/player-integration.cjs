@@ -117,6 +117,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('player-window:external',()=>false);
   ipcMain.handle('player-window:close',()=>win.close());
 
+  if(native) {win.show();win.focus();}
   await load('master.m3u8');
   console.log('PASS: bundled HLS startup with production CSP');
   await waitFor("!document.querySelector('video').paused", 'autoplay');
@@ -213,5 +214,41 @@ app.whenReady().then(async () => {
   assert.deepEqual(errors,[]);
   assert.ok(requests.every(url=>url.startsWith('http://127.0.0.1:')),'Unexpected CDN request');
   console.log('PASS: completion recorded, transient HLS failure recovered, zero CDN/CSP errors');
+  // Exercise the real keyboard controller, including the timeline's own focus handler.
+  const duration = await evaluate("document.querySelector('video').duration");
+  for (const selector of ['[data-media-player]', '[data-media-time-slider]']) {
+    for (const [start, direction, expected, repeats] of [
+      [5, 'ArrowRight', 25, 0],
+      [25, 'ArrowLeft', 5, 0],
+      [5, 'ArrowLeft', 0, 0],
+      [25, 'ArrowRight', duration, 0],
+      [5, 'ArrowRight', duration, 2],
+      [25, 'ArrowLeft', 0, 2]
+    ]) {
+      // Isolate cases that reach the end of the fixture from later seek gestures.
+      await load('master.m3u8', `seek-${id}`);
+      await waitFor("!document.querySelector('video').paused", 'seek fixture autoplay');
+      await evaluate("document.querySelector('video').pause()");
+      await waitFor("document.querySelector('[data-media-player]').hasAttribute('data-paused')", 'paused before seeking');
+      await evaluate(`document.querySelector('[data-media-player]').dispatchEvent(new CustomEvent('media-seek-request', {detail: ${start}, bubbles: true}))`);
+      await waitFor(`Math.abs(document.querySelector('video').currentTime - ${start}) < 0.1 && !document.querySelector('video').seeking`, 'reset seek position');
+      await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+      // Capture seek destinations before end-of-media handling can change playback state.
+      await evaluate("window.seekDestinations = []; document.querySelector('video').addEventListener('seeking', event => window.seekDestinations.push(event.target.currentTime))");
+      await evaluate(`(async () => {
+        const target = document.activeElement;
+        for (let i = 0; i <= ${repeats}; i++) {
+          target.dispatchEvent(new KeyboardEvent('keydown', {
+            key: ${JSON.stringify(direction)}, shiftKey: true, repeat: i > 0, bubbles: true, cancelable: true
+          }));
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        target.dispatchEvent(new KeyboardEvent('keyup', {key: ${JSON.stringify(direction)}, shiftKey: true, bubbles: true, cancelable: true}));
+      })()`);
+      await waitFor(`window.seekDestinations.some(time => Math.abs(time - ${expected}) < 0.15)`, `Shift+${direction}, focus ${selector}, start ${start}, repeats ${repeats}`);
+      if (expected > 0 && expected < duration) assert.equal((await info()).paused, true, 'Seeking within the video preserves pause');
+    }
+  }
+  console.log('PASS: Shift+Arrow seeks 20 seconds with player/timeline focus, repeats, and playback boundaries');
   win.destroy();server.close();await delay(100);rmSync(directory,{recursive:true,force:true});app.exit(0);
 }).catch(error=>{console.error(error);if(win&&!win.isDestroyed())win.destroy();server?.close();app.exit(1);});
