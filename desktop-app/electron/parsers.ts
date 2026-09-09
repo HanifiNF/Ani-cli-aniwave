@@ -101,6 +101,7 @@ export function parseMasterPlaylist(playlist: string, masterUrl: string, provide
     streams.push({
       quality: height ? `${height}p` : bandwidth ? `${Math.round(bandwidth / 1000)}kbps` : "auto",
       url: new URL(path, masterUrl).toString(),
+      masterUrl,
       provider,
       referrer
     });

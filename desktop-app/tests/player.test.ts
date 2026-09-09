@@ -39,4 +39,10 @@ describe("playerArguments", () => {
       "--no-one-instance", "--no-qt-start-minimized", "--no-qt-system-tray", "--fullscreen", "--play-and-exit", "--meta-title=Example — Episode 1", "--http-referrer=https://play.test/embed", request.url
     ]);
   });
+
+  it("omits fullscreen switches for windowed external playback", () => {
+    expect(playerArguments("mpv.exe", request, false)).toEqual(["--force-media-title=Example — Episode 1", request.url]);
+    expect(playerArguments("C:\\Program Files\\VideoLAN\\VLC\\vlc.exe", request, false)).not.toContain("--fullscreen");
+    expect(playerArguments("iina-cli", request, false)).not.toContain("--mpv-fullscreen=yes");
+  });
 });

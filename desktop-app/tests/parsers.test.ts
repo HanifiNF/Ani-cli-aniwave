@@ -32,7 +32,7 @@ describe("source parsers", () => {
       "https://video.test/master.m3u8"
     );
     expect(streams.map((stream) => stream.quality)).toEqual(["720p", "360p"]);
-    expect(streams[0].url).toBe("https://video.test/720/index.m3u8");
+    expect(streams[0]).toMatchObject({ url: "https://video.test/720/index.m3u8", masterUrl: "https://video.test/master.m3u8" });
   });
 
   it("parses AniWave search and episodes into namespaced IDs", () => {

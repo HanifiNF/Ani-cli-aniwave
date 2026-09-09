@@ -2,6 +2,7 @@ export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
 export type ThemePreset = "graphite" | "paper" | "nord" | "gruvbox" | "mocha" | "solarized-light" | "custom";
+export type PlaybackTarget = "builtin" | "external";
 
 export interface AnimeSource {
   id: string;
@@ -42,6 +43,7 @@ export interface ProviderProgress {
 export interface Stream {
   quality: string;
   url: string;
+  masterUrl?: string;
   provider: ProviderName;
   server?: string;
   referrer?: string;
@@ -68,6 +70,8 @@ export interface CustomTheme {
 
 export interface Settings {
   playerPath: string;
+  playbackTarget: PlaybackTarget;
+  startPlayerFullscreen: boolean;
   preferredQuality: string;
   preferredMode: TranslationMode;
   preferredProvider: ProviderPreference;
@@ -108,4 +112,16 @@ export interface AniDesktopApi {
   linkSources(sourceIds: string[]): Promise<PersistedState>;
   mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
   dismissMerge(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
+}
+
+export interface PlayerSession {
+  request: PlayRequest;
+  canOpenExternal: boolean;
+}
+
+export interface AniPlayerApi {
+  ready(): Promise<PlayerSession>;
+  onLoad(listener: (session: PlayerSession) => void): () => void;
+  openExternal(): Promise<boolean>;
+  close(): Promise<void>;
 }

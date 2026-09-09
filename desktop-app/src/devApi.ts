@@ -27,7 +27,7 @@ const state: PersistedState = {
     { animeId: "anidb:vinland-2", title: "Vinland Saga Season 2", lastEpisode: "19", mode: "sub", updatedAt: days(12), poster: posters.vinland }
   ],
   settings: {
-    playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
+    playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
   }, providerLinks: [], dismissedMergeKeys: []
 };

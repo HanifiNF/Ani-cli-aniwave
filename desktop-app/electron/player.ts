@@ -1,7 +1,7 @@
 import { basename, win32 } from "node:path";
 import type { PlayRequest } from "../shared/contracts";
 
-export function playerArguments(playerPath: string, request: PlayRequest): string[] {
+export function playerArguments(playerPath: string, request: PlayRequest, fullscreen = true): string[] {
   const executable = win32.basename(basename(playerPath)).toLowerCase();
 
   if (executable === "iina-cli") {
@@ -10,7 +10,7 @@ export function playerArguments(playerPath: string, request: PlayRequest): strin
       // Both providers resolve HLS playlists. Some hosts label them as images
       // and omit .m3u8, which prevents FFmpeg's automatic format detection.
       "--mpv-demuxer-lavf-format=hls",
-      "--mpv-fullscreen=yes",
+      ...(fullscreen ? ["--mpv-fullscreen=yes"] : []),
       `--mpv-force-media-title=${request.title}`,
       ...(request.referrer ? [`--mpv-referrer=${request.referrer}`] : []),
       request.url
@@ -18,7 +18,7 @@ export function playerArguments(playerPath: string, request: PlayRequest): strin
   }
 
   if (executable === "mpv" || executable === "mpv.exe") {
-    return ["--fullscreen", `--force-media-title=${request.title}`, ...(request.referrer ? [`--referrer=${request.referrer}`] : []), request.url];
+    return [...(fullscreen ? ["--fullscreen"] : []), `--force-media-title=${request.title}`, ...(request.referrer ? [`--referrer=${request.referrer}`] : []), request.url];
   }
 
   if (executable === "vlc" || executable === "vlc.exe") {
@@ -28,7 +28,7 @@ export function playerArguments(playerPath: string, request: PlayRequest): strin
       "--no-one-instance",
       "--no-qt-start-minimized",
       "--no-qt-system-tray",
-      "--fullscreen",
+      ...(fullscreen ? ["--fullscreen"] : []),
       "--play-and-exit",
       `--meta-title=${request.title}`,
       ...(request.referrer ? [`--http-referrer=${request.referrer}`] : []),

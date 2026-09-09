@@ -10,7 +10,9 @@ const defaults: PersistedState = {
   providerLinks: [],
   dismissedMergeKeys: [],
   settings: {
-    playerPath: process.platform === "win32" ? "mpv.exe" : "mpv",
+    playerPath: "",
+    playbackTarget: "builtin",
+    startPlayerFullscreen: true,
     preferredQuality: "best",
     preferredMode: "sub",
     preferredProvider: "auto",
@@ -95,6 +97,8 @@ export class StateStore {
         dismissedMergeKeys: Array.isArray(parsed.dismissedMergeKeys) ? parsed.dismissedMergeKeys : [],
         settings: {
           ...settings,
+          playbackTarget: settings.playbackTarget === "external" ? "external" : "builtin",
+          startPlayerFullscreen: typeof settings.startPlayerFullscreen === "boolean" ? settings.startPlayerFullscreen : true,
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
         }
@@ -109,7 +113,8 @@ export class StateStore {
   }
 
   async saveSettings(settings: Settings): Promise<PersistedState> {
-    if (!settings.playerPath.trim()) throw new Error("Player path cannot be empty");
+    if (settings.playbackTarget !== "builtin" && settings.playbackTarget !== "external") throw new Error("Unknown playback target");
+    if (settings.playbackTarget === "external" && !settings.playerPath.trim()) throw new Error("External player path cannot be empty");
     if (!isThemePreset(settings.theme)) throw new Error("Unknown theme");
     const custom = settings.customTheme ?? {};
     for (const key of ["background", "text", "highlight"] as const) {
@@ -117,6 +122,8 @@ export class StateStore {
     }
     this.state.settings = {
       playerPath: settings.playerPath.trim(),
+      playbackTarget: settings.playbackTarget,
+      startPlayerFullscreen: Boolean(settings.startPlayerFullscreen),
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",
       preferredProvider: settings.preferredProvider,

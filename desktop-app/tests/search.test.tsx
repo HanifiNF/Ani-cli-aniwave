@@ -46,7 +46,7 @@ beforeEach(async () => {
   const state: PersistedState = {
     bookmarks: [], history: [],
     settings: {
-      playerPath: "mpv", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
+      playerPath: "mpv", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
       aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app",
       theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
     }
