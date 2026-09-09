@@ -8,6 +8,14 @@ const api: AniPlayerApi = {
     ipcRenderer.on("player-window:load", handler);
     return () => ipcRenderer.removeListener("player-window:load", handler);
   },
+  onFullscreenChange(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, fullscreen: unknown) => {
+      if (typeof fullscreen === "boolean") listener(fullscreen);
+    };
+    ipcRenderer.on("player-window:fullscreen-change", handler);
+    return () => ipcRenderer.removeListener("player-window:fullscreen-change", handler);
+  },
+  setFullscreen: (fullscreen) => ipcRenderer.invoke("player-window:fullscreen", fullscreen),
   openExternal: () => ipcRenderer.invoke("player-window:external"),
   close: () => ipcRenderer.invoke("player-window:close")
 };

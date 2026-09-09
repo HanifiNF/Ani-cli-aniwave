@@ -3,7 +3,27 @@
 html, body, #player-root, .player-shell { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
 .player-shell { display: grid; place-items: center; position: relative; }
 .media-player { width: 100%; height: 100%; background: #000; color: #fff; --video-brand: #8b5cf6; }
+.media-player.is-windowed {
+  --media-controls-padding: 0 0 14px;
+  --video-captions-offset: 96px;
+  --video-sm-captions-offset: 68px;
+}
+.media-player.is-native-fullscreen { --media-controls-padding: 0 0 max(6px, env(safe-area-inset-bottom)); }
 .media-player video { width: 100%; height: 100%; object-fit: contain; }
+.media-player .vds-controls { z-index: 20; }
+.player-seek-button,
+.player-fullscreen-button {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border: 0; border-radius: 4px; color: inherit;
+  background: transparent; cursor: pointer;
+}
+.player-seek-button:hover,
+.player-fullscreen-button:hover { background: rgb(255 255 255 / 12%); }
+.player-seek-button:focus-visible,
+.player-fullscreen-button:focus-visible { outline: 2px solid #a78bfa; outline-offset: -2px; }
+.player-seek-button .vds-icon,
+.player-fullscreen-button .vds-icon { width: 28px; height: 28px; }
+.player-fullscreen-button:disabled { cursor: wait; opacity: .55; }
 .player-message { color: #bbb; font-size: 14px; }
 .player-error {
   position: absolute; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 14px;

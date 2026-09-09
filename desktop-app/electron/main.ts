@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, nativeImage, session, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from "electron";
 import type { AnimeResult, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
+import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
 import { getEpisodes, getStreams, searchAnime } from "./scraper";
 import { StateStore } from "./state";
@@ -16,13 +17,11 @@ const PLAYER_PARTITION = "ani-desktop-player";
 
 function playerPayload(): PlayerSession {
   if (!activePlayback) throw new Error("No stream has been assigned to the player");
-  return { request: activePlayback, canOpenExternal: Boolean(store.snapshot().settings.playerPath.trim()) };
-}
-
-function assertPlayerSender(event: IpcMainInvokeEvent): void {
-  if (!playerWindow || playerWindow.isDestroyed() || event.sender !== playerWindow.webContents || event.senderFrame !== playerWindow.webContents.mainFrame) {
-    throw new Error("Unknown player sender");
-  }
+  return {
+    request: activePlayback,
+    canOpenExternal: Boolean(store.snapshot().settings.playerPath.trim()),
+    fullscreen: Boolean(playerWindow?.isFullScreen())
+  };
 }
 
 function configurePlayerSession(): void {
@@ -69,6 +68,7 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
     height: 720,
     minWidth: 640,
     minHeight: 360,
+    useContentSize: true,
     fullscreen: settings.startPlayerFullscreen,
     backgroundColor: "#000000",
     title: request.title,
@@ -83,6 +83,7 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
       sandbox: true
     }
   });
+  registerPlayerFullscreenEvents(playerWindow);
   playerWindow.setMenuBarVisibility(false);
   playerWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   playerWindow.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -177,14 +178,18 @@ function registerIpc(): void {
     else await openBuiltinPlayer(validated, settings);
     return true;
   });
-  ipcMain.handle("player-window:ready", (event) => { assertPlayerSender(event); return playerPayload(); });
+  ipcMain.handle("player-window:ready", (event) => { assertPlayerSender(playerWindow, event); return playerPayload(); });
+  ipcMain.handle("player-window:fullscreen", (event, fullscreen: unknown) => {
+    assertPlayerSender(playerWindow, event);
+    return setPlayerFullscreen(playerWindow, fullscreen);
+  });
   ipcMain.handle("player-window:external", async (event) => {
-    assertPlayerSender(event);
+    assertPlayerSender(playerWindow, event);
     await launchExternalPlayer(playerPayload().request, store.snapshot().settings);
     return true;
   });
   ipcMain.handle("player-window:close", (event) => {
-    assertPlayerSender(event);
+    assertPlayerSender(playerWindow, event);
     playerWindow?.close();
   });
 }

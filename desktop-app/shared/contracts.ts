@@ -117,11 +117,14 @@ export interface AniDesktopApi {
 export interface PlayerSession {
   request: PlayRequest;
   canOpenExternal: boolean;
+  fullscreen: boolean;
 }
 
 export interface AniPlayerApi {
   ready(): Promise<PlayerSession>;
   onLoad(listener: (session: PlayerSession) => void): () => void;
+  onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
+  setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;
   close(): Promise<void>;
 }
