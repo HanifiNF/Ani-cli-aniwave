@@ -112,6 +112,8 @@ h2 .act:hover { color: var(--text); }
 .list { display: grid; gap: 2px; }
 .item { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 6px 12px; margin: 0 -12px; border-radius: 6px; min-height: 68px; }
 .item.lib { grid-template-columns: 40px minmax(0, 1fr) auto auto auto; }
+.item.has-merge { grid-template-columns: 40px minmax(0, 1fr) auto auto auto; }
+.item.lib.has-merge { grid-template-columns: 40px minmax(0, 1fr) auto auto auto auto; }
 .item .t, .item .s { overflow-wrap: anywhere; }
 .item .hit { position: absolute; inset: 0; border-radius: 6px; z-index: 0; }
 .item > :not(.hit) { position: relative; z-index: 1; pointer-events: none; }
@@ -123,6 +125,7 @@ h2 .act:hover { color: var(--text); }
 .item .rm { color: var(--dim); font-size: 13px; padding: 2px 8px; border-radius: 4px; }
 .item .rm:hover { color: var(--text); background: var(--raised); }
 .home-sections .item { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; }
+.home-sections .item.has-merge { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
 .home-sections .item .k, .home-sections .item.lib .k2 { display: none; }
 .home-sections .item .k2 { min-width: 0; }
 .home-sections .item .rm { padding-inline: 4px; }

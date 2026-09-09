@@ -3,6 +3,7 @@ import type {
   AnimeResult,
   CustomTheme,
   Episode,
+  EpisodeGroup,
   LibraryEntry,
   PersistedState,
   ProviderName,
@@ -14,6 +15,7 @@ import type {
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme } from "../shared/theme";
 import { applyAppIcon } from "./appIcon";
+import { animeSources, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 
 type Screen = "home" | "series" | "saved" | "recent" | "settings";
 type RowKind = "results" | "continue" | "saved" | "recent";
@@ -30,11 +32,11 @@ const emptyState: PersistedState = {
   settings: {
     playerPath: "mpv", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
-  }
+  }, providerLinks: [], dismissedMergeKeys: []
 };
 
 const providerOf = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : "anidb";
-const asAnime = (entry: LibraryEntry): AnimeResult => ({ id: entry.animeId, title: entry.title, poster: entry.poster, provider: providerOf(entry.animeId) });
+const asAnime = (entry: LibraryEntry): AnimeResult => ({ id: entry.animeId, title: entry.title, poster: entry.poster, provider: entry.lastProvider ?? providerOf(entry.animeId), sources: animeSources(entry) });
 const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") || "player";
 
 function messageFrom(error: unknown): string {
@@ -43,7 +45,10 @@ function messageFrom(error: unknown): string {
 }
 
 function libraryEntry(anime: AnimeResult, episode: Episode | undefined, mode: TranslationMode): LibraryEntry {
-  return { animeId: anime.id, title: anime.title, lastEpisode: episode?.number ?? "1", mode, updatedAt: new Date().toISOString(), poster: anime.poster };
+  const lastProvider = episode?.provider ?? anime.provider;
+  const updatedAt = new Date().toISOString();
+  const lastEpisode = episode?.number ?? "1";
+  return { animeId: anime.id, title: anime.title, lastEpisode, mode, updatedAt, poster: anime.poster, sources: animeSources(anime), lastProvider, progressByProvider: { [lastProvider]: { lastEpisode, mode, updatedAt } } };
 }
 
 function when(iso: string): string {
@@ -94,7 +99,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodeGroups, setEpisodeGroups] = useState<EpisodeGroup[]>([]);
+  const [activeEpisodeProvider, setActiveEpisodeProvider] = useState<ProviderName>("aniwave");
   const [cursor, setCursor] = useState(0);
   const [mode, setMode] = useState<TranslationMode>("sub");
   const [provider, setProvider] = useState<ProviderPreference>("auto");
@@ -104,14 +110,19 @@ function App() {
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
+  const [stateLoaded, setStateLoaded] = useState(false);
 
   const catalogSearch = useAnimeSearch(query, provider,
     [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl], screen === "home" && !composing);
   const { results, lastQuery } = catalogSearch;
+  const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
+  const activeEpisodeGroup = episodeGroups.find((group) => group.provider === activeEpisodeProvider);
+  const episodes = activeEpisodeGroup?.episodes ?? [];
 
   const fieldRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
+  const mergePromptActive = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
   useEffect(() => {
@@ -121,8 +132,27 @@ function App() {
       setMode(state.settings.preferredMode);
       setQuality(state.settings.preferredQuality);
       setProvider(state.settings.preferredProvider);
+      setStateLoaded(true);
     }).catch((reason) => setError(messageFrom(reason)));
   }, []);
+
+  useEffect(() => {
+    if (!stateLoaded || mergePromptActive.current) return;
+    const entries = [...appState.history, ...appState.bookmarks].filter((entry, index, all) => all.findIndex((item) => item.animeId === entry.animeId) === index);
+    const dismissed = new Set(appState.dismissedMergeKeys ?? []);
+    let pair: [LibraryEntry, LibraryEntry] | undefined;
+    for (let left = 0; left < entries.length && !pair; left += 1) {
+      for (let right = left + 1; right < entries.length; right += 1) {
+        if (likelyDuplicate(entries[left], entries[right]) && !dismissed.has(mergeKey(entries[left].animeId, entries[right].animeId))) { pair = [entries[left], entries[right]]; break; }
+      }
+    }
+    if (!pair) return;
+    mergePromptActive.current = true;
+    const [first, second] = pair;
+    const accepted = window.confirm(`These may be the same anime:\n\n“${first.title}”\n“${second.title}”\n\nMerge them while keeping progress from both sources?`);
+    const operation = accepted ? window.aniDesktop.mergeEntries(first.animeId, second.animeId) : window.aniDesktop.dismissMerge(first.animeId, second.animeId);
+    void operation.then(setAppState, (reason) => setError(messageFrom(reason))).finally(() => { mergePromptActive.current = false; });
+  }, [stateLoaded, appState.history, appState.bookmarks, appState.dismissedMergeKeys]);
 
   const themeSource = screen === "settings" ? settingsDraft : appState.settings;
   useEffect(() => applyTheme(themeSource.theme, themeSource.customTheme), [themeSource.theme, themeSource.customTheme]);
@@ -132,7 +162,7 @@ function App() {
   const rows = useMemo<Row[]>(() => {
     if (screen === "home") {
       return [
-        ...results.map((anime): Row => ({ kind: "results", anime })),
+        ...unifiedResults.map((anime): Row => ({ kind: "results", anime })),
         ...appState.history.slice(0, 3).map((entry): Row => ({ kind: "continue", entry })),
         ...appState.bookmarks.slice(0, 3).map((entry): Row => ({ kind: "saved", entry }))
       ];
@@ -140,7 +170,7 @@ function App() {
     if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
     if (screen === "recent") return appState.history.filter(matches).map((entry): Row => ({ kind: "recent", entry }));
     return [];
-  }, [screen, results, appState.history, appState.bookmarks, filter]);
+  }, [screen, unifiedResults, appState.history, appState.bookmarks, filter]);
 
   useEffect(() => { if (screen !== "series") setCursor(0); }, [screen, results, filter]);
   useEffect(() => {
@@ -172,8 +202,8 @@ function App() {
     }
   }, [screen, cursor, episodes]);
 
-  const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => entry.animeId === selectedAnime.id));
-  const progress = selectedAnime ? appState.history.find((entry) => entry.animeId === selectedAnime.id) : undefined;
+  const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => overlaps(entry, selectedAnime)));
+  const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
   const player = playerName(appState.settings.playerPath);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
@@ -209,14 +239,15 @@ function App() {
   }
 
   async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
+    const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
     playToken.current += 1;
     setSelectedAnime(anime);
-    setEpisodes([]); setStatus(undefined);
+    setEpisodeGroups([]); setStatus(undefined);
     setScreen("series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
-    let list: Episode[];
-    try { list = await window.aniDesktop.episodes(anime.id); }
+    let groups: EpisodeGroup[];
+    try { groups = (await window.aniDesktop.episodes(anime)).groups; }
     catch (reason) {
       setBusy(undefined);
       if (options.allowRemap) {
@@ -236,15 +267,21 @@ function App() {
       return false;
     }
     finally { setBusy(undefined); }
-    setEpisodes(list);
+    setEpisodeGroups(groups);
+    const available = groups.filter((group) => group.episodes.length);
+    const wanted = animeProgress?.lastProvider ?? anime.provider;
+    const active = available.find((group) => group.provider === wanted)?.provider ?? available.find((group) => group.provider === "aniwave")?.provider ?? available[0]?.provider ?? groups[0]?.provider ?? "aniwave";
+    setActiveEpisodeProvider(active);
+    const list = groups.find((group) => group.provider === active)?.episodes ?? [];
     let index = 0;
-    const resumeAfter = options.resumeAfter ?? appState.history.find((entry) => entry.animeId === anime.id)?.lastEpisode;
+    const sourceProgress = animeProgress?.progressByProvider?.[active];
+    const resumeAfter = sourceProgress?.lastEpisode ?? options.resumeAfter ?? (animeProgress?.lastProvider === active ? animeProgress.lastEpisode : undefined);
     if (resumeAfter) {
       const previous = list.findIndex((episode) => episode.number === resumeAfter);
       index = Math.min(previous + 1, list.length - 1);
     }
     setCursor(Math.max(index, 0));
-    if (options.autoPlay && list[index]) void playEpisode(list[index], anime, options.mode ?? mode);
+    if (options.autoPlay && list[index]) void playEpisode(list[index], anime, sourceProgress?.mode ?? options.mode ?? mode);
     return true;
   }
 
@@ -252,7 +289,7 @@ function App() {
     if (!anime) return;
     const token = ++playToken.current;
     setCursor(episodes.findIndex((item) => item.id === episode.id) >= 0 ? episodes.findIndex((item) => item.id === episode.id) : cursor);
-    setStatus({ episode, phase: "finding", detail: `${playMode} from ${anime.provider}` });
+    setStatus({ episode, phase: "finding", detail: `${playMode} from ${episode.provider}` });
     try {
       const streams = await window.aniDesktop.streams(episode.id, playMode);
       if (token !== playToken.current) return;
@@ -275,6 +312,39 @@ function App() {
     if (!selectedAnime) return;
     const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(libraryEntry(selectedAnime, episodes[cursor], mode)));
     if (state) setAppState(state);
+  }
+
+  function selectEpisodeProvider(next: ProviderName) {
+    setActiveEpisodeProvider(next);
+    const sourceProgress = progress?.progressByProvider?.[next];
+    const list = episodeGroups.find((group) => group.provider === next)?.episodes ?? [];
+    const previous = sourceProgress ? list.findIndex((episode) => episode.number === sourceProgress.lastEpisode) : -1;
+    setCursor(Math.max(0, Math.min(previous + 1, list.length - 1)));
+    setStatus(undefined);
+  }
+
+  function mergeCandidate(anime: AnimeResult): AnimeResult | undefined {
+    return unifiedResults.find((candidate) => candidate.id !== anime.id && likelyDuplicate(anime, candidate));
+  }
+
+  function libraryMergeCandidate(entry: LibraryEntry): LibraryEntry | undefined {
+    const entries = [...appState.history, ...appState.bookmarks]
+      .filter((candidate, index, all) => all.findIndex((item) => item.animeId === candidate.animeId) === index);
+    return entries.find((candidate) => candidate.animeId !== entry.animeId && likelyDuplicate(entry, candidate));
+  }
+
+  async function manuallyLink(anime: AnimeResult) {
+    const candidate = mergeCandidate(anime);
+    if (!candidate || !window.confirm(`Merge “${anime.title}” with “${candidate.title}” and remember that they are the same anime?`)) return;
+    const state = await run("linking provider records", () => window.aniDesktop.linkSources([...sourceIds(anime), ...sourceIds(candidate)]));
+    if (state) { setAppState(state); setNotice("provider records merged"); }
+  }
+
+  async function manuallyMergeEntry(entry: LibraryEntry) {
+    const candidate = libraryMergeCandidate(entry);
+    if (!candidate || !window.confirm(`Merge “${entry.title}” with “${candidate.title}” while keeping progress from both sources?`)) return;
+    const state = await run("merging library records", () => window.aniDesktop.mergeEntries(entry.animeId, candidate.animeId));
+    if (state) { setAppState(state); setNotice("library records merged"); }
   }
 
   async function activate(row: Row) {
@@ -374,7 +444,7 @@ function App() {
   const searching = catalogSearch.loading;
   const searchError = catalogSearch.error === undefined ? undefined : messageFrom(catalogSearch.error);
   const displayError = error ?? searchError;
-  const searchNotice = catalogSearch.ready && results.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
+  const searchNotice = catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
   const message = displayError ?? busy ?? searchNotice ?? notice;
 
   const renderRow = (row: Row, index: number) => {
@@ -382,18 +452,22 @@ function App() {
     const title = row.anime?.title ?? row.entry?.title ?? "";
     const poster = row.anime?.poster ?? row.entry?.poster;
     let sub = "", action = "", side = "";
-    if (row.anime) { action = current ? "open series" : ""; side = row.anime.provider; }
+    if (row.anime) { action = current ? "open series" : ""; side = animeSources(row.anime).map((source) => source.provider).join(" + "); }
     if (row.entry) {
-      sub = row.kind === "recent" ? `ep ${row.entry.lastEpisode}, ${when(row.entry.updatedAt)}` : `watched through ${row.entry.lastEpisode}, ${providerOf(row.entry.animeId)}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
+      const progressText = Object.entries(row.entry.progressByProvider ?? {}).map(([name, value]) => `${name} ${value?.lastEpisode}`).join(" · ");
+      sub = row.kind === "recent" ? `${progressText || `ep ${row.entry.lastEpisode}`}, ${when(row.entry.updatedAt)}` : `watched through ${progressText || row.entry.lastEpisode}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
       action = "play next"; side = row.entry.mode;
     }
+    const canMerge = row.anime ? Boolean(mergeCandidate(row.anime)) : row.entry ? Boolean(libraryMergeCandidate(row.entry)) : false;
     return (
-      <div key={`${row.kind}:${row.anime?.id ?? row.entry?.animeId}`} className={`item ${row.entry ? "lib" : ""} ${current ? "cur" : ""}`} data-cursor={current}>
+      <div key={`${row.kind}:${row.anime?.id ?? row.entry?.animeId}`} className={`item ${row.entry ? "lib" : ""} ${canMerge ? "has-merge" : ""} ${current ? "cur" : ""}`} data-cursor={current}>
         <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={`${row.anime ? "open" : "play next episode of"} ${title}`} />
         <Art src={poster} />
         <span><span className="t">{title}</span>{sub && <span className="s">{sub}</span>}</span>
         <span className="k">{action}</span>
         <span className="k2">{side}</span>
+        {row.anime && mergeCandidate(row.anime) && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void manuallyLink(row.anime!); }}>merge</button>}
+        {row.entry && libraryMergeCandidate(row.entry) && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void manuallyMergeEntry(row.entry!); }}>merge</button>}
         {row.entry && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void removeRow(row); }}>remove</button>}
       </div>
     );
@@ -438,7 +512,7 @@ function App() {
                 <span className="search-throbber" aria-hidden="true">
                   {catalogSearch.pending && <><span>·</span><span>·</span><span>·</span></>}
                 </span>
-                <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${results.length} ${results.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
+                <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${unifiedResults.length} ${unifiedResults.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
               </div>}
           {(screen === "home" || screen === "series") && (
             <div className="groups">
@@ -493,7 +567,7 @@ function App() {
                 <h1>{selectedAnime.title}</h1>
                 <div className="sub">
                   <span>{episodes.length ? `${episodes.length} episodes` : busy ? "loading episodes" : "no episodes"}</span>
-                  <span>{selectedAnime.provider}</span>
+                  <span>{animeSources(selectedAnime).map((source) => source.provider).join(" + ")}</span>
                   {progress && <span>watched through {progress.lastEpisode}</span>}
                 </div>
               </div>
@@ -504,7 +578,11 @@ function App() {
             </div>
             <div className="bar">
               <span className="crumb">click an episode to play it in {player}</span>
+              <div className="chips" role="tablist" aria-label="Episode source">
+                {episodeGroups.map((group) => <button type="button" role="tab" aria-selected={group.provider === activeEpisodeProvider} className={group.provider === activeEpisodeProvider ? "on" : ""} key={group.provider} onClick={() => selectEpisodeProvider(group.provider)}>{group.provider}{group.error ? " unavailable" : ` ${group.episodes.length}`}</button>)}
+              </div>
             </div>
+            {activeEpisodeGroup?.error && <div className="line err" role="alert"><b>{activeEpisodeProvider}</b><span>{activeEpisodeGroup.error}</span><button type="button" className="act" onClick={() => void openAnime(selectedAnime)}>retry</button></div>}
             <div className="grid" ref={gridRef} tabIndex={-1} role="group" aria-label="Episodes">
               {episodes.map((episode, index) => {
                 const watched = progress ? Number(episode.number) <= Number(progress.lastEpisode) : false;

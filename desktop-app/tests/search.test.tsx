@@ -53,11 +53,12 @@ beforeEach(async () => {
   };
   search = vi.fn<AniDesktopApi["search"]>().mockImplementation(async (query) => result(query));
   api = {
-    search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue([{ id: "ep-1", number: "1" }]),
+    search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
     setAppIcon: vi.fn().mockResolvedValue(undefined),
-    toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn()
+    toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn(),
+    linkSources: vi.fn(), mergeEntries: vi.fn(), dismissMerge: vi.fn()
   };
   window.aniDesktop = api;
   container = document.createElement("div"); document.body.append(container);
@@ -87,7 +88,7 @@ describe("live catalog search", () => {
     await type("frieren"); await advance();
     if (method === "keyboard") await press("Enter");
     else await act(async () => { container.querySelector<HTMLButtonElement>(".section-results .hit")!.click(); });
-    await act(async () => pending.resolve(Array.from({ length: 6 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1) }))));
+    await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: Array.from({ length: 6 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1), provider: "aniwave" as const })) }] }));
     const cells = [...container.querySelectorAll<HTMLButtonElement>(".grid button")];
     cells.forEach((cell, index) => Object.defineProperty(cell, "offsetTop", { value: Math.floor(index / 3) * 62 }));
     expect(document.activeElement).toBe(cells[0]);
@@ -104,13 +105,41 @@ describe("live catalog search", () => {
     await type("another title"); await advance(); expect(titles()).toEqual(["another title"]);
   });
 
+  it("keeps provider-native episode lists and plays from the selected source tab", async () => {
+    search.mockResolvedValue([{
+      id: "aniwave:re-zero-101", title: "Re:ZERO Season 4", provider: "aniwave",
+      sources: [
+        { id: "aniwave:re-zero-101", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"], provider: "aniwave" },
+        { id: "anidb:re-zero-202", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"], provider: "anidb" }
+      ]
+    }]);
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [
+      { provider: "aniwave", episodes: [{ id: "aniwave:episode-15", number: "15", provider: "aniwave" }] },
+      { provider: "anidb", episodes: [{ id: "anidb:episode-81", number: "81", provider: "anidb" }] }
+    ] });
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://video.test/81.m3u8", provider: "anidb" }]);
+    vi.mocked(api.recordHistory).mockResolvedValue(await api.getState());
+
+    await type("re zero"); await advance(); await press("Enter");
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("aniwave 1");
+    await click("anidb 1");
+    const episode = container.querySelector<HTMLButtonElement>('[aria-label="play episode 81"]')!;
+    expect(episode).toBeDefined();
+    await act(async () => { episode.click(); });
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("anidb:episode-81", "sub");
+    expect(api.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      lastProvider: "anidb", lastEpisode: "81",
+      progressByProvider: expect.objectContaining({ anidb: expect.objectContaining({ lastEpisode: "81" }) })
+    }));
+  });
+
   it("keeps focus in search if the user returns there before episodes finish loading", async () => {
     const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
     vi.mocked(api.episodes).mockReturnValue(pending.promise);
     await type("frieren"); await advance(); await press("Enter");
     expect(document.activeElement).toBe(container.querySelector(".grid"));
     await press("/"); expect(document.activeElement).toBe(input());
-    await act(async () => pending.resolve([{ id: "ep-1", number: "1" }]));
+    await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }));
     expect(document.activeElement).toBe(input());
   });
 
@@ -130,7 +159,7 @@ describe("live catalog search", () => {
     await press("ArrowDown"); expect(selected()).toBe("third");
     await press("ArrowUp"); expect(selected()).toBe("second");
     await press("Enter");
-    expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:second-1");
+    expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:second-1" }));
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-1", "sub");
   });
 
@@ -138,7 +167,7 @@ describe("live catalog search", () => {
     search.mockResolvedValue([...result("first"), ...result("second")]);
     await type("title"); await advance();
     await press("ArrowDown"); await press("Enter");
-    expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:second-1");
+    expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:second-1" }));
     await press("Escape"); expect(titles()).toEqual(["first", "second"]);
     await press("Escape"); expect(input().value).toBe(""); expect(titles()).toEqual([]);
   });
@@ -156,7 +185,7 @@ describe("live catalog search", () => {
     await type("frieren"); await enter(); await enter(); await advance();
     expect(search).toHaveBeenCalledTimes(1); expect(api.episodes).not.toHaveBeenCalled();
     await act(async () => pending.resolve(result("frieren"))); await enter();
-    expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:frieren-1");
+    expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
   });
   it("keeps previous results labelled while updating and ignores out-of-order successes", async () => {
     await type("first"); await advance();
@@ -247,7 +276,7 @@ describe("live catalog search", () => {
     await press("Escape"); expect(titles()).toEqual(["frieren"]);
     expect(container.querySelector("#results-heading")?.textContent).toContain('results for "frieren"');
     expect(container.querySelector(".foot")?.textContent).toContain("open");
-    await press("Enter"); expect(api.episodes).toHaveBeenCalledExactlyOnceWith("aniwave:frieren-1");
+    await press("Enter"); expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
     await press("Escape"); expect(titles()).toEqual(["frieren"]);
     await press("Escape"); expect(titles()).toEqual([]); expect(search).toHaveBeenCalledTimes(1);
   });

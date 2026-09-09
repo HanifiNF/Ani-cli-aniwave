@@ -64,4 +64,45 @@ describe("StateStore", () => {
     expect(fresh.snapshot().settings.theme).toBe("graphite");
     expect(fresh.snapshot().settings.customTheme).toEqual({ background: "#000000", text: "#EDEDEE", highlight: "#EDEDEE" });
   });
+
+  it("migrates legacy progress and merges confirmed provider duplicates without losing either position", async () => {
+    await writeFile(join(directory, "state.json"), JSON.stringify({ history: [
+      entry({ animeId: "aniwave:rezero-1", title: "Re:Zero kara Hajimeru Isekai Seikatsu 4th Season", lastEpisode: "15", updatedAt: "2026-09-09T01:00:00Z" }),
+      entry({ animeId: "anidb:rezero-2", title: "Re:ZERO Starting Life in Another World Season 4", lastEpisode: "81", updatedAt: "2026-09-09T02:00:00Z" })
+    ] }));
+    const fresh = new StateStore(join(directory, "state.json"));
+    await fresh.load();
+    expect(fresh.snapshot().history[0].progressByProvider?.aniwave?.lastEpisode).toBe("15");
+    await fresh.mergeEntries("aniwave:rezero-1", "anidb:rezero-2");
+    const merged = fresh.snapshot();
+    expect(merged.history).toHaveLength(1);
+    expect(merged.history[0].progressByProvider).toMatchObject({ aniwave: { lastEpisode: "15" }, anidb: { lastEpisode: "81" } });
+    expect(merged.providerLinks).toEqual([["aniwave:rezero-1", "anidb:rezero-2"]]);
+  });
+
+  it("copies all known provider progress into a newly saved title", async () => {
+    const first = entry({
+      animeId: "aniwave:rezero-1", title: "Re:ZERO Season 4", lastEpisode: "15", lastProvider: "anidb",
+      sources: [
+        { id: "aniwave:rezero-1", provider: "aniwave", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"] },
+        { id: "anidb:rezero-2", provider: "anidb", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"] }
+      ],
+      progressByProvider: {
+        aniwave: { lastEpisode: "15", mode: "sub", updatedAt: "2026-09-09T01:00:00Z" },
+        anidb: { lastEpisode: "81", mode: "sub", updatedAt: "2026-09-09T02:00:00Z" }
+      }
+    });
+    await store.recordHistory(first);
+    await store.toggleBookmark(entry({ ...first, progressByProvider: { anidb: first.progressByProvider!.anidb } }));
+    expect(store.snapshot().bookmarks[0].progressByProvider).toMatchObject({ aniwave: { lastEpisode: "15" }, anidb: { lastEpisode: "81" } });
+  });
+
+  it("remembers a declined duplicate suggestion", async () => {
+    await store.recordHistory(entry({ animeId: "aniwave:first-1", title: "Example Season 2" }));
+    await store.recordHistory(entry({ animeId: "anidb:second-2", title: "Example 2nd Season" }));
+    const before = store.snapshot().history;
+    await store.dismissMerge("aniwave:first-1", "anidb:second-2");
+    expect(store.snapshot().history).toEqual(before);
+    expect(store.snapshot().dismissedMergeKeys).toEqual(["anidb:second-2|aniwave:first-1"]);
+  });
 });

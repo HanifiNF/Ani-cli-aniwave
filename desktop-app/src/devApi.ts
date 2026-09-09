@@ -1,6 +1,7 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
 import type { AniDesktopApi, AnimeResult, Episode, LibraryEntry, PersistedState } from "../shared/contracts";
+import { animeSources, mergeKey } from "../shared/catalog";
 import { THEME_PRESETS } from "../shared/theme";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
@@ -28,7 +29,7 @@ const state: PersistedState = {
   settings: {
     playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
-  }
+  }, providerLinks: [], dismissedMergeKeys: []
 };
 
 const results: AnimeResult[] = [
@@ -47,10 +48,11 @@ const upsert = (entry: LibraryEntry) => {
 export function installDevApi(): void {
   const api: AniDesktopApi = {
     async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : results; },
-    async episodes(animeId) {
+    async episodes(anime) {
       await wait(300);
-      if (animeId.includes("mahou")) throw new Error("AniDB episode lookup failed (503)");
-      return Array.from({ length: 28 }, (_, index): Episode => ({ id: `${animeId}:${index + 1}`, number: String(index + 1) }));
+      return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => source.id.includes("mahou")
+        ? { provider: source.provider, episodes: [], error: "AniDB episode lookup failed (503)" }
+        : { provider: source.provider, episodes: Array.from({ length: source.provider === "aniwave" ? 28 : 24 }, (_, index): Episode => ({ id: `${source.id}:${index + 1}`, number: String(index + 1), provider: source.provider })) }) };
     },
     async streams(episodeId, mode) {
       await wait(700);
@@ -74,7 +76,27 @@ export function installDevApi(): void {
       const remap = (item: LibraryEntry) => item.animeId === oldId ? { ...item, animeId: replacement.id, title: replacement.title, poster: replacement.poster } : item;
       state.bookmarks = state.bookmarks.map(remap); state.history = state.history.map(remap);
       return snapshot();
-    }
+    },
+    async linkSources(ids) { state.providerLinks = [...(state.providerLinks ?? []), [...new Set(ids)]]; return snapshot(); },
+    async mergeEntries(firstId, secondId) {
+      const all = [...state.bookmarks, ...state.history];
+      const first = all.find((item) => item.animeId === firstId), second = all.find((item) => item.animeId === secondId);
+      if (!first || !second) throw new Error("Duplicate entries were not found");
+      const sources = [...animeSources(first), ...animeSources(second)].filter((source, index, list) => list.findIndex((item) => item.id === source.id) === index);
+      const latest = new Date(first.updatedAt) > new Date(second.updatedAt) ? first : second;
+      const progressByProvider = { ...(first.progressByProvider ?? {}), ...(second.progressByProvider ?? {}) };
+      const lastProvider = latest.lastProvider ?? (latest.animeId.startsWith("aniwave:") ? "aniwave" : "anidb");
+      const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
+      const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
+      const merged: LibraryEntry = { ...latest, animeId: primary.id, sources, lastProvider, progressByProvider, lastEpisode: progress.lastEpisode, mode: progress.mode, poster: primary.poster ?? first.poster ?? second.poster };
+      const replace = (entries: LibraryEntry[]) => entries.some((item) => item.animeId === firstId || item.animeId === secondId)
+        ? [merged, ...entries.filter((item) => item.animeId !== firstId && item.animeId !== secondId)] : entries;
+      state.bookmarks = replace(state.bookmarks); state.history = replace(state.history);
+      state.providerLinks = [...(state.providerLinks ?? []), sources.map((source) => source.id)];
+      state.dismissedMergeKeys = [...(state.dismissedMergeKeys ?? []), mergeKey(firstId, secondId)];
+      return snapshot();
+    },
+    async dismissMerge(first, second) { state.dismissedMergeKeys = [...(state.dismissedMergeKeys ?? []), mergeKey(first, second)]; return snapshot(); }
   };
   window.aniDesktop = api;
 }

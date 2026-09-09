@@ -5,13 +5,13 @@ describe("source parsers", () => {
   it("extracts and decodes search results", () => {
     const html = `<a href="/anime/test-show-42"><img src="https://img.test/poster.jpg" alt="Test &amp; Show"></a>`;
     expect(parseSearchPage(html)).toEqual([
-      { id: "anidb:test-show-42", title: "Test & Show", poster: "https://img.test/poster.jpg", provider: "anidb" }
+      { id: "anidb:test-show-42", title: "Test & Show", poster: "https://img.test/poster.jpg", provider: "anidb", sources: [{ id: "anidb:test-show-42", provider: "anidb", title: "Test & Show", aliases: ["Test & Show"], poster: "https://img.test/poster.jpg" }] }
     ]);
   });
 
   it("finds episodes in nested API data", () => {
     const payload = { data: { episodes: [{ id: 11, number: 2 }, { id: 10, number: 1 }] } };
-    expect(parseEpisodes(payload)).toEqual([{ id: "anidb:10", number: "1" }, { id: "anidb:11", number: "2" }]);
+    expect(parseEpisodes(payload)).toEqual([{ id: "anidb:10", number: "1", provider: "anidb" }, { id: "anidb:11", number: "2", provider: "anidb" }]);
   });
 
   it("finds language embeds", () => {
@@ -36,10 +36,10 @@ describe("source parsers", () => {
   });
 
   it("parses AniWave search and episodes into namespaced IDs", () => {
-    const html = `<div class="item"><a href="/watch/naruto-76396"><img data-src="https://img.test/n.jpg"></a><a class="name d-title" href="/watch/naruto-76396" data-jp="Naruto">Naruto</a></div>`;
-    expect(parseAniwaveSearch(html)).toEqual([{ id: "aniwave:naruto-76396", title: "Naruto", poster: "https://img.test/n.jpg", provider: "aniwave" }]);
+    const html = `<div class="item"><a href="/watch/naruto-76396"><img data-src="https://img.test/n.jpg"></a><a class="name d-title" href="/watch/naruto-76396" data-jp="Naruto Shippuuden">Naruto Shippuden</a></div>`;
+    expect(parseAniwaveSearch(html)).toEqual([{ id: "aniwave:naruto-76396", title: "Naruto Shippuden", poster: "https://img.test/n.jpg", provider: "aniwave", sources: [{ id: "aniwave:naruto-76396", provider: "aniwave", title: "Naruto Shippuden", aliases: ["Naruto Shippuden", "Naruto Shippuuden"], poster: "https://img.test/n.jpg" }] }]);
     expect(parseAniwaveEpisodes({ result: `<a data-num="2" href="/watch/76396/ep-2"></a><a data-num="1" href="/watch/76396/ep-1"></a>` }, "76396")).toEqual([
-      { id: "aniwave:76396:1", number: "1" }, { id: "aniwave:76396:2", number: "2" }
+      { id: "aniwave:76396:1", number: "1", provider: "aniwave" }, { id: "aniwave:76396:2", number: "2", provider: "aniwave" }
     ]);
   });
 
