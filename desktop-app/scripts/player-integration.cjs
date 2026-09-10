@@ -16,6 +16,9 @@ const { PlayerDiagnostics } = require('../dist-electron/electron/player-diagnost
 const directory = mkdtempSync(join(tmpdir(), 'ani-player-integration-'));
 app.setPath('userData', join(directory, 'user-data'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// Vidstack respects reduced motion by blocking autoplay. Give this autoplay suite a
+// consistent preference regardless of the host desktop's accessibility settings.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const native = process.env.ANI_PLAYER_NATIVE_TEST === '1';
 let win, server, store;
 let diagnostics;
@@ -53,7 +56,11 @@ async function load(path, episode = 'one') {
     episode: { id: `aniwave:fixture-${episode}`, entry: { animeId:'aniwave:fixture-1', title:'Player fixture', lastEpisode:episode === 'one' ? '1' : '2', mode:'sub', updatedAt:'', lastProvider:'aniwave' } } };
   contexts.set(String(id), current);
   await store.recordHistory({ ...current.episode.entry, completed:false });
-  if (id === 1) { await win.loadFile(resolve('dist/index.html')); await waitFor("!!document.querySelector('.app .field')", 'app shell'); }
+  if (id === 1) {
+    await win.loadFile(resolve('dist/index.html'));
+    await waitFor("!!document.querySelector('.app .field')", 'app shell');
+    assert.equal(await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"), false, 'autoplay test motion preference');
+  }
   win.webContents.send('player:load', payload());
   await waitFor(`document.title === ${JSON.stringify(current.title)} && document.querySelector('video')?.readyState >= 3`, 'HLS ready');
   await waitFor("document.querySelector('video')?.currentSrc.startsWith('blob:')", 'bundled HLS engine');
@@ -206,6 +213,8 @@ app.whenReady().then(async () => {
     if(await evaluate('document.pictureInPictureEnabled')) {
       await key('i'); await waitFor('!!document.pictureInPictureElement','picture in picture shortcut');
       await key('i'); await waitFor('!document.pictureInPictureElement','exit picture in picture');
+      // Refocus the video surface so native Chromium keeps decoding after PiP closes.
+      win.show(); win.focus();
       console.log('PASS: picture in picture shortcut');
     }
   }
