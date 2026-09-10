@@ -20,6 +20,16 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 describe("StateStore", () => {
+  it("keeps player diagnostics opt-in and persists the setting", async () => {
+    expect(store.snapshot().settings.playerDiagnostics).toBe(false);
+    await store.saveSettings({ ...store.snapshot().settings, playerDiagnostics: true });
+    const reloaded = new StateStore(join(directory, "state.json"));
+    await reloaded.load();
+    expect(reloaded.snapshot().settings.playerDiagnostics).toBe(true);
+    await reloaded.saveSettings({ ...reloaded.snapshot().settings, playerDiagnostics: false });
+    await store.load();
+    expect(store.snapshot().settings.playerDiagnostics).toBe(false);
+  });
   it("keeps a valid poster and drops unsafe ones", async () => {
     await store.recordHistory(entry());
     expect(store.snapshot().history[0].poster).toBe("https://cdn.test/frieren.jpg");
@@ -65,8 +75,17 @@ describe("StateStore", () => {
       playbackTarget: "builtin", startPlayerFullscreen: true, playerPath: "C:\\VLC\\vlc.exe"
     });
     await expect(fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "external", playerPath: "" })).rejects.toThrow(/external player path/i);
-    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false });
-    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "" });
+    expect(fresh.snapshot().settings.autoplayNext).toBe(true);
+    expect(fresh.snapshot().settings.miniPlayerCorner).toBe("bottom-right");
+    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false, autoplayNext: false, miniPlayerCorner: "top-left" });
+    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "", autoplayNext: false, miniPlayerCorner: "top-left" });
+    const odd = await fresh.saveSettings({ ...saved.settings, miniPlayerCorner: "middle" as never });
+    expect(odd.settings.miniPlayerCorner).toBe("bottom-right");
+    expect(odd.settings.miniPlayerWidth).toBe(400);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 520.4 })).settings.miniPlayerWidth).toBe(520);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 20 })).settings.miniPlayerWidth).toBe(240);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 5000 })).settings.miniPlayerWidth).toBe(960);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: "wide" as never })).settings.miniPlayerWidth).toBe(400);
   });
 
   it("repairs unknown themes and partial custom colours on load", async () => {
@@ -116,5 +135,28 @@ describe("StateStore", () => {
     await store.dismissMerge("aniwave:first-1", "anidb:second-2");
     expect(store.snapshot().history).toEqual(before);
     expect(store.snapshot().dismissedMergeKeys).toEqual(["anidb:second-2|aniwave:first-1"]);
+  });
+});
+
+
+describe("playback positions and completion", () => {
+  it("keeps resume positions across URL changes and only completes on playback end", async () => {
+    const request = { url: "https://cdn.test/old-token", title: "Episode", episode: { id: "aniwave:episode-12", entry: entry() } };
+    await store.recordHistory({ ...entry(), completed: false });
+    expect(store.snapshot().history[0].completed).toBe(false);
+    await store.savePlayerStorage(request, { time: 90, volume: 0.4, captions: true, lang: "en", rate: 1.25 });
+    const fresh = new StateStore(join(directory, "state.json"));
+    await fresh.load();
+    expect(fresh.snapshot().playbackPositions?.["aniwave:episode-12:sub"]).toMatchObject({ time: 90, completed: false });
+    expect(fresh.snapshot().playerPreferences).toMatchObject({ volume: 0.4, captions: true, lang: "en", rate: 1.25 });
+    await fresh.savePlayerStorage({ ...request, url: "https://cdn.test/new-token" }, { time: 150, completed: true });
+    expect(fresh.snapshot().history[0]).toMatchObject({ completed: true, progressByProvider: { aniwave: { completed: true } } });
+    expect(fresh.snapshot().playbackPositions?.["aniwave:episode-12:sub"]).toMatchObject({ time: 0, completed: true });
+  });
+
+  it("keeps a late completion from changing the currently started episode", async () => {
+    await store.recordHistory({ ...entry({ lastEpisode: "13" }), completed: false });
+    await store.savePlayerStorage({ url: "https://cdn.test/12", title: "Episode", episode: { id: "aniwave:episode-12", entry: entry() } }, { time: 100, completed: true });
+    expect(store.snapshot().history[0]).toMatchObject({ lastEpisode: "13", completed: false });
   });
 });

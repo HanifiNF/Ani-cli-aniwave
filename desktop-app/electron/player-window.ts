@@ -1,8 +1,8 @@
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 
-export const PLAYER_FULLSCREEN_CHANGED = "player-window:fullscreen-change";
+export const PLAYER_FULLSCREEN_CHANGED = "player:fullscreen-change";
 
-export function assertPlayerSender(playerWindow: BrowserWindow | undefined, event: IpcMainInvokeEvent): asserts playerWindow is BrowserWindow {
+export function assertPlayerSender(playerWindow: BrowserWindow | undefined, event: Pick<IpcMainInvokeEvent, "sender" | "senderFrame">): asserts playerWindow is BrowserWindow {
   if (
     !playerWindow
     || playerWindow.isDestroyed()
@@ -13,11 +13,42 @@ export function assertPlayerSender(playerWindow: BrowserWindow | undefined, even
   }
 }
 
-export function setPlayerFullscreen(playerWindow: BrowserWindow | undefined, fullscreen: unknown): boolean {
+const transitions = new WeakMap<BrowserWindow, Promise<boolean>>();
+
+export function setPlayerFullscreen(playerWindow: BrowserWindow | undefined, fullscreen: unknown): Promise<boolean> {
   if (!playerWindow || playerWindow.isDestroyed()) throw new Error("Player window is not available");
   if (typeof fullscreen !== "boolean") throw new Error("Fullscreen state must be a boolean");
-  playerWindow.setFullScreen(fullscreen);
-  return fullscreen;
+  // macOS changes Spaces asynchronously. Ignore repeated input until the window
+  // confirms its state, including requests made by native menus.
+  const pending = transitions.get(playerWindow);
+  if (pending) return pending;
+  if (playerWindow.isFullScreen() === fullscreen) return Promise.resolve(fullscreen);
+  const win = playerWindow;
+  const transition = new Promise<boolean>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      win.removeListener("enter-full-screen", entered);
+      win.removeListener("leave-full-screen", left);
+      win.removeListener("closed", closed);
+    };
+    const finish = (state: boolean) => { cleanup(); resolve(state); };
+    const entered = () => finish(true);
+    const left = () => finish(false);
+    const closed = () => { cleanup(); reject(new Error("Player window was closed")); };
+    const timeout = setTimeout(() => {
+      cleanup();
+      if (!win.isDestroyed() && win.isFullScreen() === fullscreen) resolve(fullscreen);
+      else reject(new Error("The window manager did not complete the fullscreen transition. Try again."));
+    }, 5000);
+    win.on("enter-full-screen", entered);
+    win.on("leave-full-screen", left);
+    win.on("closed", closed);
+    try { win.setFullScreen(fullscreen); }
+    catch (error) { cleanup(); reject(error); }
+  });
+  const settled = transition.finally(() => transitions.delete(win));
+  transitions.set(win, settled);
+  return settled;
 }
 
 export function registerPlayerFullscreenEvents(playerWindow: BrowserWindow): void {

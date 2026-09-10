@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ani Desktop — Built-in player inside the main window (A1 and A2)</title>
+<style>
+@font-face { font-family: "Fragment Mono"; src: url("fonts/fragment-mono.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+/* Same three-colour system as B2. */
+:root, [data-theme="graphite"]  { --bg: #1F2023; --text: #EDEDEE; --cursor: #EDEDEE; --cursor-text: #1F2023; }
+[data-theme="paper"]            { --bg: #F4F4F1; --text: #1E1F22; --cursor: #1E1F22; --cursor-text: #F4F4F1; }
+[data-theme="nord"]             { --bg: #2E3440; --text: #ECEFF4; --cursor: #88C0D0; --cursor-text: #2E3440; }
+[data-theme="gruvbox"]          { --bg: #282828; --text: #EBDBB2; --cursor: #FABD2F; --cursor-text: #282828; }
+[data-theme="mocha"]            { --bg: #1E1E2E; --text: #CDD6F4; --cursor: #CBA6F7; --cursor-text: #1E1E2E; }
+[data-theme="solarized-light"]  { --bg: #FDF6E3; --text: #586E75; --cursor: #268BD2; --cursor-text: #FDF6E3; }
+:root {
+  --raised: color-mix(in oklab, var(--bg), var(--text) 7%);
+  --rule:   color-mix(in oklab, var(--bg), var(--text) 13%);
+  --dim:    color-mix(in oklab, var(--bg), var(--text) 34%);
+  --muted:  color-mix(in oklab, var(--bg), var(--text) 58%);
+  --danger: #E08A80;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.6 "Fragment Mono", monospace; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+a { color: inherit; text-decoration: none; cursor: pointer; }
+
+.screen { display: none; height: 100vh; flex-direction: column; overflow: hidden; }
+.screen:target { display: flex; }
+.screen:first-of-type:not(:target) { display: flex; }
+body:has(.screen:target) .screen:first-of-type:not(:target) { display: none; }
+
+.page { padding: 36px 56px 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.foot { flex-shrink: 0; padding: 12px 56px; color: var(--muted); font-size: 12px; display: flex; gap: 28px; align-items: center; border-top: 1px solid var(--rule); }
+.foot b { color: var(--text); font-weight: 400; }
+.foot .right { margin-left: auto; display: flex; gap: 20px; }
+.foot a:hover { color: var(--text); }
+
+.chips { display: flex; gap: 2px; align-items: center; }
+.chips .lab { color: var(--dim); font-size: 12px; margin-right: 6px; }
+.chips button { padding: 2px 9px; border-radius: 4px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.chips button:hover { background: var(--raised); color: var(--text); }
+.chips button.on { background: var(--cursor); color: var(--cursor-text); }
+.btn { padding: 5px 12px; border: 1px solid var(--rule); border-radius: 4px; color: var(--text); font-size: 13px; }
+.btn:hover { background: var(--raised); border-color: var(--muted); }
+.btn.quiet { border-color: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--text); border-color: transparent; }
+.btn.on { background: var(--cursor); color: var(--cursor-text); border-color: var(--cursor); }
+
+.field { display: flex; align-items: center; gap: 28px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+.field input { flex: 1; border: 0; background: none; outline: 0; font-size: 22px; padding: 0; caret-color: var(--text); min-width: 0; }
+.field input::placeholder { color: var(--dim); }
+.field .groups { display: flex; gap: 22px; }
+.crumb { color: var(--muted); font-size: 13px; white-space: pre; }
+h1 { font-size: 22px; font-weight: 400; margin: 6px 0 4px; line-height: 1.3; }
+.sub { color: var(--muted); font-size: 13px; display: flex; gap: 24px; }
+.bar { display: flex; gap: 22px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, 56px); gap: 6px; margin-top: 14px; }
+.grid button { height: 36px; border-radius: 4px; text-align: center; color: var(--text); }
+.grid button:hover { background: var(--raised); }
+.grid button.w { color: var(--dim); }
+.grid button.cur { background: var(--cursor); color: var(--cursor-text); }
+.grid button.playing { box-shadow: inset 0 0 0 1px var(--cursor); }
+.line { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; display: flex; gap: 24px; align-items: center; flex-shrink: 0; }
+.line b { color: var(--text); font-weight: 400; }
+.line .dots { color: var(--text); }
+.line .btn { margin-left: auto; }
+.line .btn + .btn { margin-left: 0; }
+
+/* ---- Player (both layouts) ---------------------------------------------- */
+/* One line of context above the video, in the app's own type. */
+.now { display: flex; align-items: baseline; gap: 24px; padding: 0 0 12px; flex-shrink: 0; }
+.now .title { font-size: 16px; }
+.now .ep { color: var(--muted); font-size: 13px; }
+.now .detail { color: var(--dim); font-size: 13px; }
+.now .acts { margin-left: auto; display: flex; gap: 2px; }
+.now .acts a { padding: 2px 9px; border-radius: 4px; color: var(--muted); font-size: 13px; }
+.now .acts a:hover { background: var(--raised); color: var(--text); }
+
+/* The video surface is always black. Only the controls take the theme.
+   The timeline uses the highlight colour; a dark highlight (paper) would vanish
+   on black, so it falls back to white. The app derives this from luminance. */
+:root { --video-brand: var(--cursor); --video-brand-text: var(--cursor-text); }
+[data-theme="paper"] { --video-brand: #fff; --video-brand-text: #000; }
+.video { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
+.a1 .video { margin: 0 -56px; }
+.frame {
+  position: absolute; inset: 0; margin: auto; aspect-ratio: 16 / 9; max-width: 100%; max-height: 100%;
+  background:
+    radial-gradient(120% 60% at 50% 105%, #0d1620 0 40%, transparent 41%),
+    radial-gradient(45% 45% at 78% 28%, #f3e2b8 0 3%, #d9b985 4% 6%, transparent 7%),
+    radial-gradient(60% 40% at 30% 70%, #1d2c3a 0 30%, transparent 60%),
+    linear-gradient(180deg, #16253a 0%, #35476b 42%, #a37a66 70%, #2b2f3d 100%);
+}
+.frame::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: 14%; height: 18%; background: radial-gradient(80% 100% at 20% 100%, #0a0f16 0 45%, transparent 46%), radial-gradient(70% 90% at 70% 100%, #0a0f16 0 50%, transparent 51%); }
+
+/* Vidstack default layout, restyled with the theme variables. */
+.controls { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 14px 10px; background: linear-gradient(transparent, rgb(0 0 0 / 70%)); color: #fff; }
+.timeline { position: relative; height: 4px; margin: 0 6px 10px; border-radius: 2px; background: rgb(255 255 255 / 22%); }
+.timeline .buf { position: absolute; inset: 0 auto 0 0; width: 74%; border-radius: 2px; background: rgb(255 255 255 / 30%); }
+.timeline .pos { position: absolute; inset: 0 auto 0 0; width: 59%; border-radius: 2px; background: var(--video-brand); }
+.timeline .knob { position: absolute; top: 50%; left: 59%; width: 12px; height: 12px; border-radius: 50%; background: var(--video-brand); transform: translate(-50%, -50%); }
+.row { display: flex; align-items: center; gap: 4px; }
+.row .sp { flex: 1; }
+.row .time { font-size: 13px; color: #fff; margin: 0 10px; }
+.row .time span { color: rgb(255 255 255 / 60%); }
+.ic { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 4px; }
+.ic:hover { background: rgb(255 255 255 / 12%); }
+.ic svg { width: 26px; height: 26px; fill: currentColor; }
+.ic.help { font-size: 15px; }
+.vol { width: 72px; height: 4px; border-radius: 2px; background: rgb(255 255 255 / 22%); margin: 0 8px 0 2px; position: relative; }
+.vol::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 80%; border-radius: 2px; background: #fff; }
+
+/* Fullscreen: nothing but the video. Title fades in with the controls. */
+.fs .video { margin: 0; }
+.fs .fstitle { position: absolute; top: 0; left: 0; right: 0; padding: 14px 20px; color: #fff; font-size: 14px; background: linear-gradient(rgb(0 0 0 / 55%), transparent); }
+.fs .fstitle span { color: rgb(255 255 255 / 60%); margin-left: 16px; }
+
+/* Ended: the next episode is announced in the app's own voice, not a card. */
+.ended .frame { filter: brightness(.35); }
+.ended .controls { display: none; }
+.next { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: #fff; text-align: center; }
+.next b { font-weight: 400; font-size: 16px; }
+.next span { color: rgb(255 255 255 / 60%); font-size: 13px; }
+.next .acts { display: flex; gap: 8px; margin-top: 6px; }
+.next .btn { border-color: rgb(255 255 255 / 30%); color: #fff; }
+.next .btn.primary { background: var(--video-brand); color: var(--video-brand-text); border-color: var(--video-brand); }
+
+/* A2: collapsed series header above a video panel, grid below. */
+.a2 .head { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; margin: 16px 0 14px; flex-shrink: 0; }
+.a2 .head img { width: 40px; height: 56px; object-fit: cover; border-radius: 3px; display: block; }
+.a2 .head h1 { font-size: 16px; margin: 0; }
+.a2 .head .sub { margin-top: 2px; }
+.a2 .head .acts { display: flex; gap: 8px; }
+.a2 .video { flex: 0 0 auto; height: 372px; border-radius: 4px; }
+.a2 .bar { margin-top: 14px; }
+.a2 .grid { margin-top: 12px; }
+
+/* ---- Mini player (docked while browsing) ------------------------------- */
+/* Home uses the app's two-column layout so the overlap with continue/saved is visible. */
+.page-lists { overflow: hidden; }
+.home-sections { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 24px 32px; margin-top: 24px; flex: 1; min-height: 0; }
+.home-library { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.home-sections h2 { margin-top: 0; }
+.home-sections .item { grid-template-columns: 40px 1fr auto; gap: 12px; }
+.home-sections .item .k { display: none; }
+.home-sections .item .k2 { min-width: 0; }
+.list-section { min-width: 0; }
+.item img { width: 40px; height: 56px; object-fit: cover; border-radius: 3px; display: block; background: var(--raised); }
+.item { display: grid; grid-template-columns: 40px 1fr auto auto; gap: 16px; align-items: center; padding: 6px 12px; margin: 0 -12px; border-radius: 6px; min-height: 68px; }
+.item .t { display: block; } .item .s { display: block; color: var(--muted); font-size: 12px; }
+.item .k { color: var(--muted); font-size: 13px; min-width: 130px; }
+.item .k2 { color: var(--muted); font-size: 13px; min-width: 60px; text-align: right; }
+.item.cur { background: var(--cursor); color: var(--cursor-text); }
+.item.cur .k, .item.cur .k2, .item.cur .s { color: var(--cursor-text); opacity: .7; }
+.item.lib { grid-template-columns: 40px 1fr auto auto auto; }
+.item .rm { color: var(--dim); font-size: 13px; padding: 2px 8px; border-radius: 4px; }
+h2 { font-size: 12px; font-weight: 400; color: var(--muted); margin: 28px 0 6px; display: flex; align-items: baseline; }
+h2 span { margin-left: 12px; color: var(--dim); }
+.list { display: grid; gap: 2px; }
+.screen .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.screen .body > .page { flex: 1; }
+
+/* The mini player sits above the footer in the corner. Lists scroll under it. */
+.mini {
+  position: absolute; right: 24px; bottom: 16px; z-index: 50;
+  width: min(33vw, 420px); min-width: 300px;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 25%);
+}
+.mini .video { display: block; position: relative; flex: none; width: 100%; aspect-ratio: 16 / 9; cursor: pointer; }
+.mini .video .frame { max-width: 100%; max-height: 100%; }
+.mini .bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 2px; align-items: center; padding: 6px 6px 6px 12px; border-top: 0; }
+.mini .bar .t { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini .bar .s { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mini .bar a { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); }
+.mini .bar a:hover { background: var(--raised); color: var(--text); }
+.mini .bar a svg { width: 18px; height: 18px; fill: currentColor; }
+.mini .bar a.close { font-size: 18px; line-height: 1; }
+/* Ended while docked: the same countdown at a smaller size. */
+.mini .next { gap: 6px; background: rgb(0 0 0 / 70%); }
+.mini .next .frame { filter: none; }
+.mini .ended-frame { filter: brightness(.35); }
+.mini .next b { font-size: 13px; }
+.mini .next span { font-size: 12px; }
+.mini .next .acts { margin-top: 2px; gap: 6px; }
+.mini .next .btn { padding: 3px 9px; font-size: 12px; }
+.foot .now-link { color: var(--muted); }
+.foot .now-link b { color: var(--text); }
+
+/* The mini player can be dragged by its bar and snaps to the nearest corner. The corner is remembered. */
+.mini.top-left { right: auto; bottom: auto; left: 24px; top: 16px; }
+.mini.top-right { bottom: auto; top: 16px; }
+.mini.bottom-left { right: auto; left: 24px; }
+.mini .bar { cursor: grab; }
+.mini .bar .t, .mini .bar .s { cursor: grab; }
+</style>
+</head>
+<body>
+
+<!-- A1: PLAYER TAKES THE PAGE -->
+<section class="screen a1" id="a1-player">
+  <div class="page">
+    <div class="now">
+      <span class="title">Frieren: Beyond Journey's End</span>
+      <span class="ep">episode 13 of 28</span>
+      <span class="detail">1080p · sub · aniwave</span>
+      <div class="acts"><a href="#a1-player">prev</a><a href="#a1-player">next</a><a href="#a2-series">episodes</a></div>
+    </div>
+    <div class="video">
+      <div class="frame"></div>
+      <div class="controls">
+        <div class="timeline"><div class="buf"></div><div class="pos"></div><div class="knob"></div></div>
+        <div class="row">
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2l5 4-5 4V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h2c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1c2.9.9 5 3.5 5 6.7s-2.1 5.8-5 6.7v2.1c4-.9 7-4.5 7-8.8s-3-7.9-7-8.8z"/></svg></span>
+          <span class="vol"></span>
+          <span class="time">14:02 <span>/ 23:40</span></span>
+          <span class="sp"></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></span>
+          <span class="ic help">?</span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>n</b> next</span><span><b>p</b> prev</span><span><b>f</b> fullscreen</span><span><b>esc</b> back</span><span class="right"><a href="#a1-player">search</a><a href="#a1-player">saved</a><a href="#a1-player">recent</a><a href="#a1-player">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- A1: EPISODE ENDED, AUTOPLAY NEXT -->
+<section class="screen a1 ended" id="a1-ended">
+  <div class="page">
+    <div class="now">
+      <span class="title">Frieren: Beyond Journey's End</span>
+      <span class="ep">episode 13 of 28</span>
+      <span class="detail">1080p · sub · aniwave</span>
+      <div class="acts"><a href="#a1-player">prev</a><a href="#a1-player">next</a><a href="#a2-series">episodes</a></div>
+    </div>
+    <div class="video">
+      <div class="frame"></div>
+      <div class="next">
+        <b>episode 14 in 5 <span class="dots">···</span></b>
+        <span>Frieren: Beyond Journey's End</span>
+        <div class="acts"><a class="btn primary" href="#a1-player">play now</a><a class="btn" href="#a2-series">stay</a></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↵</b> play now</span><span><b>esc</b> stay</span><span><b>p</b> prev</span><span class="right"><a href="#a1-player">search</a><a href="#a1-player">saved</a><a href="#a1-player">recent</a><a href="#a1-player">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- A1: NATIVE FULLSCREEN, CONTROLS SHOWN ON HOVER -->
+<section class="screen a1 fs" id="a1-fullscreen">
+  <div class="video">
+    <div class="frame"></div>
+    <div class="fstitle">Frieren: Beyond Journey's End<span>episode 13 of 28</span></div>
+    <div class="controls">
+      <div class="timeline"><div class="buf"></div><div class="pos"></div><div class="knob"></div></div>
+      <div class="row">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"/></svg></span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2l5 4-5 4V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h2c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"/></svg></span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1c2.9.9 5 3.5 5 6.7s-2.1 5.8-5 6.7v2.1c4-.9 7-4.5 7-8.8s-3-7.9-7-8.8z"/></svg></span>
+        <span class="vol"></span>
+        <span class="time">14:02 <span>/ 23:40</span></span>
+        <span class="sp"></span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/></svg></span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></span>
+        <span class="ic help">?</span>
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- A2: VIDEO ABOVE THE EPISODE GRID ON THE SERIES SCREEN -->
+<section class="screen a2" id="a2-series">
+  <div class="page">
+    <div class="field">
+      <input placeholder="search another title">
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button>auto</button><button class="on">aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+
+    <div class="head">
+      <img src="posters/frieren.svg" alt="">
+      <div>
+        <h1>Frieren: Beyond Journey's End</h1>
+        <div class="sub"><span>28 episodes</span><span>aniwave + anidb</span><span>watched through 12</span></div>
+      </div>
+      <div class="acts"><a class="btn quiet" href="#a1-player">back</a><button class="btn">save</button></div>
+    </div>
+
+    <div class="video">
+      <div class="frame"></div>
+      <div class="controls">
+        <div class="timeline"><div class="buf"></div><div class="pos"></div><div class="knob"></div></div>
+        <div class="row">
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 5V2l5 4-5 4V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h2c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1c2.9.9 5 3.5 5 6.7s-2.1 5.8-5 6.7v2.1c4-.9 7-4.5 7-8.8s-3-7.9-7-8.8z"/></svg></span>
+          <span class="vol"></span>
+          <span class="time">14:02 <span>/ 23:40</span></span>
+          <span class="sp"></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></span>
+          <span class="ic help">?</span>
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bar">
+      <span class="crumb">playing episode 13 · 1080p sub aniwave</span>
+      <div class="chips"><button class="on">aniwave 28</button><button>anidb 28</button></div>
+    </div>
+
+    <div class="grid">
+      <button class="w">1</button><button class="w">2</button><button class="w">3</button><button class="w">4</button><button class="w">5</button><button class="w">6</button><button class="w">7</button><button class="w">8</button><button class="w">9</button><button class="w">10</button><button class="w">11</button><button class="w">12</button>
+      <button class="cur">13</button><button>14</button><button>15</button><button>16</button><button>17</button><button>18</button><button>19</button><button>20</button><button>21</button><button>22</button><button>23</button><button>24</button><button>25</button><button>26</button><button>27</button><button>28</button>
+    </div>
+  </div>
+  <div class="foot"><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>tab</b> grid</span><span><b>n</b> next</span><span><b>f</b> fullscreen</span><span><b>esc</b> stop</span><span class="right"><a href="#a2-series">search</a><a href="#a2-series">saved</a><a href="#a2-series">recent</a><a href="#a2-series">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: HOME, BROWSING WHILE WATCHING -->
+<section class="screen" id="mini-home">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input value="dandadan" autofocus>
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="home-sections">
+      <section class="list-section">
+        <h2>results for "dandadan"<span>2 titles</span></h2>
+        <div class="list">
+          <div class="item cur"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan</span><span class="s">2024, 12 episodes</span></span><span class="k2">aniwave + anidb</span></div>
+          <div class="item"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan 2nd Season</span><span class="s">2025, 12 episodes</span></span><span class="k2">anidb</span></div>
+        </div>
+      </section>
+      <div class="home-library">
+        <section class="list-section">
+          <h2>continue</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">watched through 24, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/apothecary.svg" alt=""><span><span class="t">The Apothecary Diaries</span><span class="s">watched through 7, sub</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+        <section class="list-section">
+          <h2>saved</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> open</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: DRAGGED TO THE TOP LEFT SO THE LIBRARY COLUMN IS CLEAR -->
+<section class="screen" id="mini-moved">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input value="dandadan">
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="home-sections">
+      <section class="list-section">
+        <h2>results for "dandadan"<span>2 titles</span></h2>
+        <div class="list">
+          <div class="item cur"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan</span><span class="s">2024, 12 episodes</span></span><span class="k2">aniwave + anidb</span></div>
+          <div class="item"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan 2nd Season</span><span class="s">2025, 12 episodes</span></span><span class="k2">anidb</span></div>
+        </div>
+      </section>
+      <div class="home-library">
+        <section class="list-section">
+          <h2>continue</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">watched through 24, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/apothecary.svg" alt=""><span><span class="t">The Apothecary Diaries</span><span class="s">watched through 7, sub</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+        <section class="list-section">
+          <h2>saved</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+  
+    <div class="mini top-left" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> open</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: ANOTHER SERIES OPEN WHILE WATCHING -->
+<section class="screen" id="mini-series">
+  <div class="body">
+  <div class="page">
+    <div class="field">
+      <input placeholder="search another title">
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="head" style="display:grid;grid-template-columns:112px 1fr auto;gap:24px;align-items:end;margin-top:28px">
+      <img src="posters/dandadan.svg" alt="" style="width:112px;height:158px;object-fit:cover;border-radius:4px;display:block">
+      <div>
+        <div class="crumb">results  /  series</div>
+        <h1>Dandadan</h1>
+        <div class="sub"><span>12 episodes</span><span>aniwave + anidb</span><span>started 3</span></div>
+      </div>
+      <div class="acts" style="display:flex;gap:8px;align-self:end"><a class="btn quiet" href="#mini-home">back</a><button class="btn">save</button></div>
+    </div>
+    <div class="bar" style="margin-top:22px">
+      <span class="crumb">click an episode to play it in the built-in player</span>
+      <div class="chips"><button class="on">aniwave 12</button><button>anidb 12</button></div>
+    </div>
+    <div class="grid">
+      <button class="w">1</button><button class="w">2</button><button class="w">3</button><button class="cur">4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>10</button><button>11</button><button>12</button>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span><span><b>esc</b> back</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: EPISODE ENDED WHILE DOCKED -->
+<section class="screen" id="mini-ended">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input placeholder="filter saved titles">
+      <div class="groups"><span class="crumb">saved</span></div>
+    </div>
+    <h2>saved <span>4 titles</span></h2>
+    <div class="list">
+      <div class="item lib cur"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, aniwave</span></span><span class="k">resume</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started, anidb</span></span><span class="k">play ep 1</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19, anidb</span></span><span class="k">play ep 20</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">finished, aniwave</span></span><span class="k">play ep 1 again</span><span class="k2">sub</span><button class="rm">remove</button></div>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div><div class="next"><b>episode 14 in 5 <span class="dots">···</span></b><span>Frieren: Beyond Journey's End</span><div class="acts"><a class="btn primary" href="#a1-player">play now</a><a class="btn" href="#mini-home">stay</a></div></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · ended</span></span>
+        <a title="Play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> play</span><span><b>o</b> open series</span><span><b>x</b> remove</span><span><b>esc</b> back</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<script>
+  const theme = new URLSearchParams(location.search).get("theme");
+  if (theme) document.documentElement.dataset.theme = theme;
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
-import type { AniDesktopApi, AnimeResult, PersistedState } from "../shared/contracts";
+import type { AniDesktopApi, AnimeResult, PersistedState, PlayerSession } from "../shared/contracts";
 import { THEME_PRESETS } from "../shared/theme";
 
 const result = (title: string): AnimeResult[] => [{ id: `aniwave:${title}-1`, title, provider: "aniwave" }];
@@ -15,8 +15,22 @@ function deferred<T>() {
 }
 let container: HTMLDivElement;
 let root: Root;
+let state: PersistedState;
 let search: ReturnType<typeof vi.fn<AniDesktopApi["search"]>>;
 let api: AniDesktopApi;
+let load: (session: PlayerSession) => void;
+const playerStub = vi.hoisted(() => ({ props: undefined as Record<string, unknown> | undefined }));
+vi.mock("../src/PlayerScreen", async () => {
+  const React = await import("react");
+  return { default: (props: { session: { request: { title: string } }; docked: boolean; corner: string; onCornerChange: (corner: string) => void; width: number; onWidthChange: (width: number) => void; episodeCount?: number; onDock: () => void; onExpand: () => void; onClose: () => void; onEpisodes: () => void; onNext?: () => void; onPrev?: () => void }) => {
+    playerStub.props = props;
+    React.useEffect(() => { void window.aniDesktop.player.setActive(true); return () => { void window.aniDesktop.player.setActive(false); }; }, []);
+    return <div data-testid="player" data-docked={props.docked} data-corner={props.corner} data-width={props.width}>{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}
+      <button type="button" onClick={props.onDock}>dock player</button><button type="button" onClick={props.onEpisodes}>playing episodes</button>
+      <button type="button" onClick={props.onClose}>close player</button><button type="button" onClick={() => props.onCornerChange("top-left")}>move player</button><button type="button" onClick={() => props.onWidthChange(333)}>resize player</button>
+      <button type="button" disabled={!props.onNext} onClick={props.onNext}>next episode</button></div>;
+  } };
+});
 const input = () => container.querySelector("input")!;
 const titles = () => [...container.querySelectorAll(".section-results .t")].map((node) => node.textContent);
 async function type(value: string, field = input()) {
@@ -43,7 +57,7 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   Element.prototype.scrollIntoView = vi.fn();
-  const state: PersistedState = {
+  state = {
     bookmarks: [], history: [],
     settings: {
       playerPath: "mpv", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
@@ -53,9 +67,16 @@ beforeEach(async () => {
   };
   search = vi.fn<AniDesktopApi["search"]>().mockImplementation(async (query) => result(query));
   api = {
+    player: {
+      ready: vi.fn().mockResolvedValue(undefined), onLoad: vi.fn((listener) => { load = listener; return vi.fn(); }),
+      onFullscreenChange: vi.fn(() => vi.fn()), onCommand: vi.fn(() => vi.fn()), onNotice: vi.fn(() => vi.fn()), onDiagnosticsChange: vi.fn(() => vi.fn()),
+      logDiagnostic: vi.fn(), saveStorage: vi.fn().mockResolvedValue(undefined), setFullscreen: vi.fn(async (fullscreen: boolean) => fullscreen),
+      openExternal: vi.fn().mockResolvedValue(true), setActive: vi.fn().mockResolvedValue(undefined)
+    },
     search, getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
+    openPlayerLogs: vi.fn().mockResolvedValue(undefined),
     setAppIcon: vi.fn().mockResolvedValue(undefined),
     toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn(),
     linkSources: vi.fn(), mergeEntries: vi.fn(), dismissMerge: vi.fn()
@@ -70,7 +91,141 @@ afterEach(async () => {
   vi.useRealTimers(); vi.unstubAllGlobals();
 });
 
+describe("built-in player screen", () => {
+  const session = (id: string, episodeId: string): PlayerSession => ({ id, preferences: {}, canOpenExternal: false, fullscreen: false,
+    request: { url: `https://cdn.test/${episodeId}.m3u8`, title: `Frieren — Episode ${episodeId.slice(-1)}`, episode: { id: episodeId,
+      entry: { animeId: "aniwave:frieren-1", title: "Frieren", lastEpisode: episodeId.slice(-1), mode: "sub", updatedAt: "" } } } });
+
+  it("shows the player in place of the page, docks it while browsing, and closes it", async () => {
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
+    await type("frieren"); await advance(); await enter();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    expect(api.play).toHaveBeenCalledOnce();
+    await act(async () => load(session("s1", "ep-2")));
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Frieren — Episode 2 of 3");
+    expect(container.querySelector(".field")).toBeNull();
+    expect(container.querySelector(".foot")?.textContent).toContain("next");
+    expect(api.player.setActive).toHaveBeenLastCalledWith(true);
+    expect(playerStub.props?.onPrev).toBeDefined();
+
+    // Keys belong to the player screen while it is showing.
+    await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(container.querySelector('[data-testid="player"]')).not.toBeNull();
+
+    await click("next episode");
+    expect(api.streams).toHaveBeenLastCalledWith("ep-3", "sub");
+    await act(async () => load(session("s2", "ep-3")));
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 3 of 3");
+    expect(playerStub.props?.onNext).toBeUndefined();
+
+    // Escape docks: the player stays mounted and playing while the grid comes back.
+    const refreshes = vi.mocked(api.getState).mock.calls.length;
+    await click("dock player");
+    const player = () => container.querySelector<HTMLElement>('[data-testid="player"]');
+    expect(player()?.dataset.docked).toBe("true");
+    expect(player()?.dataset.corner).toBe("bottom-right");
+    expect(container.querySelector(".field")).not.toBeNull();
+    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+    expect(api.player.setActive).toHaveBeenLastCalledWith(true);
+    expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
+    expect(container.querySelector(".foot")?.textContent).toContain("now playing");
+
+    // Browsing elsewhere keeps it docked; the backtick brings it back.
+    await click("saved");
+    expect(player()?.dataset.docked).toBe("true");
+    // The backtick expands the player even while the search field has focus.
+    expect(document.activeElement).toBe(input());
+    await press("`");
+    expect(player()?.dataset.docked).toBe("false");
+    expect(container.querySelector(".field")).toBeNull();
+    await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(player()?.dataset.docked).toBe("false");
+
+    // Moving the corner applies at once and is remembered in settings.
+    const saving = deferred<PersistedState>();
+    vi.mocked(api.saveSettings).mockReturnValueOnce(saving.promise);
+    await click("move player");
+    expect(player()?.dataset.corner).toBe("top-left");
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ miniPlayerCorner: "top-left" }));
+    await act(async () => saving.resolve({ ...state, settings: { ...state.settings, miniPlayerCorner: "top-left" } }));
+    expect(player()?.dataset.corner).toBe("top-left");
+
+    // Resize keys work while the search field has focus, coalesce into one save, and the grip reports a width too.
+    expect(player()?.dataset.width).toBe("400");
+    vi.mocked(api.saveSettings).mockClear();
+    await press("`"); expect(player()?.dataset.docked).toBe("false");
+    expect(container.querySelector(".foot")?.textContent).not.toContain("size");
+    await click("dock player");
+    expect(container.querySelector(".foot")?.textContent).toContain("size");
+    await act(async () => { input().focus(); });
+    const typed = input().value;
+    await press("="); expect(player()?.dataset.width).toBe("400");
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "=", metaKey: true, bubbles: true })); });
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "=", ctrlKey: true, bubbles: true })); });
+    expect(player()?.dataset.width).toBe("480");
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "-", metaKey: true, bubbles: true })); });
+    expect(player()?.dataset.width).toBe("440");
+    expect(input().value).toBe(typed);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    await advance(300);
+    expect(api.saveSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ miniPlayerWidth: 440 }));
+    await click("resize player");
+    expect(player()?.dataset.width).toBe("333");
+    await advance(300);
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ miniPlayerWidth: 333 }));
+
+    await click("close player");
+    expect(player()).toBeNull();
+    expect(api.player.setActive).toHaveBeenLastCalledWith(false);
+    expect(container.querySelector(".foot")?.textContent).not.toContain("now playing");
+    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+  });
+
+  it("keeps next and previous for the playing series while another series is open", async () => {
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
+    await type("frieren"); await advance(); await enter();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    await act(async () => load(session("s1", "ep-2")));
+    await click("dock player");
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "other-1", number: "1", provider: "aniwave" }] }] });
+    await click("search");
+    await type("dandadan"); await advance(); await enter();
+    expect(container.querySelector("h1")?.textContent).toBe("dandadan");
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 2 of 3");
+    await click("next episode");
+    expect(api.streams).toHaveBeenLastCalledWith("ep-3", "sub");
+    expect(api.play).toHaveBeenLastCalledWith(expect.objectContaining({ title: "frieren — Episode 3" }));
+    await click("playing episodes");
+    expect(api.episodes).toHaveBeenLastCalledWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
+  });
+});
+
 describe("live catalog search", () => {
+  it("saves opt-in diagnostics and opens the log folder from settings", async () => {
+    await click("settings");
+    const group = container.querySelector('[role="radiogroup"][aria-label="logging"]')!;
+    expect(group.querySelector('[aria-checked="true"]')?.textContent).toBe("off");
+    await act(async () => { [...group.querySelectorAll("button")].find(button => button.textContent === "on")!.click(); });
+    await click("open logs");
+    expect(api.openPlayerLogs).toHaveBeenCalledOnce();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    await click("save changes");
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ playerDiagnostics: true }));
+  });
+  it.each([false, true])("continues the right episode when completed is %s", async (completed) => {
+    const state = await api.getState();
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "1", mode: "sub", updatedAt: "", completed } } }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [
+      { id: "episode-1", number: "1", provider: "aniwave" }, { id: "episode-2", number: "2", provider: "aniwave" }
+    ] }] });
+    await act(async () => { root.render(<StrictMode><App key="resume" /></StrictMode>); });
+    await press("Enter");
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith(completed ? "episode-2" : "episode-1", "sub");
+  });
+
   it("previews icon colours, restores them on cancel, and retains a saved theme", async () => {
     const icon = () => decodeURIComponent(document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href);
     await click("settings"); await click("nord");
@@ -127,10 +282,10 @@ describe("live catalog search", () => {
     expect(episode).toBeDefined();
     await act(async () => { episode.click(); });
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("anidb:episode-81", "sub");
-    expect(api.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.play).toHaveBeenCalledWith(expect.objectContaining({ episode: expect.objectContaining({ entry: expect.objectContaining({
       lastProvider: "anidb", lastEpisode: "81",
       progressByProvider: expect.objectContaining({ anidb: expect.objectContaining({ lastEpisode: "81" }) })
-    }));
+    }) }) }));
   });
 
   it("keeps focus in search if the user returns there before episodes finish loading", async () => {
