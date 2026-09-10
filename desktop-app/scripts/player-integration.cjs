@@ -186,11 +186,15 @@ app.whenReady().then(async () => {
   await waitFor("!document.querySelector('.vds-menu-items[data-open]')", 'Escape dismisses menu');
   assert.equal(await evaluate("!!document.querySelector('.is-native-fullscreen')"),true);
   await key('Escape'); await waitFor("!!document.querySelector('.is-windowed')", 'Escape fullscreen');
+  // Fine pointers use our desktop-wide fullscreen gesture. Headless Wayland has
+  // no pointer device, so Vidstack keeps seek gestures at the edges of the video.
   await evaluate(`(() => { const provider=document.querySelector('[data-media-provider]'), b=provider.getBoundingClientRect();
-    for(let i=0;i<2;i++) provider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,button:0,clientX:b.x+b.width*0.1,clientY:b.y+b.height/2})); })()`);
+    const x=matchMedia('(pointer: fine)').matches ? 0.1 : 0.5;
+    for(let i=0;i<2;i++) provider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,button:0,clientX:b.x+b.width*x,clientY:b.y+b.height/2})); })()`);
   await waitFor("!!document.querySelector('.is-native-fullscreen')", 'gesture request native fullscreen');
   await evaluate(`(() => { const provider=document.querySelector('[data-media-provider]'), b=provider.getBoundingClientRect();
-    for(let i=0;i<2;i++) provider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,button:0,clientX:b.x+b.width*0.9,clientY:b.y+b.height/2})); })()`);
+    const x=matchMedia('(pointer: fine)').matches ? 0.9 : 0.5;
+    for(let i=0;i<2;i++) provider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,button:0,clientX:b.x+b.width*x,clientY:b.y+b.height/2})); })()`);
   await waitFor("!!document.querySelector('.is-windowed')", 'gesture request exits native fullscreen');
   console.log(`PASS: native fullscreen bridge, repeat guard, menu Escape, double-click${native?' and window manager':''}`);
 
