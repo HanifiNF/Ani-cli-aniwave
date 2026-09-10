@@ -22,12 +22,12 @@ let load: (session: PlayerSession) => void;
 const playerStub = vi.hoisted(() => ({ props: undefined as Record<string, unknown> | undefined }));
 vi.mock("../src/PlayerScreen", async () => {
   const React = await import("react");
-  return { default: (props: { session: { request: { title: string } }; docked: boolean; corner: string; onCornerChange: (corner: string) => void; episodeCount?: number; onDock: () => void; onExpand: () => void; onClose: () => void; onEpisodes: () => void; onNext?: () => void; onPrev?: () => void }) => {
+  return { default: (props: { session: { request: { title: string } }; docked: boolean; corner: string; onCornerChange: (corner: string) => void; width: number; onWidthChange: (width: number) => void; episodeCount?: number; onDock: () => void; onExpand: () => void; onClose: () => void; onEpisodes: () => void; onNext?: () => void; onPrev?: () => void }) => {
     playerStub.props = props;
     React.useEffect(() => { void window.aniDesktop.player.setActive(true); return () => { void window.aniDesktop.player.setActive(false); }; }, []);
-    return <div data-testid="player" data-docked={props.docked} data-corner={props.corner}>{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}
+    return <div data-testid="player" data-docked={props.docked} data-corner={props.corner} data-width={props.width}>{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}
       <button type="button" onClick={props.onDock}>dock player</button><button type="button" onClick={props.onEpisodes}>playing episodes</button>
-      <button type="button" onClick={props.onClose}>close player</button><button type="button" onClick={() => props.onCornerChange("top-left")}>move player</button>
+      <button type="button" onClick={props.onClose}>close player</button><button type="button" onClick={() => props.onCornerChange("top-left")}>move player</button><button type="button" onClick={() => props.onWidthChange(333)}>resize player</button>
       <button type="button" disabled={!props.onNext} onClick={props.onNext}>next episode</button></div>;
   } };
 });
@@ -150,6 +150,30 @@ describe("built-in player screen", () => {
     expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ miniPlayerCorner: "top-left" }));
     await act(async () => saving.resolve({ ...state, settings: { ...state.settings, miniPlayerCorner: "top-left" } }));
     expect(player()?.dataset.corner).toBe("top-left");
+
+    // Resize keys work while the search field has focus, coalesce into one save, and the grip reports a width too.
+    expect(player()?.dataset.width).toBe("400");
+    vi.mocked(api.saveSettings).mockClear();
+    await press("`"); expect(player()?.dataset.docked).toBe("false");
+    expect(container.querySelector(".foot")?.textContent).not.toContain("size");
+    await click("dock player");
+    expect(container.querySelector(".foot")?.textContent).toContain("size");
+    await act(async () => { input().focus(); });
+    const typed = input().value;
+    await press("="); expect(player()?.dataset.width).toBe("400");
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "=", metaKey: true, bubbles: true })); });
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "=", ctrlKey: true, bubbles: true })); });
+    expect(player()?.dataset.width).toBe("480");
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "-", metaKey: true, bubbles: true })); });
+    expect(player()?.dataset.width).toBe("440");
+    expect(input().value).toBe(typed);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    await advance(300);
+    expect(api.saveSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ miniPlayerWidth: 440 }));
+    await click("resize player");
+    expect(player()?.dataset.width).toBe("333");
+    await advance(300);
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ miniPlayerWidth: 333 }));
 
     await click("close player");
     expect(player()).toBeNull();

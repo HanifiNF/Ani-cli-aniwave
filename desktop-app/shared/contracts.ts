@@ -6,6 +6,12 @@ export type PlaybackTarget = "builtin" | "external";
 /** Where the docked mini player sits while the user browses. */
 export type MiniPlayerCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export const MINI_PLAYER_CORNERS: readonly MiniPlayerCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
+/** Width of the docked mini player in pixels. Height follows the 16:9 video plus its bar. */
+export const MINI_PLAYER_WIDTH = { min: 240, max: 960, default: 400, step: 40 } as const;
+export const clampMiniPlayerWidth = (value: unknown, max: number = MINI_PLAYER_WIDTH.max): number => {
+  const ceiling = Math.max(MINI_PLAYER_WIDTH.min, Math.min(max, MINI_PLAYER_WIDTH.max));
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(Math.min(Math.max(value, MINI_PLAYER_WIDTH.min), ceiling)) : MINI_PLAYER_WIDTH.default;
+};
 
 export interface AnimeSource {
   id: string;
@@ -79,6 +85,7 @@ export interface Settings {
   startPlayerFullscreen: boolean;
   autoplayNext?: boolean;
   miniPlayerCorner?: MiniPlayerCorner;
+  miniPlayerWidth?: number;
   playerDiagnostics?: boolean;
   preferredQuality: string;
   preferredMode: TranslationMode;

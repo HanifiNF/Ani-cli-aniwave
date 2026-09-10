@@ -15,7 +15,7 @@ import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
 import { DesktopMediaStorage } from "./player-storage";
 import { observePlayerDiagnostics } from "./player-diagnostics";
-import type { MiniPlayerCorner, PlayerCommand, PlayerSession } from "../shared/contracts";
+import { clampMiniPlayerWidth, type MiniPlayerCorner, type PlayerCommand, type PlayerSession } from "../shared/contracts";
 
 export interface PlayerScreenProps {
   session: PlayerSession;
@@ -25,6 +25,9 @@ export interface PlayerScreenProps {
   docked: boolean;
   corner: MiniPlayerCorner;
   onCornerChange: (corner: MiniPlayerCorner) => void;
+  /** Docked width in pixels. The grip at the inner corner and the resize keys change it. */
+  width: number;
+  onWidthChange: (width: number) => void;
   /** How many episodes the series has, when the app knows the playing episode's place in it. */
   episodeCount?: number;
   /** Stream detail shown after the episode number, such as quality, audio, and source. */
@@ -115,7 +118,7 @@ function MenuEscapeHandler() {
   return null;
 }
 
-export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
+export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
   const api = window.aniDesktop.player;
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -132,6 +135,8 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   // Pointer events can arrive before React commits the drag state, so the handlers read refs.
   const dragRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const dragStart = useRef<{ x: number; y: number; pointer: number } | undefined>(undefined);
+  const [liveWidth, setLiveWidth] = useState<number>();
+  const resizeStart = useRef<{ x: number; width: number; max: number; pointer: number } | undefined>(undefined);
   const shell = useRef<HTMLElement>(null);
   const player = useRef<MediaPlayerInstance>(null);
   const surface = useRef<HTMLDivElement>(null);
@@ -326,14 +331,37 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
     finally { setFallbackBusy(false); }
   }
 
+  // The grip sits at the corner that faces the page, so dragging it inward grows the box.
+  const maxWidth = () => { const parent = shell.current?.parentElement?.getBoundingClientRect(); return parent ? parent.width - 48 : Number.POSITIVE_INFINITY; };
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    resizeStart.current = { x: event.clientX, width: shell.current?.getBoundingClientRect().width || width, max: maxWidth(), pointer: event.pointerId };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* synthetic pointers cannot be captured */ }
+  };
+  const moveResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointer !== event.pointerId) return;
+    const sign = corner.endsWith("right") ? -1 : 1;
+    setLiveWidth(clampMiniPlayerWidth(start.width + sign * (event.clientX - start.x), start.max));
+  };
+  const endResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointer !== event.pointerId) return;
+    resizeStart.current = undefined;
+    try { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* not captured */ }
+    setLiveWidth((value) => { if (value !== undefined && value !== width) onWidthChange(value); return undefined; });
+  };
+  const shownWidth = liveWidth ?? width;
+
   const episode = session.request.episode?.entry;
   const title = episode?.title ?? session.request.title;
   const episodeLabel = episode ? `episode ${episode.lastEpisode}${episodeCount ? ` of ${episodeCount}` : ""}` : undefined;
   const dockedSub = [episodeLabel, countdown !== undefined ? "ended" : duration ? `${clock(time)} / ${clock(duration)}` : undefined].filter(Boolean).join(" · ");
 
   return (
-    <main ref={shell} className={`player-shell ${docked ? `is-docked corner-${corner}` : "is-expanded"} ${fullscreen && !docked ? "is-fullscreen" : ""} ${drag ? "is-dragging" : ""}`}
-      style={drag ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined} aria-label={docked ? "Now playing" : undefined}>
+    <main ref={shell} className={`player-shell ${docked ? `is-docked corner-${corner}` : "is-expanded"} ${fullscreen && !docked ? "is-fullscreen" : ""} ${drag ? "is-dragging" : ""} ${liveWidth !== undefined ? "is-resizing" : ""}`}
+      style={docked ? { "--mini-width": `${shownWidth}px`, ...(drag ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : {}) } as React.CSSProperties : undefined} aria-label={docked ? "Now playing" : undefined}>
       {!docked && <div className="now">
         <span className="now-title">{title}</span>
         {episodeLabel && <span className="now-ep">{episodeLabel}</span>}
@@ -439,6 +467,10 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           <button type="button" className="mini-close" aria-label="Stop playback" title="Stop" onClick={onClose}>×</button>
         </div>
       )}
+      {docked && (
+        <div className="mini-resize" role="separator" aria-label="Resize player" aria-orientation="vertical" aria-valuenow={shownWidth} title="Drag to resize (⌘+ / ⌘−)"
+          onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />
+      )}
       <dialog ref={shortcutsDialog} className="player-shortcuts" aria-labelledby="shortcuts-title" onCancel={() => setShowShortcuts(false)} onClose={() => setShowShortcuts(false)}>
         <h2 id="shortcuts-title">Keyboard shortcuts</h2>
         <dl>
@@ -455,6 +487,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           <dt>F / double-click</dt><dd>Toggle fullscreen</dd>
           <dt>Escape</dt><dd>Close menu, leave fullscreen, then shrink to the corner</dd>
           <dt>`</dt><dd>Return from the corner to the full player</dd>
+          <dt>⌘ + / ⌘ −</dt><dd>Grow or shrink the corner player</dd>
           <dt>Tab / Shift + Tab</dt><dd>Move between controls</dd>
           <dt>?</dt><dd>Show shortcuts</dd>
         </dl>

@@ -81,6 +81,11 @@ describe("StateStore", () => {
     expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "", autoplayNext: false, miniPlayerCorner: "top-left" });
     const odd = await fresh.saveSettings({ ...saved.settings, miniPlayerCorner: "middle" as never });
     expect(odd.settings.miniPlayerCorner).toBe("bottom-right");
+    expect(odd.settings.miniPlayerWidth).toBe(400);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 520.4 })).settings.miniPlayerWidth).toBe(520);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 20 })).settings.miniPlayerWidth).toBe(240);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: 5000 })).settings.miniPlayerWidth).toBe(960);
+    expect((await fresh.saveSettings({ ...odd.settings, miniPlayerWidth: "wide" as never })).settings.miniPlayerWidth).toBe(400);
   });
 
   it("repairs unknown themes and partial custom colours on load", async () => {

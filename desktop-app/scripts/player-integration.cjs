@@ -320,6 +320,19 @@ app.whenReady().then(async () => {
   await waitFor("!!document.querySelector('.player-shell.corner-top-left')", 'drag snaps to the top left');
   await waitFor("!!document.querySelector('.player-shell.corner-top-left') && !document.querySelector('.is-dragging')", 'drag released');
   if (process.env.ANI_PLAYER_CAPTURE_DIR) { await delay(100); writeFileSync(join(process.env.ANI_PLAYER_CAPTURE_DIR,'player-docked-moved.png'),(await win.webContents.capturePage()).toPNG()); }
+  // Resize keys and the grip change the width; the grip faces the page from the top left corner.
+  const widthOf = () => evaluate("document.querySelector('.player-shell').getBoundingClientRect().width");
+  const startWidth = await widthOf();
+  await key('=', {metaKey: process.platform === 'darwin', ctrlKey: process.platform !== 'darwin'}); await delay(50);
+  assert.ok(Math.abs(await widthOf() - (startWidth + 40)) < 1, `resize key grew ${startWidth} to ${await widthOf()}`);
+  await key('-', {metaKey: process.platform === 'darwin', ctrlKey: process.platform !== 'darwin'}); await delay(50);
+  assert.ok(Math.abs(await widthOf() - startWidth) < 1, 'resize key shrank back');
+  await evaluate(`(() => { const grip=document.querySelector('.mini-resize'), b=grip.getBoundingClientRect();
+    const fire=(type,x,y)=>grip.dispatchEvent(new PointerEvent(type,{pointerId:8,button:0,clientX:x,clientY:y,bubbles:true}));
+    fire('pointerdown',b.x+8,b.y+8); fire('pointermove',b.x+108,b.y+8); fire('pointerup',b.x+108,b.y+8); })()`);
+  await waitFor(`Math.abs(document.querySelector('.player-shell').getBoundingClientRect().width - ${startWidth + 100}) < 1`, 'grip resize');
+  await delay(400);
+  assert.equal(store.snapshot().settings.miniPlayerWidth, Math.round(startWidth + 100), 'width persisted');
   await key('`');
   await waitFor("!!document.querySelector('.player-shell.is-expanded') && !document.querySelector('.app .field')", 'backtick expands the player');
   await key('Escape');
@@ -329,7 +342,7 @@ app.whenReady().then(async () => {
   await waitFor(`document.title === 'Ani Desktop'`, 'window title restored');
   assert.equal(playerActive, false, 'player reported inactive');
   assert.ok(!playbackMenu().enabled, 'playback menu disabled without a session');
-  console.log('PASS: Escape docks, the mini bar controls and drags, backtick expands, close ends the session');
+  console.log('PASS: Escape docks, the mini bar controls, drags and resizes, backtick expands, close ends the session');
   await diagnostics.close();
   win.destroy();server.close();await delay(100);rmSync(directory,{recursive:true,force:true});app.exit(0);
 }).catch(error=>{console.error(error);if(win&&!win.isDestroyed())win.destroy();server?.close();app.exit(1);});

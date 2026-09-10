@@ -76,4 +76,5 @@ the session. Lists scroll under the corner. The ended countdown runs at the smal
 continues while docked. Playback keys work only on the full player screen; while docked the app keys
 belong to the lists again. The bar is a drag handle: release snaps the player to the nearest of the four
 corners so nothing stays covered, and the corner is remembered across sessions (`#mini-moved`).
-Implemented in `src/PlayerScreen.tsx` (docked mode) and `src/App.tsx`; the corner lives in settings.
+Implemented in `src/PlayerScreen.tsx` (docked mode) and `src/App.tsx`; the corner and width live in settings.
+The box resizes from a grip at its inner corner or with ⌘+ and ⌘−, between 240px and the body width.

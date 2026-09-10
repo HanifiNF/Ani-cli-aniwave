@@ -16,6 +16,7 @@ import type {
 } from "../shared/contracts";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
+import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
 import { applyAppIcon } from "./appIcon";
 import { animeSources, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 
@@ -286,13 +287,28 @@ function App() {
     dockPlayer();
   }
 
+  // Mini player placement applies at once, so the box lands where it was released, and is saved afterwards.
   async function moveMiniPlayer(miniPlayerCorner: MiniPlayerCorner) {
-    // Apply the corner in the same render that drops the drag offset, so the box lands where it was released.
     setAppState((state) => ({ ...state, settings: { ...state.settings, miniPlayerCorner } }));
     setSettingsDraft((draft) => ({ ...draft, miniPlayerCorner }));
     try { await window.aniDesktop.saveSettings({ ...appState.settings, miniPlayerCorner }); }
     catch (reason) { setNotice(`corner not saved: ${messageFrom(reason)}`); }
   }
+
+  // Repeated resize keys coalesce into one save.
+  const widthSave = useRef<{ timer?: ReturnType<typeof setTimeout>; width: number }>({ width: 0 });
+  function resizeMiniPlayer(next: number) {
+    const miniPlayerWidth = clampMiniPlayerWidth(next, Math.max(MINI_PLAYER_WIDTH.min, window.innerWidth - 48));
+    setAppState((state) => ({ ...state, settings: { ...state.settings, miniPlayerWidth } }));
+    setSettingsDraft((draft) => ({ ...draft, miniPlayerWidth }));
+    widthSave.current.width = miniPlayerWidth;
+    clearTimeout(widthSave.current.timer);
+    widthSave.current.timer = setTimeout(() => {
+      void window.aniDesktop.saveSettings({ ...appState.settings, miniPlayerWidth: widthSave.current.width })
+        .catch((reason) => setNotice(`size not saved: ${messageFrom(reason)}`));
+    }, 250);
+  }
+  const miniWidth = appState.settings.miniPlayerWidth ?? MINI_PLAYER_WIDTH.default;
 
   function goBack() {
     if (screen === "player") { dockPlayer(); return; }
@@ -479,6 +495,9 @@ function App() {
     if (event.key === "`" && session && screen !== "settings" && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); expandPlayer(); return; }
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
+      // The corner player grows and shrinks from anywhere while docked, even with the search field focused.
+      else if (session && (event.key === "=" || event.key === "+")) { event.preventDefault(); resizeMiniPlayer(miniWidth + MINI_PLAYER_WIDTH.step); }
+      else if (session && (event.key === "-" || event.key === "_")) { event.preventDefault(); resizeMiniPlayer(miniWidth - MINI_PLAYER_WIDTH.step); }
       return;
     }
     if (event.altKey) return;
@@ -587,7 +606,7 @@ function App() {
 
   const footLinks = (
     <span className="right">
-      {session && screen !== "player" && <button type="button" className="now-link" onClick={expandPlayer} aria-keyshortcuts="`"><b>`</b>now playing</button>}
+      {session && screen !== "player" && <button type="button" className="now-link" onClick={expandPlayer} aria-keyshortcuts="`" title="Expand the corner player (`). Resize with ⌘+ and ⌘−"><b>`</b>now playing</button>}
       {screen !== "home" && <button type="button" onClick={() => go("home")}>search</button>}
       {screen !== "saved" && <button type="button" onClick={() => go("saved")}>saved</button>}
       {screen !== "recent" && <button type="button" onClick={() => go("recent")}>recent</button>}
@@ -608,6 +627,8 @@ function App() {
             docked={screen !== "player"}
             corner={appState.settings.miniPlayerCorner ?? "bottom-right"}
             onCornerChange={(corner) => void moveMiniPlayer(corner)}
+            width={miniWidth}
+            onWidthChange={resizeMiniPlayer}
             episodeCount={playingIndex >= 0 && playingList.length > 1 ? playingList.length : undefined}
             detail={current?.detail}
             message={playerMessage}
@@ -774,6 +795,7 @@ function App() {
           : screen === "player" ? <><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>n</b> next</span><span><b>f</b> fullscreen</span>{backButton}</>
           : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
           : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (query.trim() && !catalogSearch.ready ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
+        {session && screen !== "player" && screen !== "settings" && <span><b>⌘+ ⌘−</b> size</span>}
         {footLinks}
       </div>
     </div>

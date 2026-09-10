@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { MINI_PLAYER_CORNERS, type AnimeResult, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type Settings, type PlayRequest } from "../shared/contracts";
+import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
 import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
@@ -16,6 +16,7 @@ const defaults: PersistedState = {
     startPlayerFullscreen: true,
     autoplayNext: true,
     miniPlayerCorner: "bottom-right",
+    miniPlayerWidth: MINI_PLAYER_WIDTH.default,
     playerDiagnostics: false,
     preferredQuality: "best",
     preferredMode: "sub",
@@ -114,6 +115,7 @@ export class StateStore {
           startPlayerFullscreen: typeof settings.startPlayerFullscreen === "boolean" ? settings.startPlayerFullscreen : true,
           autoplayNext: settings.autoplayNext !== false,
           miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
+          miniPlayerWidth: clampMiniPlayerWidth(settings.miniPlayerWidth),
           playerDiagnostics: settings.playerDiagnostics === true,
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
@@ -167,6 +169,7 @@ export class StateStore {
       startPlayerFullscreen: Boolean(settings.startPlayerFullscreen),
       autoplayNext: settings.autoplayNext !== false,
       miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
+      miniPlayerWidth: clampMiniPlayerWidth(settings.miniPlayerWidth),
       playerDiagnostics: settings.playerDiagnostics === true,
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",

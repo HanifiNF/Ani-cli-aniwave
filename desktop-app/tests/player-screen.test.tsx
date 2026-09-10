@@ -84,6 +84,7 @@ let onEpisodes: ReturnType<typeof vi.fn<() => void>>;
 let onExpand: ReturnType<typeof vi.fn<() => void>>;
 let onClose: ReturnType<typeof vi.fn<() => void>>;
 let onCornerChange: ReturnType<typeof vi.fn<(corner: MiniPlayerCorner) => void>>;
+let onWidthChange: ReturnType<typeof vi.fn<(width: number) => void>>;
 let onNext: ReturnType<typeof vi.fn<() => void>>;
 let onPrev: ReturnType<typeof vi.fn<() => void>>;
 let setFullscreenFromWindow: (fullscreen: boolean) => void;
@@ -97,8 +98,8 @@ const session = (url: string, canOpenExternal = true, fullscreen = false): Playe
 function Harness(props: Partial<PlayerScreenProps> & { session: PlayerSession }) {
   const [fullscreen, setFullscreen] = useState(props.session.fullscreen);
   setFullscreenFromWindow = setFullscreen;
-  return <PlayerScreen fullscreen={fullscreen} onFullscreenChange={setFullscreen} autoplayNext docked={false} corner="bottom-right" onCornerChange={onCornerChange}
-    onDock={onDock} onEpisodes={onEpisodes} onExpand={onExpand} onClose={onClose} onNext={onNext} onPrev={onPrev} episodeCount={12} detail="1080p sub aniwave" {...props} />;
+  return <PlayerScreen fullscreen={fullscreen} onFullscreenChange={setFullscreen} autoplayNext docked={false} corner="bottom-right" onCornerChange={onCornerChange} onWidthChange={onWidthChange}
+    onDock={onDock} onEpisodes={onEpisodes} onExpand={onExpand} onClose={onClose} onNext={onNext} onPrev={onPrev} episodeCount={12} detail="1080p sub aniwave" {...props} width={props.width ?? 400} />;
 }
 const render = (props: Partial<PlayerScreenProps> & { session: PlayerSession }) => act(async () => { root.render(<Harness {...props} />); });
 const button = (text: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === text)!;
@@ -110,7 +111,7 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   cleanup.mockClear();
   onDock = vi.fn<() => void>(); onEpisodes = vi.fn<() => void>(); onExpand = vi.fn<() => void>(); onClose = vi.fn<() => void>();
-  onCornerChange = vi.fn<(corner: MiniPlayerCorner) => void>(); onNext = vi.fn<() => void>(); onPrev = vi.fn<() => void>();
+  onCornerChange = vi.fn<(corner: MiniPlayerCorner) => void>(); onWidthChange = vi.fn<(width: number) => void>(); onNext = vi.fn<() => void>(); onPrev = vi.fn<() => void>();
   api = {
     ready: vi.fn().mockResolvedValue(undefined),
     onLoad: vi.fn(() => vi.fn()),
@@ -317,6 +318,39 @@ describe("built-in player screen", () => {
     await pointer("pointerup", 200, 100);
     expect(shell.classList).not.toContain("is-dragging");
     expect(onCornerChange).toHaveBeenCalledWith("top-left");
+  });
+
+  it("resizes from the grip and reports the final width", async () => {
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true, corner: "bottom-right", width: 400 });
+    const shell = container.querySelector<HTMLElement>(".player-shell")!;
+    expect(shell.style.getPropertyValue("--mini-width")).toBe("400px");
+    const grip = container.querySelector<HTMLElement>(".mini-resize")!;
+    shell.parentElement!.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 700, right: 1200, bottom: 700, x: 0, y: 0, toJSON: () => ({}) });
+    shell.getBoundingClientRect = () => ({ left: 776, top: 434, width: 400, height: 250, right: 1176, bottom: 684, x: 776, y: 434, toJSON: () => ({}) });
+    grip.setPointerCapture = vi.fn(); grip.releasePointerCapture = vi.fn(); grip.hasPointerCapture = () => true;
+    const pointer = (type: string, x: number) => act(async () => { grip.dispatchEvent(new PointerEvent(type, { pointerId: 2, button: 0, clientX: x, clientY: 440, bubbles: true })); });
+
+    // In the bottom right the grip is top left, so moving left grows the box.
+    await pointer("pointerdown", 780); await pointer("pointermove", 660);
+    expect(shell.classList).toContain("is-resizing");
+    expect(shell.style.getPropertyValue("--mini-width")).toBe("520px");
+    expect(onWidthChange).not.toHaveBeenCalled();
+    await pointer("pointerup", 660);
+    expect(onWidthChange).toHaveBeenCalledWith(520);
+    expect(shell.classList).not.toContain("is-resizing");
+    expect(onCornerChange).not.toHaveBeenCalled();
+
+    // The width is clamped to the body and the minimum.
+    await pointer("pointerdown", 780); await pointer("pointermove", -2000); await pointer("pointerup", -2000);
+    expect(onWidthChange).toHaveBeenLastCalledWith(960);
+    await pointer("pointerdown", 780); await pointer("pointermove", 2000); await pointer("pointerup", 2000);
+    expect(onWidthChange).toHaveBeenLastCalledWith(240);
+
+    // On the left the grip faces right, so moving right grows the box.
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true, corner: "top-left", width: 400 });
+    onWidthChange.mockClear();
+    await pointer("pointerdown", 400); await pointer("pointermove", 480); await pointer("pointerup", 480);
+    expect(onWidthChange).toHaveBeenCalledWith(480);
   });
 
   it("leaves fullscreen and reports inactive when unmounted", async () => {
