@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AnimeResult, CustomTheme, LibraryEntry, PersistedState, Settings, PlayRequest } from "../shared/contracts";
+import { MINI_PLAYER_CORNERS, type AnimeResult, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
 import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
@@ -15,6 +15,7 @@ const defaults: PersistedState = {
     playbackTarget: "builtin",
     startPlayerFullscreen: true,
     autoplayNext: true,
+    miniPlayerCorner: "bottom-right",
     playerDiagnostics: false,
     preferredQuality: "best",
     preferredMode: "sub",
@@ -35,6 +36,8 @@ function normalizePoster(value: unknown): string | undefined {
     return undefined;
   }
 }
+
+const normalizeCorner = (value: unknown): MiniPlayerCorner => (MINI_PLAYER_CORNERS as readonly unknown[]).includes(value) ? value as MiniPlayerCorner : "bottom-right";
 
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!/^(?:(?:aniwave|anidb):)?[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
@@ -110,6 +113,7 @@ export class StateStore {
           playbackTarget: settings.playbackTarget === "external" ? "external" : "builtin",
           startPlayerFullscreen: typeof settings.startPlayerFullscreen === "boolean" ? settings.startPlayerFullscreen : true,
           autoplayNext: settings.autoplayNext !== false,
+          miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
           playerDiagnostics: settings.playerDiagnostics === true,
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
@@ -162,6 +166,7 @@ export class StateStore {
       playbackTarget: settings.playbackTarget,
       startPlayerFullscreen: Boolean(settings.startPlayerFullscreen),
       autoplayNext: settings.autoplayNext !== false,
+      miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
       playerDiagnostics: settings.playerDiagnostics === true,
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",

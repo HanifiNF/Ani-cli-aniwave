@@ -15,16 +15,20 @@ function deferred<T>() {
 }
 let container: HTMLDivElement;
 let root: Root;
+let state: PersistedState;
 let search: ReturnType<typeof vi.fn<AniDesktopApi["search"]>>;
 let api: AniDesktopApi;
 let load: (session: PlayerSession) => void;
 const playerStub = vi.hoisted(() => ({ props: undefined as Record<string, unknown> | undefined }));
 vi.mock("../src/PlayerScreen", async () => {
   const React = await import("react");
-  return { default: (props: { session: { request: { title: string } }; episodeCount?: number; onBack: () => void; onNext?: () => void; onPrev?: () => void }) => {
+  return { default: (props: { session: { request: { title: string } }; docked: boolean; corner: string; onCornerChange: (corner: string) => void; episodeCount?: number; onDock: () => void; onExpand: () => void; onClose: () => void; onEpisodes: () => void; onNext?: () => void; onPrev?: () => void }) => {
     playerStub.props = props;
     React.useEffect(() => { void window.aniDesktop.player.setActive(true); return () => { void window.aniDesktop.player.setActive(false); }; }, []);
-    return <div data-testid="player">{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}<button type="button" onClick={props.onBack}>leave player</button><button type="button" disabled={!props.onNext} onClick={props.onNext}>next episode</button></div>;
+    return <div data-testid="player" data-docked={props.docked} data-corner={props.corner}>{props.session.request.title}{props.episodeCount ? ` of ${props.episodeCount}` : ""}
+      <button type="button" onClick={props.onDock}>dock player</button><button type="button" onClick={props.onEpisodes}>playing episodes</button>
+      <button type="button" onClick={props.onClose}>close player</button><button type="button" onClick={() => props.onCornerChange("top-left")}>move player</button>
+      <button type="button" disabled={!props.onNext} onClick={props.onNext}>next episode</button></div>;
   } };
 });
 const input = () => container.querySelector("input")!;
@@ -53,7 +57,7 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   Element.prototype.scrollIntoView = vi.fn();
-  const state: PersistedState = {
+  state = {
     bookmarks: [], history: [],
     settings: {
       playerPath: "mpv", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
@@ -92,7 +96,7 @@ describe("built-in player screen", () => {
     request: { url: `https://cdn.test/${episodeId}.m3u8`, title: `Frieren — Episode ${episodeId.slice(-1)}`, episode: { id: episodeId,
       entry: { animeId: "aniwave:frieren-1", title: "Frieren", lastEpisode: episodeId.slice(-1), mode: "sub", updatedAt: "" } } } });
 
-  it("shows the player in place of the page and returns to the episode grid", async () => {
+  it("shows the player in place of the page, docks it while browsing, and closes it", async () => {
     vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
     vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
     await type("frieren"); await advance(); await enter();
@@ -115,12 +119,62 @@ describe("built-in player screen", () => {
     expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 3 of 3");
     expect(playerStub.props?.onNext).toBeUndefined();
 
+    // Escape docks: the player stays mounted and playing while the grid comes back.
     const refreshes = vi.mocked(api.getState).mock.calls.length;
-    await click("leave player");
-    expect(container.querySelector('[data-testid="player"]')).toBeNull();
-    expect(api.player.setActive).toHaveBeenLastCalledWith(false);
+    await click("dock player");
+    const player = () => container.querySelector<HTMLElement>('[data-testid="player"]');
+    expect(player()?.dataset.docked).toBe("true");
+    expect(player()?.dataset.corner).toBe("bottom-right");
+    expect(container.querySelector(".field")).not.toBeNull();
     expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+    expect(api.player.setActive).toHaveBeenLastCalledWith(true);
     expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
+    expect(container.querySelector(".foot")?.textContent).toContain("now playing");
+
+    // Browsing elsewhere keeps it docked; the backtick brings it back.
+    await click("saved");
+    expect(player()?.dataset.docked).toBe("true");
+    // The backtick expands the player even while the search field has focus.
+    expect(document.activeElement).toBe(input());
+    await press("`");
+    expect(player()?.dataset.docked).toBe("false");
+    expect(container.querySelector(".field")).toBeNull();
+    await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(player()?.dataset.docked).toBe("false");
+
+    // Moving the corner applies at once and is remembered in settings.
+    const saving = deferred<PersistedState>();
+    vi.mocked(api.saveSettings).mockReturnValueOnce(saving.promise);
+    await click("move player");
+    expect(player()?.dataset.corner).toBe("top-left");
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ miniPlayerCorner: "top-left" }));
+    await act(async () => saving.resolve({ ...state, settings: { ...state.settings, miniPlayerCorner: "top-left" } }));
+    expect(player()?.dataset.corner).toBe("top-left");
+
+    await click("close player");
+    expect(player()).toBeNull();
+    expect(api.player.setActive).toHaveBeenLastCalledWith(false);
+    expect(container.querySelector(".foot")?.textContent).not.toContain("now playing");
+    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+  });
+
+  it("keeps next and previous for the playing series while another series is open", async () => {
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
+    await type("frieren"); await advance(); await enter();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    await act(async () => load(session("s1", "ep-2")));
+    await click("dock player");
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "other-1", number: "1", provider: "aniwave" }] }] });
+    await click("search");
+    await type("dandadan"); await advance(); await enter();
+    expect(container.querySelector("h1")?.textContent).toBe("dandadan");
+    expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 2 of 3");
+    await click("next episode");
+    expect(api.streams).toHaveBeenLastCalledWith("ep-3", "sub");
+    expect(api.play).toHaveBeenLastCalledWith(expect.objectContaining({ title: "frieren — Episode 3" }));
+    await click("playing episodes");
+    expect(api.episodes).toHaveBeenLastCalledWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
   });
 });
 

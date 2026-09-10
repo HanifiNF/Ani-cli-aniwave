@@ -2,7 +2,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AniDesktopApi, AniPlayerApi, PlayerSession } from "../shared/contracts";
+import type { AniDesktopApi, AniPlayerApi, MiniPlayerCorner, PlayerSession } from "../shared/contracts";
 
 const cleanup = vi.hoisted(() => vi.fn());
 vi.mock("@vidstack/react", async () => {
@@ -79,7 +79,11 @@ import PlayerScreen, { type PlayerScreenProps } from "../src/PlayerScreen";
 let root: Root;
 let container: HTMLDivElement;
 let api: AniPlayerApi;
-let onBack: ReturnType<typeof vi.fn<() => void>>;
+let onDock: ReturnType<typeof vi.fn<() => void>>;
+let onEpisodes: ReturnType<typeof vi.fn<() => void>>;
+let onExpand: ReturnType<typeof vi.fn<() => void>>;
+let onClose: ReturnType<typeof vi.fn<() => void>>;
+let onCornerChange: ReturnType<typeof vi.fn<(corner: MiniPlayerCorner) => void>>;
 let onNext: ReturnType<typeof vi.fn<() => void>>;
 let onPrev: ReturnType<typeof vi.fn<() => void>>;
 let setFullscreenFromWindow: (fullscreen: boolean) => void;
@@ -93,7 +97,8 @@ const session = (url: string, canOpenExternal = true, fullscreen = false): Playe
 function Harness(props: Partial<PlayerScreenProps> & { session: PlayerSession }) {
   const [fullscreen, setFullscreen] = useState(props.session.fullscreen);
   setFullscreenFromWindow = setFullscreen;
-  return <PlayerScreen fullscreen={fullscreen} onFullscreenChange={setFullscreen} autoplayNext onBack={onBack} onNext={onNext} onPrev={onPrev} episodeCount={12} detail="1080p sub aniwave" {...props} />;
+  return <PlayerScreen fullscreen={fullscreen} onFullscreenChange={setFullscreen} autoplayNext docked={false} corner="bottom-right" onCornerChange={onCornerChange}
+    onDock={onDock} onEpisodes={onEpisodes} onExpand={onExpand} onClose={onClose} onNext={onNext} onPrev={onPrev} episodeCount={12} detail="1080p sub aniwave" {...props} />;
 }
 const render = (props: Partial<PlayerScreenProps> & { session: PlayerSession }) => act(async () => { root.render(<Harness {...props} />); });
 const button = (text: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === text)!;
@@ -104,7 +109,8 @@ const press = (key: string, init: KeyboardEventInit = {}) => act(async () => { w
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   cleanup.mockClear();
-  onBack = vi.fn<() => void>(); onNext = vi.fn<() => void>(); onPrev = vi.fn<() => void>();
+  onDock = vi.fn<() => void>(); onEpisodes = vi.fn<() => void>(); onExpand = vi.fn<() => void>(); onClose = vi.fn<() => void>();
+  onCornerChange = vi.fn<(corner: MiniPlayerCorner) => void>(); onNext = vi.fn<() => void>(); onPrev = vi.fn<() => void>();
   api = {
     ready: vi.fn().mockResolvedValue(undefined),
     onLoad: vi.fn(() => vi.fn()),
@@ -166,7 +172,7 @@ describe("built-in player screen", () => {
     expect(container.querySelector('[data-testid="media"]')?.classList).toContain("is-windowed");
   });
 
-  it("uses F to toggle, then Escape to leave fullscreen, then Escape to go back", async () => {
+  it("uses F to toggle, then Escape to leave fullscreen, then Escape to dock", async () => {
     vi.mocked(api.setFullscreen).mockClear();
     await press("f");
     expect(api.setFullscreen).toHaveBeenLastCalledWith(true);
@@ -174,10 +180,10 @@ describe("built-in player screen", () => {
     vi.mocked(api.setFullscreen).mockClear();
     await press("Escape");
     expect(api.setFullscreen).toHaveBeenLastCalledWith(false);
-    expect(onBack).not.toHaveBeenCalled();
+    expect(onDock).not.toHaveBeenCalled();
 
     await press("Escape");
-    expect(onBack).toHaveBeenCalledOnce();
+    expect(onDock).toHaveBeenCalledOnce();
   });
 
   it("moves between episodes with N and P and the header buttons", async () => {
@@ -186,7 +192,7 @@ describe("built-in player screen", () => {
     await act(async () => { button("next").click(); });
     expect(onNext).toHaveBeenCalledTimes(2);
     await act(async () => { button("episodes").click(); });
-    expect(onBack).toHaveBeenCalledOnce();
+    expect(onEpisodes).toHaveBeenCalledOnce();
     await render({ session: session("https://cdn.test/first.m3u8"), onNext: undefined, onPrev: undefined });
     expect(button("next").disabled).toBe(true);
     expect(button("prev").disabled).toBe(true);
@@ -203,7 +209,7 @@ describe("built-in player screen", () => {
     await press("Escape");
     expect(container.querySelector(".player-next")).toBeNull();
     expect(onNext).not.toHaveBeenCalled();
-    expect(onBack).not.toHaveBeenCalled();
+    expect(onDock).not.toHaveBeenCalled();
 
     await act(async () => { container.querySelector<HTMLButtonElement>("[data-testid=end-media]")!.click(); });
     await press("Enter");
@@ -239,6 +245,78 @@ describe("built-in player screen", () => {
     expect(api.openExternal).not.toHaveBeenCalled();
     await act(async () => { button("Open in external player").click(); });
     expect(api.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it("docks into a corner with its own bar and hands the keyboard back", async () => {
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true, corner: "bottom-right" });
+    const shell = container.querySelector(".player-shell")!;
+    expect(shell.classList).toContain("is-docked");
+    expect(shell.classList).toContain("corner-bottom-right");
+    expect(container.querySelector(".now")).toBeNull();
+    expect(container.querySelector(".mini-title")?.textContent).toBe("Example");
+    expect(container.querySelector(".mini-sub")?.textContent).toBe("episode 1 of 12");
+    expect(container.querySelector('[data-testid="media"]')?.getAttribute("data-key-disabled")).toBe("true");
+
+    vi.mocked(api.setFullscreen).mockClear();
+    await press("f"); await press("n"); await press("Escape");
+    expect(api.setFullscreen).not.toHaveBeenCalled();
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onDock).not.toHaveBeenCalled();
+
+    await act(async () => { container.querySelector<HTMLElement>(".player-surface")!.click(); });
+    expect(onExpand).toHaveBeenCalledOnce();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Expand player"]')!.click(); });
+    expect(onExpand).toHaveBeenCalledTimes(2);
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Stop playback"]')!.click(); });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("leaves fullscreen when docked and expands instead of going fullscreen from the menu", async () => {
+    await press("f");
+    expect(container.querySelector(".player-shell")?.classList).toContain("is-fullscreen");
+    vi.mocked(api.setFullscreen).mockClear();
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true });
+    expect(api.setFullscreen).toHaveBeenCalledWith(false);
+    expect(container.querySelector(".player-shell")?.classList).not.toContain("is-fullscreen");
+    const command = vi.mocked(api.onCommand).mock.calls.at(-1)![0];
+    vi.mocked(api.setFullscreen).mockClear();
+    await act(async () => { command("fullscreen"); });
+    expect(api.setFullscreen).not.toHaveBeenCalled();
+    expect(onExpand).toHaveBeenCalledOnce();
+  });
+
+  it("keeps counting down to the next episode while docked", async () => {
+    vi.useFakeTimers();
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true });
+    await act(async () => { container.querySelector<HTMLButtonElement>("[data-testid=end-media]")!.click(); });
+    expect(container.querySelector(".player-next")?.textContent).toContain("next episode in 5");
+    expect(container.querySelector(".mini-sub")?.textContent).toContain("ended");
+    await tick(5);
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it("snaps to the nearest corner after a drag of the bar", async () => {
+    await render({ session: session("https://cdn.test/first.m3u8"), docked: true, corner: "bottom-right" });
+    const shell = container.querySelector<HTMLElement>(".player-shell")!;
+    const bar = container.querySelector<HTMLElement>(".mini-bar")!;
+    const parent = shell.parentElement!;
+    parent.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 700, right: 1200, bottom: 700, x: 0, y: 0, toJSON: () => ({}) });
+    let box = { left: 820, top: 440, width: 360, height: 250 };
+    shell.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) });
+    bar.setPointerCapture = vi.fn(); bar.releasePointerCapture = vi.fn(); bar.hasPointerCapture = () => true;
+    const pointer = (type: string, x: number, y: number) => act(async () => { bar.dispatchEvent(new PointerEvent(type, { pointerId: 1, button: 0, clientX: x, clientY: y, bubbles: true })); });
+
+    // A tiny movement is a click, not a drag.
+    await pointer("pointerdown", 900, 600); await pointer("pointermove", 902, 601); await pointer("pointerup", 902, 601);
+    expect(onCornerChange).not.toHaveBeenCalled();
+
+    await pointer("pointerdown", 900, 600); await pointer("pointermove", 200, 100);
+    expect(shell.classList).toContain("is-dragging");
+    expect(shell.style.transform).toBe("translate(-700px, -500px)");
+    box = { left: 120, top: -60, width: 360, height: 250 };
+    await pointer("pointerup", 200, 100);
+    expect(shell.classList).not.toContain("is-dragging");
+    expect(onCornerChange).toHaveBeenCalledWith("top-left");
   });
 
   it("leaves fullscreen and reports inactive when unmounted", async () => {

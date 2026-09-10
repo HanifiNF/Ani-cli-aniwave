@@ -137,6 +137,65 @@ h1 { font-size: 22px; font-weight: 400; margin: 6px 0 4px; line-height: 1.3; }
 .a2 .video { flex: 0 0 auto; height: 372px; border-radius: 4px; }
 .a2 .bar { margin-top: 14px; }
 .a2 .grid { margin-top: 12px; }
+
+/* ---- Mini player (docked while browsing) ------------------------------- */
+/* Home uses the app's two-column layout so the overlap with continue/saved is visible. */
+.page-lists { overflow: hidden; }
+.home-sections { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 24px 32px; margin-top: 24px; flex: 1; min-height: 0; }
+.home-library { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.home-sections h2 { margin-top: 0; }
+.home-sections .item { grid-template-columns: 40px 1fr auto; gap: 12px; }
+.home-sections .item .k { display: none; }
+.home-sections .item .k2 { min-width: 0; }
+.list-section { min-width: 0; }
+.item img { width: 40px; height: 56px; object-fit: cover; border-radius: 3px; display: block; background: var(--raised); }
+.item { display: grid; grid-template-columns: 40px 1fr auto auto; gap: 16px; align-items: center; padding: 6px 12px; margin: 0 -12px; border-radius: 6px; min-height: 68px; }
+.item .t { display: block; } .item .s { display: block; color: var(--muted); font-size: 12px; }
+.item .k { color: var(--muted); font-size: 13px; min-width: 130px; }
+.item .k2 { color: var(--muted); font-size: 13px; min-width: 60px; text-align: right; }
+.item.cur { background: var(--cursor); color: var(--cursor-text); }
+.item.cur .k, .item.cur .k2, .item.cur .s { color: var(--cursor-text); opacity: .7; }
+.item.lib { grid-template-columns: 40px 1fr auto auto auto; }
+.item .rm { color: var(--dim); font-size: 13px; padding: 2px 8px; border-radius: 4px; }
+h2 { font-size: 12px; font-weight: 400; color: var(--muted); margin: 28px 0 6px; display: flex; align-items: baseline; }
+h2 span { margin-left: 12px; color: var(--dim); }
+.list { display: grid; gap: 2px; }
+.screen .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.screen .body > .page { flex: 1; }
+
+/* The mini player sits above the footer in the corner. Lists scroll under it. */
+.mini {
+  position: absolute; right: 24px; bottom: 16px; z-index: 50;
+  width: min(33vw, 420px); min-width: 300px;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 25%);
+}
+.mini .video { display: block; position: relative; flex: none; width: 100%; aspect-ratio: 16 / 9; cursor: pointer; }
+.mini .video .frame { max-width: 100%; max-height: 100%; }
+.mini .bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 2px; align-items: center; padding: 6px 6px 6px 12px; border-top: 0; }
+.mini .bar .t { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini .bar .s { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mini .bar a { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); }
+.mini .bar a:hover { background: var(--raised); color: var(--text); }
+.mini .bar a svg { width: 18px; height: 18px; fill: currentColor; }
+.mini .bar a.close { font-size: 18px; line-height: 1; }
+/* Ended while docked: the same countdown at a smaller size. */
+.mini .next { gap: 6px; background: rgb(0 0 0 / 70%); }
+.mini .next .frame { filter: none; }
+.mini .ended-frame { filter: brightness(.35); }
+.mini .next b { font-size: 13px; }
+.mini .next span { font-size: 12px; }
+.mini .next .acts { margin-top: 2px; gap: 6px; }
+.mini .next .btn { padding: 3px 9px; font-size: 12px; }
+.foot .now-link { color: var(--muted); }
+.foot .now-link b { color: var(--text); }
+
+/* The mini player can be dragged by its bar and snaps to the nearest corner. The corner is remembered. */
+.mini.top-left { right: auto; bottom: auto; left: 24px; top: 16px; }
+.mini.top-right { bottom: auto; top: 16px; }
+.mini.bottom-left { right: auto; left: 24px; }
+.mini .bar { cursor: grab; }
+.mini .bar .t, .mini .bar .s { cursor: grab; }
 </style>
 </head>
 <body>
@@ -270,6 +329,185 @@ h1 { font-size: 22px; font-weight: 400; margin: 6px 0 4px; line-height: 1.3; }
     </div>
   </div>
   <div class="foot"><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>tab</b> grid</span><span><b>n</b> next</span><span><b>f</b> fullscreen</span><span><b>esc</b> stop</span><span class="right"><a href="#a2-series">search</a><a href="#a2-series">saved</a><a href="#a2-series">recent</a><a href="#a2-series">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: HOME, BROWSING WHILE WATCHING -->
+<section class="screen" id="mini-home">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input value="dandadan" autofocus>
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="home-sections">
+      <section class="list-section">
+        <h2>results for "dandadan"<span>2 titles</span></h2>
+        <div class="list">
+          <div class="item cur"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan</span><span class="s">2024, 12 episodes</span></span><span class="k2">aniwave + anidb</span></div>
+          <div class="item"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan 2nd Season</span><span class="s">2025, 12 episodes</span></span><span class="k2">anidb</span></div>
+        </div>
+      </section>
+      <div class="home-library">
+        <section class="list-section">
+          <h2>continue</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">watched through 24, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/apothecary.svg" alt=""><span><span class="t">The Apothecary Diaries</span><span class="s">watched through 7, sub</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+        <section class="list-section">
+          <h2>saved</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> open</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: DRAGGED TO THE TOP LEFT SO THE LIBRARY COLUMN IS CLEAR -->
+<section class="screen" id="mini-moved">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input value="dandadan">
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="home-sections">
+      <section class="list-section">
+        <h2>results for "dandadan"<span>2 titles</span></h2>
+        <div class="list">
+          <div class="item cur"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan</span><span class="s">2024, 12 episodes</span></span><span class="k2">aniwave + anidb</span></div>
+          <div class="item"><img src="posters/dandadan.svg" alt=""><span><span class="t">Dandadan 2nd Season</span><span class="s">2025, 12 episodes</span></span><span class="k2">anidb</span></div>
+        </div>
+      </section>
+      <div class="home-library">
+        <section class="list-section">
+          <h2>continue</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">watched through 24, sub</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/apothecary.svg" alt=""><span><span class="t">The Apothecary Diaries</span><span class="s">watched through 7, sub</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+        <section class="list-section">
+          <h2>saved</h2>
+          <div class="list">
+            <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started</span></span><span class="k2">sub</span></div>
+            <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19</span></span><span class="k2">sub</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+  
+    <div class="mini top-left" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> open</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: ANOTHER SERIES OPEN WHILE WATCHING -->
+<section class="screen" id="mini-series">
+  <div class="body">
+  <div class="page">
+    <div class="field">
+      <input placeholder="search another title">
+      <div class="groups">
+        <div class="chips"><span class="lab">audio</span><button class="on">sub</button><button>dub</button></div>
+        <div class="chips"><span class="lab">quality</span><button class="on">best</button><button>1080p</button><button>720p</button></div>
+        <div class="chips"><span class="lab">source</span><button class="on">auto</button><button>aniwave</button><button>anidb</button></div>
+      </div>
+    </div>
+    <div class="head" style="display:grid;grid-template-columns:112px 1fr auto;gap:24px;align-items:end;margin-top:28px">
+      <img src="posters/dandadan.svg" alt="" style="width:112px;height:158px;object-fit:cover;border-radius:4px;display:block">
+      <div>
+        <div class="crumb">results  /  series</div>
+        <h1>Dandadan</h1>
+        <div class="sub"><span>12 episodes</span><span>aniwave + anidb</span><span>started 3</span></div>
+      </div>
+      <div class="acts" style="display:flex;gap:8px;align-self:end"><a class="btn quiet" href="#mini-home">back</a><button class="btn">save</button></div>
+    </div>
+    <div class="bar" style="margin-top:22px">
+      <span class="crumb">click an episode to play it in the built-in player</span>
+      <div class="chips"><button class="on">aniwave 12</button><button>anidb 12</button></div>
+    </div>
+    <div class="grid">
+      <button class="w">1</button><button class="w">2</button><button class="w">3</button><button class="cur">4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>10</button><button>11</button><button>12</button>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · 14:02 / 23:40</span></span>
+        <a title="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span><span><b>esc</b> back</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
+</section>
+
+<!-- MINI PLAYER: EPISODE ENDED WHILE DOCKED -->
+<section class="screen" id="mini-ended">
+  <div class="body">
+  <div class="page page-lists">
+    <div class="field">
+      <input placeholder="filter saved titles">
+      <div class="groups"><span class="crumb">saved</span></div>
+    </div>
+    <h2>saved <span>4 titles</span></h2>
+    <div class="list">
+      <div class="item lib cur"><img src="posters/frieren.svg" alt=""><span><span class="t">Frieren: Beyond Journey's End</span><span class="s">started 13, aniwave</span></span><span class="k">resume</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/mob.svg" alt=""><span><span class="t">Mob Psycho 100 III</span><span class="s">not started, anidb</span></span><span class="k">play ep 1</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/vinland.svg" alt=""><span><span class="t">Vinland Saga Season 2</span><span class="s">watched through 19, anidb</span></span><span class="k">play ep 20</span><span class="k2">sub</span><button class="rm">remove</button></div>
+      <div class="item lib"><img src="posters/dungeon.svg" alt=""><span><span class="t">Delicious in Dungeon</span><span class="s">finished, aniwave</span></span><span class="k">play ep 1 again</span><span class="k2">sub</span><button class="rm">remove</button></div>
+    </div>
+  </div>
+  
+    <div class="mini" aria-label="Now playing">
+      <div class="video" title="Expand"><div class="frame"></div><div class="next"><b>episode 14 in 5 <span class="dots">···</span></b><span>Frieren: Beyond Journey's End</span><div class="acts"><a class="btn primary" href="#a1-player">play now</a><a class="btn" href="#mini-home">stay</a></div></div></div>
+      <div class="bar">
+        <span><span class="t">Frieren: Beyond Journey's End</span><span class="s">episode 13 of 28 · ended</span></span>
+        <a title="Play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></a>
+        <a href="#a1-player" title="Expand"><svg viewBox="0 0 24 24"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z"/></svg></a>
+        <a class="close" href="#mini-home" title="Stop">×</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> move</span><span><b>↵</b> play</span><span><b>o</b> open series</span><span><b>x</b> remove</span><span><b>esc</b> back</span><span class="right"><a href="#a1-player" class="now-link"><b>`</b> now playing</a><a href="#mini-home">saved</a><a href="#mini-home">recent</a><a href="#mini-home">settings</a><span>built-in</span></span></div>
 </section>
 
 <script>

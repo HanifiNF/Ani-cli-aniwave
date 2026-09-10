@@ -64,3 +64,16 @@ such as paper's, would vanish on black, so the renderer falls back to white for 
 (`videoBrand` in `shared/theme.ts`).
 
 Capture these previews with `env -u ELECTRON_RUN_AS_NODE npx electron design/variants/capture.cjs player-in-window mocha,paper`.
+
+### Mini player while browsing
+
+`#mini-home`, `#mini-series`, and `#mini-ended` show the player docked in the bottom right corner while the
+user searches, opens another series, or filters saved titles. Escape on the player screen docks it instead
+of stopping. The mini player is a third of the window wide, sits above the footer, and shows the video with
+a bar beneath: title, "episode n of m" with the time, play or pause, expand, and close. Clicking the video,
+the expand control, or the footer's "now playing" link (backtick) returns to the full player. Close ends
+the session. Lists scroll under the corner. The ended countdown runs at the smaller size, so autoplay next
+continues while docked. Playback keys work only on the full player screen; while docked the app keys
+belong to the lists again. The bar is a drag handle: release snaps the player to the nearest of the four
+corners so nothing stays covered, and the corner is remembered across sessions (`#mini-moved`).
+Implemented in `src/PlayerScreen.tsx` (docked mode) and `src/App.tsx`; the corner lives in settings.

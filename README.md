@@ -53,9 +53,12 @@ This repository includes **Ani Desktop**, an Electron application with search,
 provider selection, bookmarks, history, and a built-in player. Episodes play
 inside the app window: the video takes the page, one line above it shows the
 title, episode, and stream details with previous and next, and the footer keeps
-the key hints. Escape closes an open menu, then leaves fullscreen, then returns
-to the episode grid. When an episode ends the next one starts after a short
-countdown, which Settings can turn off. An external player such as mpv, VLC, or
+the key hints. Escape closes an open menu, then leaves fullscreen, then shrinks
+the player into a corner so you can keep browsing while it plays. The corner
+player has play, expand, and stop controls, and its bar can be dragged to any
+of the four corners; the choice is remembered. Press backtick or the footer's
+"now playing" link to bring it back. When an episode ends the next one starts
+after a short countdown, which Settings can turn off. An external player such as mpv, VLC, or
 IINA can be used instead. It runs from source on macOS; the packaged installer
 currently targets Windows.
 

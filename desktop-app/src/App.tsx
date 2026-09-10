@@ -5,6 +5,7 @@ import type {
   Episode,
   EpisodeGroup,
   LibraryEntry,
+  MiniPlayerCorner,
   PersistedState,
   PlayerSession,
   ProviderName,
@@ -25,7 +26,8 @@ const PlayerScreen = lazy(loadPlayerScreen);
 type RowKind = "results" | "continue" | "saved" | "recent";
 interface Row { kind: RowKind; anime?: AnimeResult; entry?: LibraryEntry; }
 interface PlayStatus { episode: Episode; phase: "finding" | "opening" | "opened" | "failed"; detail: string; }
-interface NowPlaying { episodeId: string; detail: string; mode: TranslationMode; }
+/** What the player is showing, captured when playback starts so browsing elsewhere does not change it. */
+interface NowPlaying { episodeId: string; detail: string; mode: TranslationMode; anime: AnimeResult; episodes: Episode[]; }
 
 const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
 const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb"];
@@ -246,22 +248,54 @@ function App() {
   }
 
   function go(next: Screen) {
-    if (screen === "player" && next !== "player") setSession(undefined);
     setScreen(next);
     setError(undefined); setNotice(undefined);
     if (next !== "home" && next !== "series") setQuery("");
     if (next === "settings") setSettingsDraft(appState.settings);
   }
 
-  function leavePlayer() {
-    setSession(undefined); setStatus(undefined); setError(undefined); setNotice(undefined);
+  // Watched marks and resume points change while the player has the store.
+  const refreshState = () => { void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason))); };
+
+  // Returning to the grid puts the cursor on the playing episode when it belongs to the open series.
+  function focusPlayingEpisode() {
+    const id = session?.request.episode?.id;
+    const index = id && nowPlaying?.anime.id === selectedAnime?.id ? episodes.findIndex((episode) => episode.id === id) : -1;
+    if (index >= 0) setCursor(index);
+  }
+
+  function dockPlayer() {
+    setStatus(undefined); setError(undefined); setNotice(undefined);
     setScreen(selectedAnime ? "series" : "home");
-    // Watched marks and resume points changed while the player had the store.
-    void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason)));
+    focusPlayingEpisode();
+    refreshState();
+  }
+
+  function expandPlayer() {
+    if (session) { setScreen("player"); setError(undefined); setNotice(undefined); }
+  }
+
+  function closePlayer() {
+    setSession(undefined); setStatus(undefined);
+    if (screen === "player") { setScreen(selectedAnime ? "series" : "home"); focusPlayingEpisode(); }
+    refreshState();
+  }
+
+  function showPlayingEpisodes() {
+    if (nowPlaying && selectedAnime?.id !== nowPlaying.anime.id) { void openAnime(nowPlaying.anime); refreshState(); return; }
+    dockPlayer();
+  }
+
+  async function moveMiniPlayer(miniPlayerCorner: MiniPlayerCorner) {
+    // Apply the corner in the same render that drops the drag offset, so the box lands where it was released.
+    setAppState((state) => ({ ...state, settings: { ...state.settings, miniPlayerCorner } }));
+    setSettingsDraft((draft) => ({ ...draft, miniPlayerCorner }));
+    try { await window.aniDesktop.saveSettings({ ...appState.settings, miniPlayerCorner }); }
+    catch (reason) { setNotice(`corner not saved: ${messageFrom(reason)}`); }
   }
 
   function goBack() {
-    if (screen === "player") { leavePlayer(); return; }
+    if (screen === "player") { dockPlayer(); return; }
     if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series") setSelectedAnime(undefined);
     go("home");
@@ -339,7 +373,7 @@ function App() {
       if (!stream) throw new Error("no stream was found");
       const detail = `${stream.quality} ${playMode} ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
-      setNowPlaying({ episodeId: episode.id, detail, mode: playMode });
+      setNowPlaying({ episodeId: episode.id, detail, mode: playMode, anime, episodes: anime.id === selectedAnime?.id && episodes.some((item) => item.id === episode.id) ? episodes : [episode] });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
       await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
       if (token !== playToken.current) return;
@@ -441,6 +475,8 @@ function App() {
     const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
     if (event.isComposing || composing || event.keyCode === 229) return;
     if (screen === "player") return; // The player screen owns its keys.
+    // The backtick returns to the docked player from anywhere but the settings form; it is never useful in a title search.
+    if (event.key === "`" && session && screen !== "settings" && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); expandPlayer(); return; }
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
       return;
@@ -537,12 +573,12 @@ function App() {
   const backButton = <button type="button" onClick={goBack} aria-label="Back" aria-keyshortcuts="Escape"><b>esc</b> back</button>;
 
   const playingId = session?.request.episode?.id;
-  const playingIndex = playingId ? episodes.findIndex((episode) => episode.id === playingId) : -1;
   const current = nowPlaying && nowPlaying.episodeId === playingId ? nowPlaying : undefined;
-  const playingMode = current?.mode ?? mode;
+  const playingList = current?.episodes ?? [];
+  const playingIndex = playingId ? playingList.findIndex((episode) => episode.id === playingId) : -1;
   const playNeighbour = (offset: number) => {
-    const target = playingIndex >= 0 ? episodes[playingIndex + offset] : undefined;
-    return target ? () => { void playEpisode(target, selectedAnime, playingMode); } : undefined;
+    const target = playingIndex >= 0 ? playingList[playingIndex + offset] : undefined;
+    return current && target ? () => { void playEpisode(target, current.anime, current.mode); } : undefined;
   };
   const playerMessage = status && status.episode.id !== playingId
     ? status.phase === "failed" ? { text: `episode ${status.episode.number}: ${status.detail}`, error: true }
@@ -551,6 +587,7 @@ function App() {
 
   const footLinks = (
     <span className="right">
+      {session && screen !== "player" && <button type="button" className="now-link" onClick={expandPlayer} aria-keyshortcuts="`"><b>`</b>now playing</button>}
       {screen !== "home" && <button type="button" onClick={() => go("home")}>search</button>}
       {screen !== "saved" && <button type="button" onClick={() => go("saved")}>saved</button>}
       {screen !== "recent" && <button type="button" onClick={() => go("recent")}>recent</button>}
@@ -561,24 +598,31 @@ function App() {
 
   return (
     <div className={`app ${screen === "player" && playerFullscreen ? "is-fullscreen" : ""}`}>
-      <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""} ${screen === "player" ? "page-player" : ""}`}>
-        {screen === "player" && session && (
-          <Suspense fallback={<div className="player-message">loading player ···</div>}>
-            <PlayerScreen
-              session={session}
-              fullscreen={playerFullscreen}
-              onFullscreenChange={setPlayerFullscreen}
-              episodeCount={playingIndex >= 0 ? episodes.length : undefined}
-              detail={current?.detail}
-              message={playerMessage}
-              autoplayNext={appState.settings.autoplayNext !== false}
-              onPrev={playNeighbour(-1)}
-              onNext={playNeighbour(1)}
-              onBack={leavePlayer}
-            />
-          </Suspense>
-        )}
-        {screen !== "player" && <div className="field">
+      <div className="body">
+      {session && (
+        <Suspense fallback={<div className="player-message">loading player ···</div>}>
+          <PlayerScreen
+            session={session}
+            fullscreen={playerFullscreen}
+            onFullscreenChange={setPlayerFullscreen}
+            docked={screen !== "player"}
+            corner={appState.settings.miniPlayerCorner ?? "bottom-right"}
+            onCornerChange={(corner) => void moveMiniPlayer(corner)}
+            episodeCount={playingIndex >= 0 && playingList.length > 1 ? playingList.length : undefined}
+            detail={current?.detail}
+            message={playerMessage}
+            autoplayNext={appState.settings.autoplayNext !== false}
+            onPrev={playNeighbour(-1)}
+            onNext={playNeighbour(1)}
+            onDock={dockPlayer}
+            onEpisodes={showPlayingEpisodes}
+            onExpand={expandPlayer}
+            onClose={closePlayer}
+          />
+        </Suspense>
+      )}
+      {screen !== "player" && <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""}`}>
+        <div className="field">
           {screen === "settings"
             ? <span className="crumb big">settings</span>
             : <div className="search-field">
@@ -598,8 +642,8 @@ function App() {
             </div>
           )}
           {(screen === "saved" || screen === "recent") && <span className="crumb">{screen}</span>}
-        </div>}
-        {message && screen !== "player" && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+        </div>
+        {message && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
         {screen === "home" && (
           rows.length === 0 && !message && !catalogSearch.pending
@@ -722,6 +766,7 @@ function App() {
             <div className="acts-row"><button type="button" className="btn quiet" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
           </form>
         )}
+      </div>}
       </div>
 
       <div className="foot">

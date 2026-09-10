@@ -15,12 +15,16 @@ import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
 import { DesktopMediaStorage } from "./player-storage";
 import { observePlayerDiagnostics } from "./player-diagnostics";
-import type { PlayerCommand, PlayerSession } from "../shared/contracts";
+import type { MiniPlayerCorner, PlayerCommand, PlayerSession } from "../shared/contracts";
 
 export interface PlayerScreenProps {
   session: PlayerSession;
   fullscreen: boolean;
   onFullscreenChange: (fullscreen: boolean) => void;
+  /** Docked: the player is a small box in a corner while the user browses. Playback keys are off. */
+  docked: boolean;
+  corner: MiniPlayerCorner;
+  onCornerChange: (corner: MiniPlayerCorner) => void;
   /** How many episodes the series has, when the app knows the playing episode's place in it. */
   episodeCount?: number;
   /** Stream detail shown after the episode number, such as quality, audio, and source. */
@@ -30,11 +34,32 @@ export interface PlayerScreenProps {
   autoplayNext: boolean;
   onPrev?: () => void;
   onNext?: () => void;
-  /** Leave the player screen. Escape reaches this after closing menus and leaving fullscreen. */
-  onBack: () => void;
+  /** Shrink to the corner and keep playing. Escape reaches this after closing menus and leaving fullscreen. */
+  onDock: () => void;
+  /** Open the playing episode's series without stopping. */
+  onEpisodes: () => void;
+  /** Return from the corner to the full player. */
+  onExpand: () => void;
+  /** End playback and remove the player. */
+  onClose: () => void;
 }
 
 const NEXT_COUNTDOWN = 5;
+const DRAG_THRESHOLD = 4;
+
+function clock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  const h = Math.floor(whole / 3600), m = Math.floor((whole % 3600) / 60), s = whole % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Icons for the docked bar, drawn in the app's own colours. */
+const icons = {
+  play: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>,
+  pause: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>,
+  expand: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z" /></svg>
+};
 
 function errorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -90,7 +115,7 @@ function MenuEscapeHandler() {
   return null;
 }
 
-export default function PlayerScreen({ session, fullscreen, onFullscreenChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onBack }: PlayerScreenProps) {
+export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
   const api = window.aniDesktop.player;
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -100,6 +125,14 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [diagnostics, setDiagnostics] = useState(session.diagnostics === true);
   const [countdown, setCountdown] = useState<number>();
+  const [paused, setPaused] = useState(false);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [drag, setDrag] = useState<{ x: number; y: number }>();
+  // Pointer events can arrive before React commits the drag state, so the handlers read refs.
+  const dragRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const dragStart = useRef<{ x: number; y: number; pointer: number } | undefined>(undefined);
+  const shell = useRef<HTMLElement>(null);
   const player = useRef<MediaPlayerInstance>(null);
   const surface = useRef<HTMLDivElement>(null);
   const shortcutsDialog = useRef<HTMLDialogElement>(null);
@@ -122,8 +155,13 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   // A new session replaces the stream. Clear anything that belonged to the previous one.
   useEffect(() => {
     setError(undefined); setNotice(undefined); setCountdown(undefined); setAttempt(0);
-    setDiagnostics(session.diagnostics === true);
+    setDiagnostics(session.diagnostics === true); setTime(0); setDuration(0); setPaused(false);
   }, [session.id]);
+
+  // Fullscreen belongs to the full player. Docking from fullscreen leaves it first.
+  useEffect(() => {
+    if (docked && fullscreen) void api.setFullscreen(false).then(onFullscreenChange).catch(() => undefined);
+  }, [docked, fullscreen, api, onFullscreenChange]);
 
   useEffect(() => {
     document.title = session.request.title;
@@ -182,9 +220,9 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
 
   const runCommand = useCallback((command: PlayerCommand) => {
     logDiagnostic({ event: "command", command, time: player.current?.state.currentTime });
-    if (command === "shortcuts") { setShowShortcuts(true); return; }
+    if (command === "shortcuts") { if (docked) onExpand(); setShowShortcuts(true); return; }
     if (showShortcuts || error) return;
-    if (command === "fullscreen") { void changeFullscreen(!fullscreen); return; }
+    if (command === "fullscreen") { if (docked) onExpand(); else void changeFullscreen(!fullscreen); return; }
     const media = player.current;
     if (!media?.state.canPlay) return;
     const remote = new MediaRemoteControl();
@@ -202,7 +240,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
       case "speed-up": remote.changePlaybackRate(Math.min(2, media.state.playbackRate + 0.25)); break;
       case "speed-down": remote.changePlaybackRate(Math.max(0.25, media.state.playbackRate - 0.25)); break;
     }
-  }, [changeFullscreen, fullscreen, showShortcuts, error, logDiagnostic]);
+  }, [changeFullscreen, fullscreen, showShortcuts, error, logDiagnostic, docked, onExpand]);
 
   useEffect(() => api.onCommand(runCommand), [api, runCommand]);
 
@@ -210,6 +248,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : undefined;
       if (event.isComposing || target?.isContentEditable || target?.matches("input, textarea, select")) return;
+      if (docked) return; // While docked the app owns the keyboard.
       if (showShortcuts) return; // The native dialog owns Escape and focus trapping.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const menuOpen = Boolean(document.querySelector('.vds-menu-items[data-open]'));
@@ -219,7 +258,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
       if (countdown !== undefined && (event.key === "Enter" || event.key === "Escape")) {
         action = event.key === "Enter" ? () => setCountdown(0) : () => setCountdown(undefined);
       } else if (key === "f") action = () => void changeFullscreen(!fullscreen);
-      else if (event.key === "Escape") action = fullscreen ? () => void changeFullscreen(false) : onBack;
+      else if (event.key === "Escape") action = fullscreen ? () => void changeFullscreen(false) : onDock;
       else if (event.key === "?") action = () => setShowShortcuts(true);
       else if (key === "n" && onNext) action = onNext;
       else if (key === "p" && onPrev) action = onPrev;
@@ -242,7 +281,43 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
       element?.removeEventListener("media-enter-fullscreen-request", enter, true);
       element?.removeEventListener("media-exit-fullscreen-request", exit, true);
     };
-  }, [changeFullscreen, fullscreen, showShortcuts, countdown, onBack, onNext, onPrev]);
+  }, [changeFullscreen, fullscreen, showShortcuts, countdown, docked, onDock, onNext, onPrev]);
+
+  const togglePaused = useCallback(() => {
+    const media = player.current;
+    if (!media?.state.canPlay) return;
+    void (media.paused ? media.play() : media.pause()).catch(() => undefined);
+  }, []);
+
+  // The docked bar is a drag handle. Release snaps to the nearest corner.
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
+    dragStart.current = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* synthetic pointers cannot be captured */ }
+  };
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStart.current;
+    if (!start || start.pointer !== event.pointerId) return;
+    const x = event.clientX - start.x, y = event.clientY - start.y;
+    if (dragRef.current || Math.abs(x) > DRAG_THRESHOLD || Math.abs(y) > DRAG_THRESHOLD) { dragRef.current = { x, y }; setDrag(dragRef.current); }
+  };
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStart.current;
+    if (!start || start.pointer !== event.pointerId) return;
+    dragStart.current = undefined;
+    try { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* not captured */ }
+    const offset = dragRef.current;
+    if (!offset) return;
+    const box = shell.current?.getBoundingClientRect();
+    const parent = shell.current?.parentElement?.getBoundingClientRect();
+    dragRef.current = undefined; setDrag(undefined);
+    if (!box || !parent) return;
+    // The box may not have moved yet if the drag transform is still pending, so apply the offset ourselves.
+    const moved = shell.current?.style.transform ? 0 : 1;
+    const centreX = box.left + moved * offset.x + box.width / 2 - parent.left, centreY = box.top + moved * offset.y + box.height / 2 - parent.top;
+    const next: MiniPlayerCorner = `${centreY < parent.height / 2 ? "top" : "bottom"}-${centreX < parent.width / 2 ? "left" : "right"}`;
+    if (next !== corner) onCornerChange(next);
+  };
 
   async function openExternal() {
     setFallbackBusy(true);
@@ -254,10 +329,12 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   const episode = session.request.episode?.entry;
   const title = episode?.title ?? session.request.title;
   const episodeLabel = episode ? `episode ${episode.lastEpisode}${episodeCount ? ` of ${episodeCount}` : ""}` : undefined;
+  const dockedSub = [episodeLabel, countdown !== undefined ? "ended" : duration ? `${clock(time)} / ${clock(duration)}` : undefined].filter(Boolean).join(" · ");
 
   return (
-    <main className={`player-shell ${fullscreen ? "is-fullscreen" : ""}`}>
-      <div className="now">
+    <main ref={shell} className={`player-shell ${docked ? `is-docked corner-${corner}` : "is-expanded"} ${fullscreen && !docked ? "is-fullscreen" : ""} ${drag ? "is-dragging" : ""}`}
+      style={drag ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined} aria-label={docked ? "Now playing" : undefined}>
+      {!docked && <div className="now">
         <span className="now-title">{title}</span>
         {episodeLabel && <span className="now-ep">{episodeLabel}</span>}
         {detail && <span className="now-detail">{detail}</span>}
@@ -265,10 +342,10 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
         <div className="now-acts">
           <button type="button" disabled={!onPrev} onClick={onPrev} aria-keyshortcuts="p">prev</button>
           <button type="button" disabled={!onNext} onClick={onNext} aria-keyshortcuts="n">next</button>
-          <button type="button" onClick={onBack} aria-keyshortcuts="Escape">episodes</button>
+          <button type="button" onClick={onEpisodes} aria-keyshortcuts="Escape">episodes</button>
         </div>
-      </div>
-      <div ref={surface} className="player-surface">
+      </div>}
+      <div ref={surface} className="player-surface" onClick={docked ? (event) => { if (!(event.target as HTMLElement).closest("button")) onExpand(); } : undefined}>
         <MediaPlayer
           ref={player}
           key={`${session.id}:${attempt}`}
@@ -285,7 +362,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           controlsDelay={2500}
           hideControlsOnMouseLeave
           keyTarget="document"
-          keyDisabled={showShortcuts || Boolean(error) || countdown !== undefined}
+          keyDisabled={docked || showShortcuts || Boolean(error) || countdown !== undefined}
           keyShortcuts={{
             ...MEDIA_KEY_SHORTCUTS,
             seekBackward: `${MEDIA_KEY_SHORTCUTS.seekBackward} Shift+ArrowLeft`,
@@ -294,10 +371,15 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           }}
           storage={storage}
           onPause={() => {
+            setPaused(true);
             if (player.current?.state.canPlay) void storage.setTime(player.current.state.currentTime);
             storage.flush();
           }}
           onSeeked={(time) => { void storage.setTime(time); storage.flush(); }}
+          onPlay={() => setPaused(false)}
+          onPlaying={() => setPaused(false)}
+          onTimeUpdate={({ currentTime }) => setTime((value) => Math.floor(currentTime) === value ? value : Math.floor(currentTime))}
+          onDurationChange={(value) => setDuration(Number.isFinite(value) ? value : 0)}
           onEnded={() => { if (autoplayNext && onNext) { fired.current = false; setCountdown(NEXT_COUNTDOWN); } }}
           onProviderChange={(provider) => {
             if (isHLSProvider(provider)) provider.library = () => import("hls.js");
@@ -349,6 +431,14 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           </div>
         )}
       </div>
+      {docked && (
+        <div className="mini-bar" onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+          <span className="mini-text"><span className="mini-title">{title}</span><span className="mini-sub">{dockedSub}</span></span>
+          <button type="button" aria-label={paused ? "Play" : "Pause"} title={paused ? "Play" : "Pause"} onClick={togglePaused}>{paused ? icons.play : icons.pause}</button>
+          <button type="button" aria-label="Expand player" title="Expand" onClick={onExpand}>{icons.expand}</button>
+          <button type="button" className="mini-close" aria-label="Stop playback" title="Stop" onClick={onClose}>×</button>
+        </div>
+      )}
       <dialog ref={shortcutsDialog} className="player-shortcuts" aria-labelledby="shortcuts-title" onCancel={() => setShowShortcuts(false)} onClose={() => setShowShortcuts(false)}>
         <h2 id="shortcuts-title">Keyboard shortcuts</h2>
         <dl>
@@ -363,7 +453,8 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           <dt>I</dt><dd>Picture in picture</dd>
           <dt>N / P</dt><dd>Next or previous episode</dd>
           <dt>F / double-click</dt><dd>Toggle fullscreen</dd>
-          <dt>Escape</dt><dd>Close menu, leave fullscreen, then back to episodes</dd>
+          <dt>Escape</dt><dd>Close menu, leave fullscreen, then shrink to the corner</dd>
+          <dt>`</dt><dd>Return from the corner to the full player</dd>
           <dt>Tab / Shift + Tab</dt><dd>Move between controls</dd>
           <dt>?</dt><dd>Show shortcuts</dd>
         </dl>

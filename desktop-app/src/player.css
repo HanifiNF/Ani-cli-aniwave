@@ -94,3 +94,47 @@
 .player-shortcuts dd { margin: 0; color: var(--muted); }
 .player-shortcuts button { padding: 5px 12px; color: var(--text); border: 1px solid var(--rule); border-radius: 4px; font-size: 13px; cursor: pointer; }
 .player-shortcuts button:hover { background: var(--raised); border-color: var(--muted); }
+
+/* ---- Docked mini player -------------------------------------------------- */
+/* The expanded player takes the page. The docked one is a box in a corner of the body. */
+.player-shell.is-expanded { padding: 36px 56px 0; }
+.app.is-fullscreen .player-shell.is-expanded { padding: 0; }
+.player-shell.is-docked {
+  position: absolute; z-index: 50; flex: none;
+  width: min(33vw, 420px); min-width: 300px;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 25%);
+}
+.player-shell.corner-bottom-right { right: 24px; bottom: 16px; }
+.player-shell.corner-bottom-left { left: 24px; bottom: 16px; }
+.player-shell.corner-top-right { right: 24px; top: 16px; }
+.player-shell.corner-top-left { left: 24px; top: 16px; }
+.player-shell.is-dragging { transition: none; user-select: none; }
+.player-shell.is-docked .player-surface { flex: none; margin: 0; width: 100%; aspect-ratio: 16 / 9; cursor: pointer; }
+/* Clicks on the small video expand the player; Vidstack's own gestures and controls stay out of the way. */
+.player-shell.is-docked .media-player { pointer-events: none; }
+.player-shell.is-docked .media-player .vds-controls { display: none; }
+.player-shell.is-docked .player-next, .player-shell.is-docked .player-error, .player-shell.is-docked .player-notice { pointer-events: auto; cursor: default; }
+.player-shell.is-docked .player-next { gap: 6px; background: rgb(0 0 0 / 70%); }
+.player-shell.is-docked .player-next b { font-size: 13px; }
+.player-shell.is-docked .player-next > span { font-size: 12px; }
+.player-shell.is-docked .player-next div { margin-top: 2px; gap: 6px; }
+.player-shell.is-docked .player-next button { padding: 3px 9px; font-size: 12px; }
+.player-shell.is-docked .player-error { padding: 12px; gap: 8px; }
+.player-shell.is-docked .player-error strong { font-size: 13px; }
+.player-shell.is-docked .player-error span { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.player-shell.is-docked .player-error button { padding: 3px 9px; font-size: 12px; }
+.player-shell.is-docked .player-notice { top: 8px; left: 8px; right: 8px; padding: 6px 8px; font-size: 12px; }
+
+.mini-bar {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 2px; align-items: center;
+  padding: 6px 6px 6px 12px; cursor: grab; user-select: none; touch-action: none;
+}
+.mini-bar:active { cursor: grabbing; }
+.mini-text { min-width: 0; }
+.mini-title { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-sub { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-bar button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); cursor: pointer; }
+.mini-bar button:hover { background: var(--raised); color: var(--text); }
+.mini-bar button svg { width: 18px; height: 18px; fill: currentColor; }
+.mini-bar .mini-close { font-size: 18px; line-height: 1; }

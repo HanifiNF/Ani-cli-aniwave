@@ -197,7 +197,7 @@ h1 { font-size: 22px; font-weight: 400; margin: 6px 0 4px; line-height: 1.3; }
   .page-lists .item .k { min-width: 80px; }
 }
 
-/* player screen: the video takes the page, the footer keeps the key hints */
-.page-player { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
-.app.is-fullscreen .page-player { padding: 0; }
+/* player: the body holds the page and, while something plays, the player. Expanded it replaces the page; docked it floats in a corner. */
+.body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .app.is-fullscreen .foot { display: none; }
+.foot .now-link b { margin-right: 4px; }

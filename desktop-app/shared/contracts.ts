@@ -3,6 +3,9 @@ export type ProviderPreference = "auto" | "aniwave" | "anidb";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
 export type ThemePreset = "graphite" | "paper" | "nord" | "gruvbox" | "mocha" | "solarized-light" | "custom";
 export type PlaybackTarget = "builtin" | "external";
+/** Where the docked mini player sits while the user browses. */
+export type MiniPlayerCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export const MINI_PLAYER_CORNERS: readonly MiniPlayerCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
 
 export interface AnimeSource {
   id: string;
@@ -75,6 +78,7 @@ export interface Settings {
   playbackTarget: PlaybackTarget;
   startPlayerFullscreen: boolean;
   autoplayNext?: boolean;
+  miniPlayerCorner?: MiniPlayerCorner;
   playerDiagnostics?: boolean;
   preferredQuality: string;
   preferredMode: TranslationMode;

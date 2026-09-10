@@ -76,8 +76,11 @@ describe("StateStore", () => {
     });
     await expect(fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "external", playerPath: "" })).rejects.toThrow(/external player path/i);
     expect(fresh.snapshot().settings.autoplayNext).toBe(true);
-    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false, autoplayNext: false });
-    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "", autoplayNext: false });
+    expect(fresh.snapshot().settings.miniPlayerCorner).toBe("bottom-right");
+    const saved = await fresh.saveSettings({ ...fresh.snapshot().settings, playbackTarget: "builtin", playerPath: "", startPlayerFullscreen: false, autoplayNext: false, miniPlayerCorner: "top-left" });
+    expect(saved.settings).toMatchObject({ playbackTarget: "builtin", startPlayerFullscreen: false, playerPath: "", autoplayNext: false, miniPlayerCorner: "top-left" });
+    const odd = await fresh.saveSettings({ ...saved.settings, miniPlayerCorner: "middle" as never });
+    expect(odd.settings.miniPlayerCorner).toBe("bottom-right");
   });
 
   it("repairs unknown themes and partial custom colours on load", async () => {
