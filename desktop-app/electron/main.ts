@@ -12,6 +12,10 @@ import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
 import { PlayerDiagnostics } from "./player-diagnostics";
 import { playbackKey } from "../shared/playback";
+import { configureVideoRenderingPolicy } from "./video-rendering-policy";
+
+// Electron requires Chromium switches to be installed synchronously before app readiness.
+const videoRenderingPolicy = configureVideoRenderingPolicy(app.commandLine);
 
 let mainWindow: BrowserWindow | undefined;
 let activePlayback: PlayRequest | undefined;
@@ -74,6 +78,10 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
   activePlaybackId = randomUUID();
   const id = activePlaybackId;
   diagnostics.record(id, { event: "session-start", version: app.getVersion() });
+  if (videoRenderingPolicy.directCompositionDisabled) {
+    diagnostics.record(id, { event: "video-render-policy", platform: "win32", enabled: true,
+      reason: "direct-composition-disabled" });
+  }
   playbackSessions.set(id, request);
   if (playbackSessions.size > 8) playbackSessions.delete(playbackSessions.keys().next().value!);
   if (request.episode) await store.recordHistory({ ...request.episode.entry, completed: false });

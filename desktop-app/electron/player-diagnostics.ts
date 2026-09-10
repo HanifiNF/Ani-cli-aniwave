@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const events = new Set([
-  "diagnostics-enabled", "diagnostics-disabled", "session-start", "renderer-ready", "keyboard", "command",
+  "diagnostics-enabled", "diagnostics-disabled", "session-start", "video-render-policy", "renderer-ready", "keyboard", "command",
   "load-start", "loaded-metadata", "can-play", "play", "playing", "pause", "waiting", "stalled",
   "seeking", "seeked", "ended", "error", "volume-change", "rate-change", "text-track-change", "quality-change",
   "media-seek-request", "media-seeking-request", "media-enter-fullscreen-request", "media-exit-fullscreen-request",

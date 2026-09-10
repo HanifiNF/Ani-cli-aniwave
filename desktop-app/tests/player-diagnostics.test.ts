@@ -25,15 +25,20 @@ describe("player diagnostic files", () => {
     await logger.flush();
     expect(await readdir(directory)).toEqual([]);
     logger.setEnabled(true);
+    logger.record("session-1", { event: "video-render-policy", platform: "win32", enabled: true, reason: "direct-composition-disabled",
+      url: "https://stream.test/?token=secret", title: "private title" });
     logger.record("session-1", { event: "keyboard", key: "ArrowRight", shift: true });
     logger.record("session-1", { event: "seeked", time: 25 });
     logger.setEnabled(false);
     logger.record("session-1", { event: "keyboard", key: "m" });
     await logger.flush();
     const rows = (await readFile(logger.filePath, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-    expect(rows.map(row => row.event)).toEqual(["diagnostics-enabled", "keyboard", "seeked", "diagnostics-disabled"]);
-    expect(rows[1]).toMatchObject({ sessionId: "session-1", key: "ArrowRight", shift: true });
-    expect(rows[2]).toMatchObject({ sessionId: "session-1", time: 25 });
+    expect(rows.map(row => row.event)).toEqual(["diagnostics-enabled", "video-render-policy", "keyboard", "seeked", "diagnostics-disabled"]);
+    expect(rows[1]).toMatchObject({ sessionId: "session-1", platform: "win32", enabled: true, reason: "direct-composition-disabled" });
+    expect(rows[1]).not.toHaveProperty("url");
+    expect(rows[1]).not.toHaveProperty("title");
+    expect(rows[2]).toMatchObject({ sessionId: "session-1", key: "ArrowRight", shift: true });
+    expect(rows[3]).toMatchObject({ sessionId: "session-1", time: 25 });
     expect(Number.isFinite(Date.parse(rows[1].timestamp))).toBe(true);
   });
 
@@ -109,6 +114,10 @@ describe("player diagnostic files", () => {
     expect(sanitizeDiagnostic({ event: "keyboard", key: "ArrowLeft", code: "ArrowLeft", shift: true,
       url: "https://stream.test/?token=secret", message: "password", target: "https://secret", time: Infinity,
       error: { token: "secret" } })).toEqual({ event: "keyboard", shift: true, key: "ArrowLeft", code: "ArrowLeft" });
+    expect(sanitizeDiagnostic({ event: "video-render-policy", platform: "win32", enabled: true, reason: "direct-composition-disabled",
+      url: "https://stream.test/?token=secret", title: "private title" })).toEqual({
+      event: "video-render-policy", enabled: true, reason: "direct-composition-disabled", platform: "win32"
+    });
     expect(sanitizeDiagnostic({ event: "private-data", key: "k" })).toBeUndefined();
     expect(sanitizeDiagnostic(null)).toBeUndefined();
   });
