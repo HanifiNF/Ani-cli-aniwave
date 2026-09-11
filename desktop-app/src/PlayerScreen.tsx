@@ -7,6 +7,7 @@ import {
   MediaRemoteControl,
   useMediaContext,
   isHLSProvider,
+  Track,
   type MediaPlayerInstance
 } from "@vidstack/react";
 import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
@@ -416,7 +417,9 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           onError={(detail) => setError(errorMessage(detail))}
         >
           <MenuEscapeHandler />
-          <MediaProvider />
+          <MediaProvider>
+            {session.request.textTracks?.map((track, index) => <Track key={`${track.src}:${index}`} src={track.src} kind="subtitles" label={track.label} lang={track.lang} default={track.default} />)}
+          </MediaProvider>
           <DefaultVideoLayout
             icons={defaultLayoutIcons}
             seekStep={10}

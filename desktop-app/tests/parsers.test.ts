@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findEmbedUrl, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "../electron/parsers";
+import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "../electron/parsers";
 
 describe("source parsers", () => {
   it("extracts and decodes search results", () => {
@@ -55,5 +55,24 @@ describe("source parsers", () => {
     expect(parseMasterPlaylist("#EXTM3U\n#EXTINF:10,\nseg.ts", "https://cdn.test/media.m3u8", "aniwave", "https://play.test/embed")).toEqual([
       { quality: "best", url: "https://cdn.test/media.m3u8", provider: "aniwave", referrer: "https://play.test/embed" }
     ]);
+  });
+
+  it("parses HiAnime titles, Unicode aliases, punctuation IDs, and episodes", () => {
+    expect(parseHiAnimeSearch([{ English: "Boruto: Naruto Next Generations", title: "Boruto", Japanese: "BORUTO-ボルト-", alternateTitle: "", image: "https://img.test/boruto.jpg", slugs: [...Array.from({ length: 10 }, (_, index) => `old-${index}`), "boruto:-naruto-next-generations-3dmuk9"] }])).toEqual([
+      { id: "hianime:boruto:-naruto-next-generations-3dmuk9", title: "Boruto: Naruto Next Generations", poster: "https://img.test/boruto.jpg", provider: "hianime", sources: [{ id: "hianime:boruto:-naruto-next-generations-3dmuk9", title: "Boruto: Naruto Next Generations", aliases: ["Boruto: Naruto Next Generations", "Boruto", "BORUTO-ボルト-"], poster: "https://img.test/boruto.jpg", provider: "hianime" }] }
+    ]);
+    expect(parseHiAnimeEpisodes({ anime: { episodes: [{ episodeNumber: 2, slug: "show-episode-2-bbb222" }, { episodeNumber: 1, slugs: ["show-episode-1-aaa111"] }] } })).toEqual([
+      { id: "hianime:show-episode-1-aaa111", number: "1", provider: "hianime" }, { id: "hianime:show-episode-2-bbb222", number: "2", provider: "hianime" }
+    ]);
+  });
+
+  it("extracts HiAnime mode servers and decodes ZokoAnime HLS metadata", () => {
+    expect(hiAnimeEmbedUrls({ episode: { link: { sub: ["https://zokoanime.video/sub"], dub: ["https://zokoanime.video/dub"] } } }, "dub")).toEqual(["https://zokoanime.video/dub"]);
+    const source = { src: "https://cdn.test/master.m3u8", subtitles: [{ src: "https://cdn.test/en.vtt", label: "English", lang: "en", default: true }] };
+    const key = Buffer.from("otaku-embed-v1");
+    const plain = Buffer.from(JSON.stringify(source));
+    const encoded = Buffer.alloc(plain.length);
+    for (let index = 0; index < plain.length; index += 1) encoded[index] = plain[index] ^ key[index % key.length];
+    expect(parseHiAnimeEmbed(`<script>window.__P="${encoded.toString("base64")}"</script>`)).toEqual(source);
   });
 });

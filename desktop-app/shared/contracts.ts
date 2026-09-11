@@ -1,5 +1,5 @@
 export type TranslationMode = "sub" | "dub";
-export type ProviderPreference = "auto" | "aniwave" | "anidb";
+export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
 export type ThemePreset = "graphite" | "paper" | "nord" | "gruvbox" | "mocha" | "solarized-light" | "custom";
 export type PlaybackTarget = "builtin" | "external";
@@ -57,6 +57,14 @@ export interface Stream {
   provider: ProviderName;
   server?: string;
   referrer?: string;
+  textTracks?: TextTrackSource[];
+}
+
+export interface TextTrackSource {
+  src: string;
+  label: string;
+  lang: string;
+  default?: boolean;
 }
 
 export interface LibraryEntry {
@@ -92,6 +100,7 @@ export interface Settings {
   preferredProvider: ProviderPreference;
   aniwaveBaseUrl: string;
   anidbBaseUrl: string;
+  hianimeBaseUrl: string;
   theme: ThemePreset;
   customTheme: CustomTheme;
 }
@@ -110,6 +119,7 @@ export interface PlayRequest {
   url: string;
   title: string;
   referrer?: string;
+  textTracks?: TextTrackSource[];
   episode?: { id: string; entry: LibraryEntry };
 }
 

@@ -23,6 +23,7 @@ const defaults: PersistedState = {
     preferredProvider: "auto",
     aniwaveBaseUrl: "https://aniwaves.ru",
     anidbBaseUrl: "https://anidb.app",
+    hianimeBaseUrl: "https://hianimes.se",
     theme: "graphite",
     customTheme: { ...THEME_PRESETS.graphite }
   }
@@ -40,13 +41,22 @@ function normalizePoster(value: unknown): string | undefined {
 
 const normalizeCorner = (value: unknown): MiniPlayerCorner => (MINI_PLAYER_CORNERS as readonly unknown[]).includes(value) ? value as MiniPlayerCorner : "bottom-right";
 
+const HIANIME_SLUG = "[\\p{L}\\p{N}:!'().,_+~-]+(?:-[\\p{L}\\p{N}:!'().,_+~-]+)*";
+const isProviderId = (id: unknown): id is string => typeof id === "string" && (
+  id.length <= 512 && (/^(?:aniwave|anidb):[a-z0-9-]+-\d+$/i.test(id) || new RegExp(`^hianime:${HIANIME_SLUG}$`, "u").test(id))
+);
+const providerForId = (id: string) => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
+
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
-  if (!/^(?:(?:aniwave|anidb):)?[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
+  if (!isProviderId(entry.animeId) && !/^[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
   if (!entry.title.trim() || entry.title.length > 240) throw new Error("Invalid anime title");
   if (!/^\d+(?:\.\d+)?$/.test(entry.lastEpisode)) throw new Error("Invalid episode number");
   const poster = normalizePoster(entry.poster);
-  const sources = animeSources(entry).map((source) => ({ ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) }));
-  const lastProvider = entry.lastProvider ?? sources[0].provider;
+  const sources = animeSources(entry).map((source) => {
+    if (!isProviderId(source.id) || source.provider !== providerForId(source.id)) throw new Error("Invalid source identifier");
+    return { ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) };
+  });
+  const lastProvider = entry.lastProvider && sources.some((source) => source.provider === entry.lastProvider) ? entry.lastProvider : sources[0].provider;
   const updatedAt = new Date().toISOString();
   const completed = entry.completed !== false;
   const progressByProvider = { ...entry.progressByProvider };
@@ -72,7 +82,7 @@ function combineEntries(left: LibraryEntry, right: LibraryEntry): LibraryEntry {
   const latest = new Date(left.updatedAt).getTime() >= new Date(right.updatedAt).getTime() ? left : right;
   const lastProvider = latest.lastProvider ?? animeSources(latest)[0].provider;
   const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
-  const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
+  const primary = sources.find((source) => source.provider === "aniwave") ?? sources.find((source) => source.provider === "anidb") ?? sources[0];
   return {
     animeId: primary.id,
     title: primary.title || latest.title,
@@ -159,6 +169,7 @@ export class StateStore {
     if (settings.playbackTarget !== "builtin" && settings.playbackTarget !== "external") throw new Error("Unknown playback target");
     if (settings.playbackTarget === "external" && !settings.playerPath.trim()) throw new Error("External player path cannot be empty");
     if (!isThemePreset(settings.theme)) throw new Error("Unknown theme");
+    if (!["auto", "aniwave", "anidb", "hianime"].includes(settings.preferredProvider)) throw new Error("Unknown source provider");
     const custom = settings.customTheme ?? {};
     for (const key of ["background", "text", "highlight"] as const) {
       if (!isHexColor(custom[key])) throw new Error(`Custom ${key} colour must be a hex value like #1F2023`);
@@ -176,6 +187,7 @@ export class StateStore {
       preferredProvider: settings.preferredProvider,
       aniwaveBaseUrl: normalizeSource(settings.aniwaveBaseUrl, "AniWave"),
       anidbBaseUrl: normalizeSource(settings.anidbBaseUrl, "AniDB"),
+      hianimeBaseUrl: normalizeSource(settings.hianimeBaseUrl, "HiAnime"),
       theme: settings.theme,
       customTheme: { background: custom.background, text: custom.text, highlight: custom.highlight }
     };
@@ -232,7 +244,7 @@ export class StateStore {
   }
 
   async remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState> {
-    if (!/^(?:aniwave|anidb):[a-z0-9-]+-\d+$/i.test(replacement.id)) throw new Error("Invalid replacement identifier");
+    if (!isProviderId(replacement.id)) throw new Error("Invalid replacement identifier");
     if (!replacement.title.trim() || replacement.title.length > 240) throw new Error("Invalid replacement title");
     const poster = normalizePoster(replacement.poster);
     const remap = (entry: LibraryEntry): LibraryEntry => entry.animeId === oldAnimeId
@@ -245,7 +257,7 @@ export class StateStore {
   }
 
   async linkSources(ids: string[]): Promise<PersistedState> {
-    const unique = [...new Set(ids.filter((id) => /^(?:aniwave|anidb):/i.test(id)))];
+    const unique = [...new Set(ids.filter(isProviderId))];
     if (unique.length < 2) return this.snapshot();
     const links = this.state.providerLinks ?? [];
     const touching = links.filter((group) => group.some((id) => unique.includes(id)));

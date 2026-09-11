@@ -37,6 +37,14 @@ describe("StateStore", () => {
     expect(store.snapshot().history[0].poster).toBeUndefined();
   });
 
+  it("accepts HiAnime slugs and stores their progress independently", async () => {
+    await store.recordHistory(entry({
+      animeId: "hianime:boruto:-naruto-next-generations-3dmuk9", title: "Boruto", lastEpisode: "12", lastProvider: "hianime",
+      sources: [{ id: "hianime:boruto:-naruto-next-generations-3dmuk9", provider: "hianime", title: "Boruto", aliases: ["Boruto", "BORUTO-ボルト-"] }]
+    }));
+    expect(store.snapshot().history[0]).toMatchObject({ lastProvider: "hianime", progressByProvider: { hianime: { lastEpisode: "12" } } });
+  });
+
   it("preserves a known poster when a later entry has none", async () => {
     await store.toggleBookmark(entry());
     await store.recordHistory(entry({ lastEpisode: "13", poster: undefined }));

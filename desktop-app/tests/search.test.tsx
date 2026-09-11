@@ -61,7 +61,7 @@ beforeEach(async () => {
     bookmarks: [], history: [],
     settings: {
       playerPath: "mpv", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-      aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app",
+      aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se",
       theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
     }
   };
