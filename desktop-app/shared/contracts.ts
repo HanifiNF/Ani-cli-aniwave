@@ -62,6 +62,19 @@ export interface CachedEpisodeMetadata {
   qualities: Partial<Record<TranslationMode, EpisodeQuality>>;
 }
 
+export interface BookmarkMetadataProgress {
+  state: "running" | "cancelling" | "completed" | "cancelled" | "failed";
+  error?: string;
+  seriesTotal: number;
+  seriesDone: number;
+  currentSeries?: string;
+  episodesDone: number;
+  cachedEpisodes: number;
+  updatedEpisodes: number;
+  failedEpisodes: number;
+  skippedSources: ProviderName[];
+}
+
 export interface ProviderProgress {
   lastEpisode: string;
   mode: TranslationMode;
@@ -166,6 +179,10 @@ export interface AniDesktopApi {
   availability(episodeId: string, request?: CatalogRequest): Promise<EpisodeAvailability>;
   episodeMetadata(episodeId: string): Promise<CachedEpisodeMetadata | undefined>;
   clearEpisodeMetadata(episodeIds: string[]): Promise<void>;
+  /** Starts one app-owned background job, or returns the current job if already running. */
+  fetchBookmarkMetadata(): Promise<BookmarkMetadataProgress>;
+  bookmarkMetadataStatus(): Promise<BookmarkMetadataProgress | undefined>;
+  cancelBookmarkMetadata(): Promise<BookmarkMetadataProgress | undefined>;
   sourceStatus(): Promise<ProviderSourceStatus[]>;
   checkSource(provider: ProviderName, request?: CatalogRequest): Promise<void>;
   cancelCatalog(requestId: string): void;

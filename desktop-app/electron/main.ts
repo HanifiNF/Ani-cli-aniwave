@@ -1,6 +1,7 @@
 import { CatalogService, catalogScope } from "./catalog-service";
 import { catalogContext, catalogRequests } from "./catalog-requests";
 import { EpisodeMetadataCache } from "./episode-metadata-cache";
+import { BookmarkMetadataFetcher } from "./bookmark-metadata";
 import { availabilityFresh } from "../shared/episode-metadata";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -12,7 +13,7 @@ import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
 import { getAvailability, getEpisodes, getStreams, providerOrigin, searchAnime, searchOne } from "./scraper";
-import { animeSources, expandWithLinks } from "../shared/catalog";
+import { animeSources, enabledProviders, expandWithLinks } from "../shared/catalog";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
 import { PlayerDiagnostics } from "./player-diagnostics";
@@ -30,6 +31,7 @@ const playbackSessions = new Map<string, PlayRequest>();
 let store: StateStore;
 let diagnostics: PlayerDiagnostics;
 let episodeMetadata: EpisodeMetadataCache;
+let bookmarkMetadata: BookmarkMetadataFetcher;
 let refreshMenu: () => void = () => undefined;
 // In-memory partition: stream segments never reach the disk cache, and the renderer gets no permissions.
 const APP_PARTITION = "ani-desktop";
@@ -246,6 +248,18 @@ function registerIpc(): void {
     if (!Array.isArray(ids) || ids.length > 20_000 || ids.some((id) => typeof id !== "string" || id.length > 2048)) throw new Error("Invalid episode identifiers");
     return episodeMetadata.clear(catalogScope(store.snapshot().settings), ids);
   });
+  ipcMain.handle("catalog:bookmark-metadata", (event) => {
+    assertPlayerSender(mainWindow, event);
+    return bookmarkMetadata.start(store.snapshot());
+  });
+  ipcMain.handle("catalog:bookmark-metadata-status", (event) => {
+    assertPlayerSender(mainWindow, event);
+    return bookmarkMetadata.snapshot();
+  });
+  ipcMain.handle("catalog:bookmark-metadata-cancel", (event) => {
+    assertPlayerSender(mainWindow, event);
+    return bookmarkMetadata.cancel();
+  });
   ipcMain.handle("catalog:streams", (event, episodeId: string, mode: TranslationMode, request?: CatalogRequest) => catalogCall(event, request, async () => {
     const settings = store.snapshot().settings, scope = catalogScope(settings), generation = episodeMetadata.generation;
     const streams = await getStreams(episodeId, mode, settings);
@@ -262,7 +276,9 @@ function registerIpc(): void {
   }));
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", async (_event, settings: Settings) => {
+    const previous = store.snapshot().settings;
     const state = await store.saveSettings(settings);
+    if (catalogScope(previous) !== catalogScope(state.settings) || JSON.stringify(enabledProviders(previous)) !== JSON.stringify(enabledProviders(state.settings))) bookmarkMetadata.cancel();
     const enabled = state.settings.playerDiagnostics === true;
     diagnostics.setEnabled(enabled);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("player:diagnostics-change", enabled);
@@ -334,6 +350,7 @@ app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
   episodeMetadata = new EpisodeMetadataCache(join(app.getPath("userData"), "episode-metadata.json"));
+  bookmarkMetadata = new BookmarkMetadataFetcher(catalogService, episodeMetadata);
   await episodeMetadata.load();
   await catalogRequests.health.load(join(app.getPath("userData"), "source-health.json"));
   diagnostics = new PlayerDiagnostics(join(app.getPath("userData"), "logs"));
@@ -373,6 +390,7 @@ app.on("before-quit", (event) => {
   if (flushingDiagnostics || !diagnostics) return;
   flushingDiagnostics = true;
   event.preventDefault();
+  bookmarkMetadata.cancel();
   const timeout = setTimeout(() => app.quit(), 2000);
   void Promise.allSettled([diagnostics.close(), episodeMetadata.flush(), catalogRequests.health.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
 });

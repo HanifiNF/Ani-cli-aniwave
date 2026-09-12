@@ -19,6 +19,7 @@ import type {
 import { catalogRequestId } from "./catalog-request";
 import { useEpisodeMetadata } from "./useEpisodeMetadata";
 import SourceStatusPanel from "./SourceStatusPanel";
+import BookmarkMetadataPanel from "./BookmarkMetadataPanel";
 import Switch from "./Switch";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
@@ -1099,6 +1100,7 @@ function App() {
                 </span></div>
               )}
             </div></div>
+            <BookmarkMetadataPanel count={appState.bookmarks.length} saved={appState.settings} draft={settingsDraft} />
             <SourceStatusPanel saved={appState.settings} draft={settingsDraft} onChange={setSettingsDraft}>
               <div className="r"><span className="k">Source links<small>{(appState.providerLinks ?? []).length} remembered {(appState.providerLinks ?? []).length === 1 ? "match" : "matches"} between providers. Forget them if a series shows the wrong records together</small></span><button type="button" className="btn small" disabled={!(appState.providerLinks ?? []).length} onClick={() => void clearSourceLinks()}>forget links</button></div>
             </SourceStatusPanel>
