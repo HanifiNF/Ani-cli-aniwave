@@ -26,7 +26,9 @@ export function unifyAnimeResults(results: AnimeResult[], links: string[][] = []
   for (const result of results) {
     for (const source of animeSources(result)) {
       const keys = sourceKeys(source);
-      const indexes = groups.flatMap((group, index) => linked(group, [source], links) || (!group.some((item) => item.provider === source.provider) && group.some((item) => [...sourceKeys(item)].some((key) => keys.has(key)))) ? [index] : []);
+      // A group holds at most one record per provider, so a link that has grown to span seasons cannot chain them together.
+      const candidates = groups.flatMap((group, index) => !group.some((item) => item.provider === source.provider) && (linked(group, [source], links) || group.some((item) => [...sourceKeys(item)].some((key) => keys.has(key)))) ? [index] : []);
+      const indexes = candidates.filter((index, position) => candidates.slice(0, position).every((earlier) => !groups[earlier].some((item) => groups[index].some((other) => other.provider === item.provider))));
       if (indexes.length === 0) groups.push([source]);
       else {
         const combined = [...groups[indexes[0]], source, ...indexes.slice(1).flatMap((index) => groups[index])]
@@ -36,11 +38,28 @@ export function unifyAnimeResults(results: AnimeResult[], links: string[][] = []
       }
     }
   }
+  // A second pass joins records the exact alias match missed but that clearly name the same season of one franchise.
+  for (let left = 0; left < groups.length; left += 1) {
+    for (let right = groups.length - 1; right > left; right -= 1) {
+      const a = groups[left], b = groups[right];
+      if (a.some((source) => b.some((other) => other.provider === source.provider))) continue;
+      if (likelyDuplicate(asResult(a), asResult(b))) { groups[left] = [...a, ...b]; groups.splice(right, 1); }
+    }
+  }
   return groups.map((sources) => {
     const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
     const english = sources.find((source) => source.provider === "aniwave")?.title ?? sources.find((source) => source.provider === "anidb")?.title ?? sources.find((source) => source.provider === "hianime")?.title ?? primary.title;
     return { id: primary.id, title: english, poster: primary.poster ?? sources.find((source) => source.poster)?.poster, provider: primary.provider, sources };
   });
+}
+
+const asResult = (sources: AnimeSource[]): AnimeResult => ({ id: sources[0].id, title: sources[0].title, provider: sources[0].provider, sources });
+
+/** How confidently a search hit on another provider names the same anime: by a shared alias, or by franchise and season. */
+export function sourceMatch(anime: AnimeResult | LibraryEntry, candidate: AnimeResult): "exact" | "likely" | undefined {
+  const keys = new Set(animeSources(anime).flatMap((source) => [...sourceKeys(source)]));
+  if (animeSources(candidate).some((source) => [...sourceKeys(source)].some((key) => keys.has(key)))) return "exact";
+  return likelyDuplicate(anime, candidate) ? "likely" : undefined;
 }
 
 export const sourceIds = (anime: AnimeResult | LibraryEntry): string[] => animeSources(anime).map((source) => source.id);

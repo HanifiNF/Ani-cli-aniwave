@@ -256,6 +256,12 @@ export class StateStore {
     return this.snapshot();
   }
 
+  async clearSourceLinks(): Promise<PersistedState> {
+    this.state.providerLinks = [];
+    await this.persist();
+    return this.snapshot();
+  }
+
   async linkSources(ids: string[]): Promise<PersistedState> {
     const unique = [...new Set(ids.filter(isProviderId))];
     if (unique.length < 2) return this.snapshot();

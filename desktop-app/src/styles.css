@@ -182,6 +182,7 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .series h1 { margin: 6px 0 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
 .series .meta { display: flex; gap: 8px; color: var(--muted); font-size: 13px; align-items: center; flex-wrap: wrap; }
 .series .meta .tag { padding: 3px 8px; border-radius: 6px; background: var(--raised); color: var(--text); font-size: 12px; font-weight: 500; }
+.series .meta .tag.quiet { background: none; color: var(--muted); font-weight: 400; }
 .series .facts { display: flex; gap: 28px; margin-top: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
 .series .facts div { font-size: 14px; }
 .series .facts small { display: block; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }

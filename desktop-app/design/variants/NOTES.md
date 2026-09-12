@@ -1,4 +1,36 @@
-# Ani Desktop: B2 Palette with art guide
+# Ani Desktop design notes
+
+## Current design: atsu style (September 2026)
+
+The renderer now follows atsu.moe. `atsu.html` holds the mockups; `shots/atsu-*.png` are the mockup captures and
+`shots/app-*.png` are captures of the live renderer (`capture-app.cjs`, run against `npx vite`).
+
+- One centred column, 1120px wide (`--container`), shared by the top bar and the page. Gutters grow on wide windows.
+- Top bar: wordmark, a centred search pill (⌘K or / focuses it), then home, saved, recent, and settings icons. While
+  something plays a "now playing" pill sits before the icons; the backtick expands the corner player.
+- Home: "Continue watching" and "Saved" as poster-card rows, eight across, with a next-episode badge, the audio mode,
+  and a progress line on the poster. Arrow keys move between cards, up and down switch sections, Enter plays, o opens,
+  x removes.
+- Search: typing in the pill opens a palette over the page with source chips, a result count, and thumbnail rows
+  carrying a provider ribbon. Up and down move, Enter opens, Escape clears and closes.
+- Series: a sticky left panel with the poster, Play next, Save, and audio and quality chips. The right column has the
+  title, source tags, a facts strip, then the episode list with All / Unwatched / Watched chips, a jump box, and sort
+  arrows (newest first by default). Episodes are grouped by number with one row per provider. Each row shows the best
+  quality that source offers, resolved lazily as rows scroll into view and cached in local storage; the checkbox
+  records progress through that episode on that provider.
+- Sources are resolved together. Search unifies provider records that share an alias or clearly name the same season
+  of one franchise (`unifyAnimeResults`). Opening a series looks it up on every provider it is not yet known on
+  (`resolveSources` in `electron/scraper.ts`, searched by title and aliases) while the known sources load; confident
+  matches (a shared alias) are remembered as provider links and their episodes join the grouped list as they arrive.
+  A result never holds two records from one provider, even through a link, so links cannot chain seasons together.
+  The search palette has no source control; the search scope is the Source setting. Settings also offers "forget
+  source links" for when a series shows the wrong records together. The manual "merge" action remains for anything
+  the matcher misses.
+- Saved and recent: full card grids filtered by the pill. Settings: grouped cards. The key-hint footer is gone; `?`
+  shows a hint pill.
+- Type is the system sans-serif (Inter when installed); Fragment Mono is no longer bundled. Themes are unchanged.
+
+## Previous design: B2 Palette with art guide
 
 ## Purpose
 

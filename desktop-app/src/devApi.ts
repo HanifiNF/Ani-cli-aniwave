@@ -1,7 +1,7 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
-import type { AniDesktopApi, AniPlayerApi, AnimeResult, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
-import { animeSources, mergeKey } from "../shared/catalog";
+import type { AniDesktopApi, AniPlayerApi, AnimeResult, AnimeSource, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
+import { animeSources, mergeKey, unifyAnimeResults } from "../shared/catalog";
 import { THEME_PRESETS } from "../shared/theme";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
@@ -33,10 +33,16 @@ const state: PersistedState = {
 };
 
 const results: AnimeResult[] = [
-  { id: "aniwave:frieren-1", title: "Frieren: Beyond Journey's End", provider: "aniwave", poster: posters.frieren },
+  { id: "aniwave:frieren-1", title: "Frieren: Beyond Journey's End", provider: "aniwave", poster: posters.frieren,
+    sources: [{ id: "aniwave:frieren-1", provider: "aniwave", title: "Frieren: Beyond Journey's End", aliases: ["Frieren: Beyond Journey's End", "Sousou no Frieren"], poster: posters.frieren }] },
   { id: "anidb:sousou-no-frieren-9", title: "Sousou no Frieren", provider: "anidb", poster: posters.frieren },
   { id: "anidb:frieren-mahou-10", title: "Sousou no Frieren: ●● no Mahou", provider: "anidb" }
 ];
+// What the other providers would return when a series is resolved across sources.
+const elsewhere: Record<string, AnimeSource[]> = {
+  "aniwave:frieren-1": [{ id: "hianime:sousou-no-frieren-xyz", provider: "hianime", title: "Sousou no Frieren", aliases: ["Sousou no Frieren", "Frieren: Beyond Journey's End"] }],
+  "anidb:dandadan-3": [{ id: "aniwave:dandadan-7", provider: "aniwave", title: "Dandadan", aliases: ["Dandadan"] }, { id: "hianime:dandadan-abc", provider: "hianime", title: "Dandadan", aliases: ["Dandadan"] }]
+};
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const snapshot = () => structuredClone(state);
@@ -73,7 +79,16 @@ const player: AniPlayerApi = {
 export function installDevApi(): void {
   const api: AniDesktopApi = {
     player,
-    async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : results; },
+    async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : unifyAnimeResults(results, state.providerLinks ?? []); },
+    async resolveSources(anime) {
+      await wait(900);
+      const known = animeSources(anime);
+      const extra = known.flatMap((source) => elsewhere[source.id] ?? []).filter((source) => !known.some((item) => item.provider === source.provider));
+      if (extra.length === 0) return anime;
+      const sources = [...known, ...extra];
+      state.providerLinks = [...(state.providerLinks ?? []), sources.map((source) => source.id)];
+      return { ...anime, sources };
+    },
     async episodes(anime) {
       await wait(300);
       return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => source.id.includes("mahou")
@@ -107,6 +122,7 @@ export function installDevApi(): void {
     async recordHistory(entry) { upsert(entry); return snapshot(); },
     async removeHistory(animeId) { state.history = state.history.filter((item) => item.animeId !== animeId); return snapshot(); },
     async clearHistory() { state.history = []; return snapshot(); },
+    async clearSourceLinks() { state.providerLinks = []; return snapshot(); },
     async remapEntry(oldId, replacement) {
       const remap = (item: LibraryEntry) => item.animeId === oldId ? { ...item, animeId: replacement.id, title: replacement.title, poster: replacement.poster } : item;
       state.bookmarks = state.bookmarks.map(remap); state.history = state.history.map(remap);

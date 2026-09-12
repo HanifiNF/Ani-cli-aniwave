@@ -139,6 +139,8 @@ export interface AniDesktopApi {
   player: AniPlayerApi;
   search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
   episodes(anime: AnimeResult): Promise<EpisodeCatalog>;
+  /** Look the anime up on every provider it is not yet known on, remembering confident matches. */
+  resolveSources(anime: AnimeResult): Promise<AnimeResult>;
   streams(episodeId: string, mode: TranslationMode): Promise<Stream[]>;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
@@ -150,6 +152,8 @@ export interface AniDesktopApi {
   recordHistory(entry: LibraryEntry): Promise<PersistedState>;
   removeHistory(animeId: string): Promise<PersistedState>;
   clearHistory(): Promise<PersistedState>;
+  /** Forget every remembered provider link, automatic and manual. */
+  clearSourceLinks(): Promise<PersistedState>;
   remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState>;
   linkSources(sourceIds: string[]): Promise<PersistedState>;
   mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;

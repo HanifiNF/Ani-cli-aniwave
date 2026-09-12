@@ -195,7 +195,7 @@ function App() {
   const [jump, setJump] = useState("");
   const [cursor, setCursor] = useState(0);
   const [mode, setMode] = useState<TranslationMode>("sub");
-  const [provider, setProvider] = useState<ProviderPreference>("auto");
+  const [provider, setProvider] = useState<ProviderPreference>("auto"); // search scope, from settings
   const [quality, setQuality] = useState("best");
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
@@ -207,6 +207,7 @@ function App() {
   const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
   const [stateLoaded, setStateLoaded] = useState(false);
   const [showHints, setShowHints] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [qualities, setQualities] = useState<Record<string, string>>(() => loadQualityCache());
 
   const catalogSearch = useAnimeSearch(query, provider,
@@ -448,14 +449,41 @@ function App() {
     }
   }
 
+  // Each opened series gets a token so late episode or source lookups for a previous one are dropped.
+  const openToken = useRef(0);
+
+  // Other providers are looked up while the known ones load, and their episodes join the list as they arrive.
+  async function resolveOtherSources(anime: AnimeResult, token: number) {
+    setResolving(true);
+    try {
+      const resolved = await window.aniDesktop.resolveSources(anime);
+      if (token !== openToken.current) return;
+      const known = animeSources(anime);
+      const added = animeSources(resolved).filter((source) => !known.some((item) => item.id === source.id));
+      if (added.length === 0) return;
+      setSelectedAnime(resolved);
+      const extra = await window.aniDesktop.episodes({ ...resolved, sources: added });
+      if (token !== openToken.current) return;
+      setEpisodeGroups((current) => [...current.filter((group) => !extra.groups.some((item) => item.provider === group.provider)), ...extra.groups]);
+      refreshState();
+    } catch (reason) {
+      if (token === openToken.current) setNotice(`other sources: ${messageFrom(reason)}`);
+    } finally {
+      if (token === openToken.current) setResolving(false);
+    }
+  }
+
   async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
     playToken.current += 1;
+    const token = ++openToken.current;
     setSelectedAnime(anime);
     setEpisodeGroups([]); setStatus(undefined); setJump("");
     setScreen("series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
+    const missing = PROVIDER_ORDER.some((provider) => !animeSources(anime).some((source) => source.provider === provider));
+    if (missing) void resolveOtherSources(anime, token);
     let groups: EpisodeGroup[];
     try { groups = (await window.aniDesktop.episodes(anime)).groups; }
     catch (reason) {
@@ -480,8 +508,9 @@ function App() {
       setError(messageFrom(reason));
       return false;
     }
-    finally { setBusy(undefined); }
-    setEpisodeGroups(groups);
+    finally { if (token === openToken.current) setBusy(undefined); }
+    if (token !== openToken.current) return false;
+    setEpisodeGroups((current) => [...groups, ...current.filter((group) => !groups.some((item) => item.provider === group.provider))]);
     const list = episodeRowsOf(groups, animeProgress, episodeFilter, episodeSort);
     const index = nextUpIndex(list, groups, animeProgress, animeProgress?.lastProvider ?? anime.provider, options.resumeAfter);
     skipReveal.current = true;
@@ -584,6 +613,12 @@ function App() {
     if (!window.confirm("Clear all recent titles?")) return;
     const state = await run("clearing history", () => window.aniDesktop.clearHistory());
     if (state) setAppState(state);
+  }
+
+  async function clearSourceLinks() {
+    if (!window.confirm("Forget every remembered match between providers? Series will be looked up again when opened.")) return;
+    const state = await run("forgetting source links", () => window.aniDesktop.clearSourceLinks());
+    if (state) { setAppState(state); setNotice("source links forgotten"); }
   }
 
   async function saveSettings() {
@@ -793,7 +828,6 @@ function App() {
               </label>}
           {paletteOpen && (
             <div className="palette" role="dialog" aria-label="Search results">
-              <Chips label="source" value={provider} options={PROVIDERS} onChange={setProvider} />
               <div className="found" id="results-heading" aria-live="polite">
                 {catalogSearch.ready || unifiedResults.length ? <>{unifiedResults.length} {unifiedResults.length === 1 ? "result" : "results"} for "{lastQuery}"</> : catalogSearch.pending ? "Searching…" : "Press Enter to search"}
               </div>
@@ -812,7 +846,7 @@ function App() {
                         <span className="text">
                           <span className="t">{anime.title}</span>
                           {alias && <span className="s">{alias}</span>}
-                          <span className="m">{sources.map((source) => source.provider).join(" · ")}</span>
+                          <span className="m">{[...new Set(sources.map((source) => source.provider))].join(" · ")}</span>
                         </span>
                         <Icon name="chevron" />
                       </button>
@@ -898,6 +932,7 @@ function App() {
               <h1>{selectedAnime.title}</h1>
               <div className="meta">
                 {animeSources(selectedAnime).map((source) => <span className="tag" key={source.id}>{source.provider}</span>)}
+                {resolving && <span className="tag quiet" role="status">checking other sources<span className="dots"> ···</span></span>}
                 {animeSources(selectedAnime).find((source) => source.title !== selectedAnime.title) && <span>{animeSources(selectedAnime).find((source) => source.title !== selectedAnime.title)!.title}</span>}
               </div>
               <div className="facts">
@@ -1001,6 +1036,7 @@ function App() {
               <div className="r"><label htmlFor="aniwave" className="k">aniwave address</label><input id="aniwave" value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></div>
               <div className="r"><label htmlFor="anidb" className="k">anidb address</label><input id="anidb" value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></div>
               <div className="r"><label htmlFor="hianime" className="k">hianime address</label><input id="hianime" value={settingsDraft.hianimeBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, hianimeBaseUrl: event.target.value })} /></div>
+              <div className="r"><span className="k">Source links<small>{(appState.providerLinks ?? []).length} remembered {(appState.providerLinks ?? []).length === 1 ? "match" : "matches"} between providers. Forget them if a series shows the wrong records together</small></span><button type="button" className="btn small" disabled={!(appState.providerLinks ?? []).length} onClick={() => void clearSourceLinks()}>forget source links</button></div>
             </div></div>
             <div className="acts-row"><button type="button" className="btn" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
           </form>

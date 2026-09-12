@@ -7,7 +7,7 @@ import type { AnimeResult, LibraryEntry, PlayerSession, PlayRequest, ProviderPre
 import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
-import { getEpisodes, getStreams, searchAnime } from "./scraper";
+import { getEpisodes, getStreams, resolveSources, searchAnime } from "./scraper";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
 import { PlayerDiagnostics } from "./player-diagnostics";
@@ -177,6 +177,12 @@ function registerIpc(): void {
     return searchAnime(query, state.settings, provider, state.providerLinks);
   });
   ipcMain.handle("catalog:episodes", (_event, anime: AnimeResult) => getEpisodes(anime, store.snapshot().settings));
+  ipcMain.handle("catalog:resolve", async (_event, anime: AnimeResult) => {
+    const { anime: resolved, confirmed } = await resolveSources(anime, store.snapshot().settings);
+    // Remember alias-confirmed matches so searches and the library treat these records as one anime from now on.
+    if (confirmed.length) await store.linkSources([...(anime.sources ?? [{ id: anime.id }]).map((source) => source.id), ...confirmed]);
+    return resolved;
+  });
   ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", async (_event, settings: Settings) => {
@@ -200,6 +206,7 @@ function registerIpc(): void {
   ipcMain.handle("state:history-clear", () => store.clearHistory());
   ipcMain.handle("state:remap", (_event, oldAnimeId: string, replacement) => store.remapEntry(oldAnimeId, replacement));
   ipcMain.handle("state:link-sources", (_event, sourceIds: string[]) => store.linkSources(sourceIds));
+  ipcMain.handle("state:clear-links", () => store.clearSourceLinks());
   ipcMain.handle("state:merge-entries", (_event, firstAnimeId: string, secondAnimeId: string) => store.mergeEntries(firstAnimeId, secondAnimeId));
   ipcMain.handle("state:dismiss-merge", (_event, firstAnimeId: string, secondAnimeId: string) => store.dismissMerge(firstAnimeId, secondAnimeId));
   ipcMain.handle("player:play", async (event, request: PlayRequest) => {

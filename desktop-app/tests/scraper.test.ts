@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getEpisodes, getStreams, searchAnime, type SourceConfig } from "../electron/scraper";
+import { getEpisodes, getStreams, resolveSources, searchAnime, type SourceConfig } from "../electron/scraper";
 
 const config: SourceConfig = {
   preferredProvider: "auto",
@@ -72,6 +72,33 @@ describe("multi-source scraper", () => {
     expect(results[0]).toMatchObject({ id: "hianime:naruto-vwgihd", provider: "hianime" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ title: "naruto" }) });
+  });
+
+  it("resolves the other providers by title and alias and leaves out providers with no convincing hit", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith(config.anidbBaseUrl)) {
+        // The English title finds nothing; the romanized alias finds the record.
+        return new Response(url.includes(encodeURIComponent("Sousou no Frieren")) ? `<a href="/anime/sousou-no-frieren-303"><img src="https://img.test/f.jpg" alt="Sousou no Frieren"></a>` : "", { status: 200 });
+      }
+      if (url.startsWith("https://animehot.cc/")) {
+        const body = JSON.parse(String(init?.body)) as { title: string };
+        return new Response(JSON.stringify(body.title === "Frieren: Beyond Journey's End" ? [{ English: "Frieren: Beyond Journey's End Mini Anime", Japanese: "Sousou no Frieren: ●● no Mahou", slugs: ["frieren-mini-abc"] }] : []), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const anime = { id: "aniwave:frieren-101", title: "Frieren: Beyond Journey's End", provider: "aniwave" as const,
+      sources: [{ id: "aniwave:frieren-101", provider: "aniwave" as const, title: "Frieren: Beyond Journey's End", aliases: ["Frieren: Beyond Journey's End", "Sousou no Frieren"] }] };
+    const { anime: resolved, confirmed } = await resolveSources(anime, config);
+    expect(resolved.sources?.map((source) => source.id)).toEqual(["aniwave:frieren-101", "anidb:sousou-no-frieren-303"]);
+    expect(confirmed).toEqual(["anidb:sousou-no-frieren-303"]);
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.startsWith(config.aniwaveBaseUrl))).toHaveLength(0);
+    // Nothing to do when every provider is already known.
+    vi.mocked(fetchMock).mockClear();
+    const complete = { ...anime, sources: (["aniwave", "anidb", "hianime"] as const).map((provider) => ({ id: `${provider}:x-1`, provider, title: "x", aliases: ["x"] })) };
+    expect((await resolveSources(complete, config)).anime).toBe(complete);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns independent episode errors without discarding the working catalog", async () => {

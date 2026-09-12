@@ -1,5 +1,5 @@
 import type { AnimeResult, Episode, EpisodeCatalog, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
-import { animeSources, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, sourceMatch, unifyAnimeResults } from "../shared/catalog";
 import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
@@ -73,6 +73,39 @@ export async function searchAnime(query: string, config: SourceConfig, requested
     throw new Error(`All providers failed: ${settled.map((result) => result.status === "rejected" && (result.reason instanceof Error ? result.reason.message : String(result.reason))).join("; ")}`);
   }
   return unifyAnimeResults(found, links);
+}
+
+const ALL_PROVIDERS: readonly ProviderName[] = ["aniwave", "anidb", "hianime"];
+const RESOLVE_QUERIES = 3;
+
+/** Find the anime on every provider it is not yet known on. Each provider is searched with the title and aliases
+ *  until a hit shares an alias, or failing that names the same franchise and season. Providers that fail or
+ *  return no convincing hit are simply left out. */
+export async function resolveSources(anime: AnimeResult, config: SourceConfig): Promise<{ anime: AnimeResult; confirmed: string[] }> {
+  const known = animeSources(anime);
+  const missing = ALL_PROVIDERS.filter((provider) => !known.some((source) => source.provider === provider));
+  if (missing.length === 0) return { anime, confirmed: [] };
+  const queries = [...new Set([anime.title, ...known.flatMap((source) => [source.title, ...source.aliases])].map((value) => value.trim()).filter(Boolean))].slice(0, RESOLVE_QUERIES);
+  const found = await Promise.all(missing.map(async (provider): Promise<{ hit: AnimeResult; exact: boolean } | undefined> => {
+    let likely: AnimeResult | undefined;
+    for (const query of queries) {
+      let hits: AnimeResult[];
+      try { hits = await searchOne(query, provider, config); } catch { continue; }
+      for (const hit of hits) {
+        const match = sourceMatch(anime, hit);
+        if (match === "exact") return { hit, exact: true };
+        if (match === "likely" && !likely) likely = hit;
+      }
+    }
+    return likely ? { hit: likely, exact: false } : undefined;
+  }));
+  const matches = found.filter((item): item is { hit: AnimeResult; exact: boolean } => Boolean(item));
+  if (matches.length === 0) return { anime, confirmed: [] };
+  const extra = matches.flatMap((item) => animeSources(item.hit));
+  // Only alias-confirmed matches are worth remembering; a franchise-and-season guess stays a one-off.
+  const confirmed = matches.filter((item) => item.exact).flatMap((item) => animeSources(item.hit).map((source) => source.id));
+  const sources = [...known, ...extra].filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index);
+  return { anime: { ...anime, sources }, confirmed };
 }
 
 async function getProviderEpisodes(animeId: string, config: SourceConfig): Promise<Episode[]> {
