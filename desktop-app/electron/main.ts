@@ -349,6 +349,7 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  await catalogService.load(join(app.getPath("userData"), "episode-lists.json"));
   episodeMetadata = new EpisodeMetadataCache(join(app.getPath("userData"), "episode-metadata.json"));
   bookmarkMetadata = new BookmarkMetadataFetcher(catalogService, episodeMetadata);
   await episodeMetadata.load();
@@ -392,5 +393,5 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   bookmarkMetadata.cancel();
   const timeout = setTimeout(() => app.quit(), 2000);
-  void Promise.allSettled([diagnostics.close(), episodeMetadata.flush(), catalogRequests.health.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
+  void Promise.allSettled([diagnostics.close(), episodeMetadata.flush(), catalogService.flush(), catalogRequests.health.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
 });

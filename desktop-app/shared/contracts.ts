@@ -77,6 +77,7 @@ export interface BookmarkMetadataProgress {
 
 export interface ProviderProgress {
   lastEpisode: string;
+  lastEpisodeId?: string;
   mode: TranslationMode;
   updatedAt: string;
   completed?: boolean;

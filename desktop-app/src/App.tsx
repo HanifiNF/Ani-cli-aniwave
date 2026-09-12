@@ -28,7 +28,7 @@ import { applyAppIcon } from "./appIcon";
 import { animeSources, enabledProviders, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 import { Icon } from "./icons";
 
-type Screen = "home" | "series" | "saved" | "recent" | "settings" | "player";
+type Screen = "home" | "series" | "opening" | "saved" | "recent" | "settings" | "player";
 // Vidstack and hls.js load with the first playback, not at startup.
 const loadPlayerScreen = () => import("./PlayerScreen");
 const PlayerScreen = lazy(loadPlayerScreen);
@@ -70,7 +70,7 @@ function libraryEntry(anime: AnimeResult, episode: Episode | undefined, mode: Tr
   const lastProvider = episode?.provider ?? anime.provider;
   const updatedAt = new Date().toISOString();
   const lastEpisode = episode?.number ?? "1";
-  return { animeId: anime.id, title: anime.title, lastEpisode, mode, updatedAt, poster: anime.poster, sources: animeSources(anime), lastProvider, progressByProvider: { [lastProvider]: { lastEpisode, mode, updatedAt } } };
+  return { animeId: anime.id, title: anime.title, lastEpisode, mode, updatedAt, poster: anime.poster, sources: animeSources(anime), lastProvider, progressByProvider: { [lastProvider]: { lastEpisode, lastEpisodeId: episode?.id, mode, updatedAt } } };
 }
 
 function when(iso: string): string {
@@ -402,7 +402,9 @@ function App() {
   }
 
   function showPlayingEpisodes() {
-    if (nowPlaying && selectedAnime?.id !== nowPlaying.anime.id) { void openAnime(nowPlaying.anime); refreshState(); return; }
+    setEpisodeFilter("all");
+    if (nowPlaying && selectedAnime?.id !== nowPlaying.anime.id) { void openAnime(nowPlaying.anime, { focusEpisodeId: nowPlaying.episodeId }); refreshState(); return; }
+    if (nowPlaying) setSelectedEpisodeId(nowPlaying.episodeId);
     dockPlayer();
   }
 
@@ -460,11 +462,11 @@ function App() {
     catalogTasks.current.clear();
   };
   useEffect(() => {
-    if (screen !== "series" && screen !== "player") { cancelSeries(); setBusy(undefined); setResolving(false); }
+    if (screen !== "series" && screen !== "player" && screen !== "opening") { cancelSeries(); setBusy(undefined); setResolving(false); }
   }, [screen, sourceScope]);
   useEffect(() => () => cancelSeries(), []);
 
-  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean; refresh?: boolean; checkNow?: boolean } = {}): Promise<boolean> {
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string } = {}): Promise<boolean> {
     cancelSeries();
     const token = openToken.current;
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
@@ -472,36 +474,58 @@ function App() {
     playToken.current += 1;
     if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
     setSelectedAnime(anime);
-    if (!options.refresh) { setSelectedEpisodeId(undefined); scrollAnchor.current = undefined; }
+    if (!options.refresh) { setSelectedEpisodeId(options.focusEpisodeId); scrollAnchor.current = undefined; }
     if (!options.refresh) setEpisodeGroups([]);
     setStatus(undefined); setJump(""); setSourceErrors({});
-    setScreen("series");
+    setScreen(options.autoPlay ? "opening" : "series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
     let currentAnime = anime;
     let groups: EpisodeGroup[] = options.refresh ? episodeGroups : [];
-    let positioned = Boolean(options.refresh && selectedEpisodeId);
+    let positioned = Boolean(options.focusEpisodeId || (options.refresh && selectedEpisodeId));
     let played = false;
+    let attempting = false, finished = false;
+    let targetNumber: string | undefined;
+    const attempted = new Set<string>();
+    const savedProgress = animeProgress?.progressByProvider?.[preferred];
+    const resumeEpisode = (savedProgress?.completed ?? animeProgress?.completed) === false && savedProgress?.lastEpisodeId?.startsWith(`${preferred}:`) && enabledProviders(appState.settings).includes(preferred)
+      ? { id: savedProgress.lastEpisodeId, number: savedProgress.lastEpisode, provider: preferred } : undefined;
     const known = new Set(animeSources(anime).map((source) => source.id));
     const missing = enabledProviders(appState.settings).filter((name) => !animeSources(anime).some((source) => source.provider === name));
     setPendingSources(missing); setResolving(missing.length > 0);
     const request = async <T,>(purpose: string, operation: (request: import("../shared/contracts").CatalogRequest) => Promise<T>) => {
       const id = catalogRequestId(purpose); catalogTasks.current.add(id);
-      try { return await operation({ id, priority: "selected", refresh: options.refresh, checkNow: options.checkNow }); }
+      try { return await operation({ id, priority: options.autoPlay && purpose === "episodes" ? "playback" : "selected", refresh: options.refresh, checkNow: options.checkNow }); }
       finally { catalogTasks.current.delete(id); }
     };
     const position = (allowFallback = false) => {
       if (token !== openToken.current) return;
-      const list = episodeRowsOf(groups, animeProgress, episodeFilter, episodeSort);
+      const list = episodeRowsOf(groups, animeProgress, options.autoPlay ? "all" : episodeFilter, episodeSort);
       if (!list.length) return;
       setBusy(undefined);
       const index = nextUpIndex(list, groups, animeProgress, preferred, options.resumeAfter);
       if (!positioned) { positioned = true; skipReveal.current = true; setSelectedEpisodeId(list[index]?.episode.id); }
       const preferredReady = groups.some((group) => group.provider === preferred && group.episodes.length);
-      if (options.autoPlay && !played && (preferredReady || allowFallback)) {
-        const target = list[index]?.episode;
-        if (target) { played = true; void playEpisode(target, currentAnime, animeProgress?.progressByProvider?.[target.provider]?.mode ?? options.mode ?? mode, groups); }
+      const preferredFailed = groups.some((group) => group.provider === preferred && (group.error || (!group.refreshing && !group.episodes.length))) || !enabledProviders(appState.settings).includes(preferred);
+      if (options.autoPlay && !played && !attempting && (preferredReady || preferredFailed || allowFallback || attempted.size)) {
+        const preferredList = list.filter((row) => row.episode.provider === list[index]?.episode.provider).sort((a, b) => episodeValue(a.number) - episodeValue(b.number));
+        const after = savedProgress?.lastEpisode ?? options.resumeAfter ?? animeProgress?.lastEpisode;
+        const completed = (savedProgress?.completed ?? animeProgress?.completed) !== false;
+        const target = targetNumber
+          ? list.find((row) => row.number === targetNumber && !attempted.has(row.episode.id))?.episode
+          : preferredList.find((row) => !after || (completed ? episodeValue(row.number) > episodeValue(after) : episodeValue(row.number) >= episodeValue(after)))?.episode;
+        if (target && !attempted.has(target.id)) void attempt(target);
       }
+    };
+    const attempt = async (target: Episode) => {
+      if (token !== openToken.current || played || attempting) return;
+      attempting = true; attempted.add(target.id); targetNumber = target.number;
+      positioned = true; setSelectedEpisodeId(target.id);
+      const succeeded = await playEpisode(target, currentAnime, savedProgress?.mode ?? options.mode ?? mode, groups);
+      if (token !== openToken.current) return;
+      attempting = false;
+      if (succeeded) { played = true; return; }
+      if (succeeded === false) position(finished);
     };
     const accept = (catalog: EpisodeCatalog) => {
       if (token !== openToken.current) return;
@@ -512,6 +536,7 @@ function App() {
       try { accept(await request("episodes", (req) => window.aniDesktop.episodes(target, req, accept))); }
       catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
     };
+    if (options.autoPlay && resumeEpisode) void attempt(resumeEpisode);
     const initial = load(anime);
     const extra: Promise<void>[] = [];
     let discoveryErrors: Partial<Record<ProviderName, string>> = {};
@@ -539,7 +564,9 @@ function App() {
     })() : Promise.resolve();
     void Promise.all([initial, discovery]).then(() => {
       if (token !== openToken.current) return;
+      finished = true;
       setResolving(false); setPendingSources([]); setBusy(undefined); position(true);
+      if (options.autoPlay && !played && !attempting && !attempted.size) setError("No episode is available to continue. Open Episodes to check the series and its sources.");
     });
     await initial;
     return token === openToken.current;
@@ -569,7 +596,7 @@ function App() {
       if (best) metadata.record(episode.id, playMode, streams);
       const detail = `${stream.quality} · ${playMode} · ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
-      const series = anime.id === selectedAnime?.id ? providerList(groups, episode.provider) : [];
+      const series = providerList(groups, episode.provider);
       setNowPlaying({ episodeId: episode.id, detail, mode: playMode, anime, episodes: series.some((item) => item.id === episode.id) ? series : [episode] });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
       await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, textTracks: stream.textTracks, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
@@ -578,12 +605,28 @@ function App() {
         ? await window.aniDesktop.getState()
         : await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
       setStatus({ episode, phase: "opened", detail });
+      return true;
     } catch (reason) {
-      if (token === playToken.current) setStatus({ episode, phase: "failed", detail: messageFrom(reason) });
+      if (token === playToken.current) { setStatus({ episode, phase: "failed", detail: messageFrom(reason) }); return false; }
     }
   }
 
-  function cancelPlay() { playToken.current += 1; setStatus(undefined); }
+  function cancelPlay() {
+    playToken.current += 1;
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
+    playbackRequest.current = undefined; setStatus(undefined);
+  }
+
+  // A direct resume starts with one episode; catalog updates fill its playback queue later.
+  useEffect(() => {
+    setNowPlaying((playing) => {
+      if (!playing || !selectedAnime || !overlaps(playing.anime, selectedAnime)) return playing;
+      const episode = playing.episodes.find((item) => item.id === playing.episodeId);
+      if (!episode) return playing;
+      const list = providerList(episodeGroups, episode.provider);
+      return list.some((item) => item.id === playing.episodeId) ? { ...playing, anime: selectedAnime, episodes: list } : playing;
+    });
+  }, [episodeGroups, selectedAnime, nowPlaying?.episodeId]);
 
   // Saving records the anime with its real progress, never the row the cursor happens to be on.
   async function toggleBookmark() {
@@ -731,6 +774,7 @@ function App() {
     if (event.key === "Enter" && target?.closest("button:not(.hit):not(.src-hit)")) return;
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
     if (event.key === "Escape") { event.preventDefault(); if (showHints) { setShowHints(false); return; } goBack(); return; }
+    if (screen === "opening") return;
     if (!typing && event.key === "?") { event.preventDefault(); setShowHints((value) => !value); return; }
     if (!typing && event.key === "/") {
       event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
@@ -949,6 +993,16 @@ function App() {
       )}
       {screen !== "player" && <div className={`page page-${screen}`}>
         {message && !paletteOpen && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+        {screen === "opening" && selectedAnime && <div className="empty" role="status">
+          <b>{selectedAnime.title}</b>
+          <span>{status?.phase === "failed" ? `Episode ${status.episode.number}: ${status.detail}`
+            : status?.phase === "opened" ? `Opened in ${player}`
+            : status ? `Opening episode ${status.episode.number} · ${status.detail}` : "Finding your next episode…"}</span>
+          <div className="acts-row">
+            <button type="button" className="btn" onClick={() => { cancelSeries(); go("home"); }}>Cancel</button>
+            <button type="button" className="btn" onClick={() => void openAnime(selectedAnime, { focusEpisodeId: status?.episode.id })}>Episodes</button>
+          </div>
+        </div>}
 
         {screen === "home" && (
           libraryRows.length === 0

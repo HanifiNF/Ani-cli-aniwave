@@ -3,6 +3,9 @@ import { CatalogService } from "../electron/catalog-service";
 import { getProviderEpisodes, resolveSource, searchOne } from "../electron/scraper";
 import type { AnimeResult, CatalogProgress, EpisodeCatalog } from "../shared/contracts";
 import { animeSources } from "../shared/catalog";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 vi.mock("../electron/scraper", () => ({ getProviderEpisodes: vi.fn(), resolveSource: vi.fn(), searchOne: vi.fn() }));
 const config = { preferredProvider: "auto" as const, aniwaveBaseUrl: "https://a.test", anidbBaseUrl: "https://b.test", hianimeBaseUrl: "https://c.test" };
 const source = (provider: "aniwave" | "anidb" | "hianime") => ({ id: `${provider}:frieren-1`, provider, title: "Frieren", aliases: ["Frieren"] });
@@ -12,6 +15,38 @@ const tick = async () => { for (let i = 0; i < 10; i++) await Promise.resolve();
 beforeEach(() => vi.resetAllMocks());
 
 describe("incremental catalog delivery", () => {
+  it("restores episode IDs from disk before refreshing their provider", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "episode-lists-"));
+    const path = join(directory, "lists.json");
+    const service = new CatalogService(), restored = new CatalogService();
+    try {
+      await service.load(path);
+      vi.mocked(getProviderEpisodes).mockResolvedValue([{ id: "aniwave:1:2", number: "2", provider: "aniwave" }]);
+      await service.episodes({ ...anime, sources: [source("aniwave")] }, config); await service.flush();
+      await restored.load(path);
+      const slow = deferred<Awaited<ReturnType<typeof getProviderEpisodes>>>();
+      vi.mocked(getProviderEpisodes).mockReturnValue(slow.promise);
+      const updates: EpisodeCatalog[] = [];
+      const pending = restored.episodes({ ...anime, sources: [source("aniwave")] }, config, (value) => updates.push(value));
+      expect(updates[0].groups[0]).toMatchObject({ refreshing: true, episodes: [{ id: "aniwave:1:2", number: "2" }] });
+      slow.resolve([{ id: "aniwave:1:3", number: "3", provider: "aniwave" }]);
+      expect((await pending).groups[0].episodes[0].number).toBe("3");
+    } finally { await service.flush(); await restored.flush(); await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("discards invalid and expired persisted catalog entries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "episode-lists-"));
+    const path = join(directory, "lists.json"), service = new CatalogService();
+    try {
+      await writeFile(path, JSON.stringify({ version: 1, entries: [[`${JSON.stringify([config.aniwaveBaseUrl, config.anidbBaseUrl, config.hianimeBaseUrl])}:${source("aniwave").id}`, { at: Date.now() - 8 * 86400000, episodes: [{ id: "aniwave:1:2", number: "2", provider: "aniwave" }] }], [null, {}]] }));
+      await service.load(path);
+      vi.mocked(getProviderEpisodes).mockResolvedValue([]);
+      const updates: EpisodeCatalog[] = [];
+      await service.episodes({ ...anime, sources: [source("aniwave")] }, config, (value) => updates.push(value));
+      expect(updates.every((value) => value.groups.every((group) => !group.refreshing && !group.episodes.length))).toBe(true);
+    } finally { await service.flush(); await rm(directory, { recursive: true, force: true }); }
+  });
+
   it("publishes search hits while another provider is still pending", async () => {
     const slow = deferred<AnimeResult[]>(), updates: CatalogProgress<AnimeResult[]>[] = [];
     vi.mocked(searchOne).mockImplementation(async (_query, provider) => provider === "anidb" ? slow.promise : [{ ...source(provider) }]);

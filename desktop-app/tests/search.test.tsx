@@ -377,6 +377,10 @@ describe("live catalog search", () => {
       { id: "aniwave:frieren-1", provider: "aniwave", title: "frieren", aliases: ["frieren"] },
       { id: "hianime:frieren-x", provider: "hianime", title: "frieren", aliases: ["frieren"] }
     ] }));
+    expect(container.querySelector(".series")).toBeNull();
+    const request = vi.mocked(api.play).mock.calls[0][0];
+    await act(async () => load({ id: "continued", request, preferences: {}, fullscreen: false, canOpenExternal: false }));
+    await click("playing episodes");
     expect([...container.querySelectorAll(".series .meta .tag")].map((node) => node.textContent)).toEqual(["aniwave", "hianime"]);
     expect([...container.querySelectorAll(".grp-head")].map((node) => node.textContent)).toEqual(["Ep 2Next up", "Ep 1"]);
     expect(container.querySelectorAll(".eps .src")).toHaveLength(4);
@@ -410,7 +414,7 @@ describe("live catalog search", () => {
   it.each(["home", "saved", "recent"])("navigates %s with an empty field and activates the selected title", async (screen) => {
     const state = await api.getState();
     const entries = ["first", "second", "third"].map((title) => ({
-      animeId: `aniwave:${title}-1`, title, lastEpisode: "1", mode: "sub" as const, updatedAt: "2026-09-09T00:00:00Z"
+      animeId: `aniwave:${title}-1`, title, lastEpisode: "1", mode: "sub" as const, completed: false, updatedAt: "2026-09-09T00:00:00Z"
     }));
     state.history = entries;
     state.bookmarks = entries;
@@ -584,6 +588,68 @@ describe("live catalog search", () => {
 });
 
 describe("progressive catalog navigation", () => {
+  it("resumes by saved ID before lists arrive, updates the queue, and opens the playing episode's series", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "2", mode: "dub", updatedAt: "", completed: false,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "2", lastEpisodeId: "aniwave:1:2", mode: "dub", updatedAt: "", completed: false } } }];
+    const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
+    vi.mocked(api.episodes).mockReturnValue(pending.promise);
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/2.m3u8", provider: "aniwave" }]);
+    vi.mocked(api.play).mockImplementation(async (request) => { load({ id: "direct", request, preferences: {}, fullscreen: false, canOpenExternal: false }); return true; });
+    await act(async () => root.render(<StrictMode><App key="direct" /></StrictMode>));
+    await press("Enter");
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("aniwave:1:2", "dub", expect.objectContaining({ priority: "playback" }));
+    expect(container.querySelector(".series")).toBeNull();
+    expect(container.querySelector('[data-testid="player"]')).not.toBeNull();
+    expect(playerStub.props?.onNext).toBeUndefined();
+    await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `aniwave:1:${number}`, number: String(number), provider: "aniwave" })) }] }));
+    expect(playerStub.props?.onNext).toBeDefined();
+    await click("playing episodes");
+    expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
+    expect(container.querySelector<HTMLElement>('.src[data-cursor="true"]')?.dataset.episode).toBe("aniwave:1:2");
+    expect(vi.mocked(api.play).mock.calls[0][0].episode?.entry.progressByProvider?.aniwave?.lastEpisodeId).toBe("aniwave:1:2");
+    await click("next episode");
+    expect(api.streams).toHaveBeenLastCalledWith("aniwave:1:3", "dub", expect.any(Object));
+  });
+
+  it("cancels direct continuation and ignores a stream arriving after navigation", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed: false,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "1", lastEpisodeId: "aniwave:1:1", mode: "sub", updatedAt: "", completed: false } } }];
+    const pending = deferred<Awaited<ReturnType<AniDesktopApi["streams"]>>>();
+    vi.mocked(api.streams).mockReturnValue(pending.promise);
+    await act(async () => root.render(<StrictMode><App key="cancel-direct" /></StrictMode>));
+    await press("Enter");
+    expect(container.querySelector(".page-opening")).not.toBeNull(); expect(container.querySelector(".series")).toBeNull();
+    const request = vi.mocked(api.streams).mock.calls[0][2]!;
+    await click("Cancel");
+    expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
+    await act(async () => pending.resolve([{ quality: "720p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]));
+    expect(api.play).not.toHaveBeenCalled(); expect(container.querySelector(".page-home")).not.toBeNull();
+  });
+
+  it("tries the same episode on another source after direct resolution fails", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "2", mode: "sub", updatedAt: "", completed: false,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "2", lastEpisodeId: "aniwave:1:2", mode: "sub", updatedAt: "", completed: false } } }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "hianime", episodes: [{ id: "hianime:two", number: "2", provider: "hianime" }] }] });
+    vi.mocked(api.streams).mockRejectedValueOnce(new Error("Source offline")).mockResolvedValue([{ quality: "720p", url: "https://cdn.test/2.m3u8", provider: "hianime" }]);
+    await act(async () => root.render(<StrictMode><App key="fallback-direct" /></StrictMode>));
+    await press("Enter");
+    expect(api.streams).toHaveBeenNthCalledWith(2, "hianime:two", "sub", expect.any(Object));
+    expect(api.play).toHaveBeenCalledOnce();
+  });
+
+  it("waits for a new episode instead of replaying the last cached completed episode", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "2", mode: "sub", updatedAt: "", completed: true }];
+    const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
+    vi.mocked(api.episodes).mockImplementation((_anime, _request, update) => {
+      update?.({ groups: [{ provider: "aniwave", refreshing: true, episodes: [{ id: "aniwave:1:2", number: "2", provider: "aniwave" }] }] });
+      return pending.promise;
+    });
+    await act(async () => root.render(<StrictMode><App key="cached-next" /></StrictMode>));
+    await press("Enter"); expect(api.streams).not.toHaveBeenCalled();
+    await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: [{ id: "aniwave:1:3", number: "3", provider: "aniwave" }] }] }));
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("aniwave:1:3", "sub", expect.any(Object));
+  });
+
   it("opens partial search results while a slower provider is still pending", async () => {
     const pending = deferred<AnimeResult[]>();
     search.mockReturnValueOnce(pending.promise);

@@ -20,6 +20,14 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 describe("StateStore", () => {
+  it("preserves exact episode IDs across history writes and restarts", async () => {
+    const progress = { lastEpisode: "12", lastEpisodeId: "aniwave:1:12", mode: "dub" as const, updatedAt: "", completed: false };
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1", lastProvider: "aniwave", completed: false, progressByProvider: { aniwave: progress } }));
+    await store.load();
+    expect(store.snapshot().history[0].progressByProvider?.aniwave?.lastEpisodeId).toBe("aniwave:1:12");
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1", lastProvider: "aniwave", progressByProvider: { aniwave: { ...progress, lastEpisodeId: "anidb:999" } } }));
+    expect(store.snapshot().history[0].progressByProvider?.aniwave?.lastEpisodeId).toBeUndefined();
+  });
   it("attaches linked records to library entries so they reopen with every source", async () => {
     await store.recordHistory(entry({ animeId: "aniwave:frieren-1" }));
     await store.toggleBookmark(entry({ animeId: "aniwave:frieren-1" }));

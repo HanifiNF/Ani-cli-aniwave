@@ -65,6 +65,12 @@ export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
     ...(progressByProvider[lastProvider] ?? { lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt }),
     ...(entry.completed !== undefined ? { completed } : {})
   };
+  for (const [name, raw] of Object.entries(progressByProvider)) {
+    if (!raw) continue;
+    const progress = { ...raw };
+    if (typeof progress.lastEpisodeId !== "string" || progress.lastEpisodeId.length > 512 || !progress.lastEpisodeId.startsWith(`${name}:`)) delete progress.lastEpisodeId;
+    progressByProvider[name as ProviderName] = progress;
+  }
   return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt, sources, lastProvider, progressByProvider, completed, ...(poster ? { poster } : {}) };
 }
 
