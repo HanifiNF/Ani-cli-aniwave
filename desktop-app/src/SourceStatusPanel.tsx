@@ -8,7 +8,7 @@ const SOURCES = [
   { provider: "hianime", name: "HiAnime", address: "hianimeBaseUrl" }
 ] as const;
 interface Session { active: boolean; requests: Map<ProviderName, string>; refresh: () => Promise<void>; }
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "").replace(/^\w*Error: /, "");
 
 export default function SourceStatusPanel({ saved, draft, onChange, children }: { saved: Settings; draft: Settings; onChange: (settings: Settings) => void; children?: ReactNode }) {
   const [statuses, setStatuses] = useState<ProviderSourceStatus[]>([]);
@@ -67,28 +67,31 @@ export default function SourceStatusPanel({ saved, draft, onChange, children }: 
       const wait = seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`;
       const checked = status?.checkedAt ? new Date(status.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined;
       const state = busy ? "checking" : status?.state ?? "unknown";
-      const label = busy ? "Checking…"
-        : status?.state === "reachable" ? `Reachable${checked ? ` · checked ${checked}` : ""}`
-        : status?.state === "paused" ? (seconds ? `Paused · ${status.serverRequested ? "server requested a wait" : "automatic checks paused"} · ${wait}` : "Awaiting check · the next request checks recovery")
-        : status ? "Not checked" : readError ? "Status unavailable" : "Loading status";
       const on = !(draft.disabledSources ?? []).includes(provider);
-      const note = errors[provider] ?? (changed && on ? "Save this address before checking." : undefined);
+      const word = !on ? "Off" : busy ? "Checking…" : status?.state === "reachable" ? "Reachable" : status?.state === "paused" ? (seconds ? "Paused" : "Awaiting check")
+        : status ? "Not checked" : readError ? "Status unavailable" : "Loading status";
+      const detail = !on ? "not searched or loaded" : busy ? undefined : status?.state === "reachable" ? (checked && `checked ${checked}`)
+        : status?.state === "paused" ? (seconds ? `${status.serverRequested ? "server requested a wait" : "automatic checks paused"} · ${wait}` : "the next request checks recovery") : undefined;
+      const hint = on && changed ? "Save this address before checking." : undefined;
       const toggle = () => {
         const disabledSources = on ? [...(draft.disabledSources ?? []), provider] : (draft.disabledSources ?? []).filter((name) => name !== provider);
         // Switching off the preferred source would search nothing, so the preference returns to auto.
         onChange({ ...draft, disabledSources, preferredProvider: on && draft.preferredProvider === provider ? "auto" : draft.preferredProvider });
       };
+      // Errors and hints share the status line rather than adding one, so rows keep one height; the title carries the full text.
+      const tail = errors[provider] ?? hint ?? detail;
       return <div className="r source-row" key={provider} data-off={on ? undefined : "true"}>
         <span className="k" title={status?.origin}>
           <label htmlFor={provider} className="source-name"><i className="source-dot" data-state={on ? state : "off"} aria-hidden="true" />{name}</label>
-          <small className="source-state" data-state={on ? state : "off"} role="status">{on ? label : "Off · not searched or loaded"}</small>
+          <small className="source-state" data-state={on ? state : "off"} role="status" title={[word, detail, hint, errors[provider]].filter(Boolean).join(" · ")}>
+            {word}{tail && " · "}{errors[provider] ? <span className="err" role="alert">{errors[provider]}</span> : tail}
+          </small>
         </span>
         <input id={provider} aria-label={`${name} address`} value={draft[address]} spellCheck={false}
           onChange={(event) => onChange({ ...draft, [address]: event.target.value })} />
         <button type="button" className="btn small" aria-label={`Check ${name} now`} disabled={!on || busy || changed || status?.canRetry === false}
           onClick={() => { void check(provider); }}>{busy ? "Checking…" : status?.state === "paused" ? "Retry" : "Check now"}</button>
         <button type="button" className="switch" role="switch" aria-checked={on} aria-label={`Use ${name}`} onClick={toggle}><i /></button>
-        {note && <small className={`source-note${errors[provider] ? " err" : ""}`} role={errors[provider] ? "alert" : undefined}>{note}</small>}
       </div>;
     })}{children}</div>
     <p className="group-note">Status reflects recent catalog requests. Playback hosts can have separate outages.</p>
