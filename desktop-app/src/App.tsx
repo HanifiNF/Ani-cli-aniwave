@@ -625,7 +625,7 @@ function App() {
 
   async function activate(row: Row) {
     if (row.anime) { await openAnime(row.anime); return; }
-    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, autoPlay: true, allowRemap: true });
+    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, autoPlay: row.kind !== "saved", allowRemap: true });
   }
 
   async function openRow(row: Row) {
@@ -789,7 +789,7 @@ function App() {
       : entry ? `${entry.completed === false ? "Started" : "Watched through"} ${progressText || entry.lastEpisode}`
       : animeSources(row.anime!).map((source) => source.provider).join(" · ");
     const canMerge = row.anime ? Boolean(mergeCandidate(row.anime)) : entry ? Boolean(libraryMergeCandidate(entry)) : false;
-    const label = row.anime ? `open ${title}` : entry?.completed === false ? `resume ${title}` : `play next episode of ${title}`;
+    const label = row.anime || row.kind === "saved" ? `open ${title}` : entry?.completed === false ? `resume ${title}` : `play next episode of ${title}`;
     return (
       <div key={`${row.kind}:${row.anime?.id ?? entry?.animeId}`} className={`card ${current ? "cur" : ""}`} data-cursor={current}>
         <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => { if (index >= 0) setCursor(index); }} aria-label={label}>
@@ -957,7 +957,7 @@ function App() {
         )}
 
         {screen === "saved" && (rows.length === 0
-          ? <div className="section"><div className="section-head"><h2 id="saved-heading">Saved</h2></div><div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Saved titles keep their place, so play always picks up at the next episode."}</div></div>
+          ? <div className="section"><div className="section-head"><h2 id="saved-heading">Saved</h2></div><div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Select a saved title to browse its episodes."}</div></div>
           : cardSection("saved", "Saved"))}
 
         {screen === "recent" && (rows.length === 0

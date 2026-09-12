@@ -422,7 +422,25 @@ describe("live catalog search", () => {
     await press("ArrowLeft"); expect(selected()).toBe("second");
     await press("Enter");
     expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:second-1" }), expect.any(Object), expect.any(Function));
-    expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-1", "sub", expect.objectContaining({ priority: "playback" }));
+    if (screen === "saved") {
+      expect(container.querySelector("h1")?.textContent).toBe("second");
+      expect(api.play).not.toHaveBeenCalled();
+      expect(api.streams).not.toHaveBeenCalled();
+    } else expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-1", "sub", expect.objectContaining({ priority: "playback" }));
+  });
+
+  it.each(["home", "saved"])("opens a saved card from %s without starting playback", async (screen) => {
+    state.bookmarks = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed: false }];
+    state.history = [...state.bookmarks];
+    await act(async () => { root.render(<StrictMode><App key="saved-card" /></StrictMode>); });
+    if (screen === "saved") await click("saved");
+    const card = container.querySelector<HTMLButtonElement>('.section-saved button[aria-label="open Fixture"]');
+    expect(card).not.toBeNull();
+    await act(async () => { card!.click(); });
+    expect(container.querySelector("h1")?.textContent).toBe("Fixture");
+    expect(container.querySelectorAll(".eps .src")).toHaveLength(1);
+    expect(api.play).not.toHaveBeenCalled();
+    expect(api.streams).not.toHaveBeenCalled();
   });
 
   it("navigates results, opens the selected series, and returns and clears with Escape", async () => {
