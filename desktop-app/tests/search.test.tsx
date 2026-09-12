@@ -129,7 +129,7 @@ describe("built-in player screen", () => {
     expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
     expect(api.player.setActive).toHaveBeenLastCalledWith(true);
     expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
-    expect(container.querySelector(".now-pill")?.textContent).toContain("now playing");
+    expect(container.querySelector(".now-pill")).toBeNull(); // the corner player itself is the way back
 
     // Browsing elsewhere keeps it docked; the backtick brings it back.
     await click("saved");
@@ -176,7 +176,6 @@ describe("built-in player screen", () => {
     await click("close player");
     expect(player()).toBeNull();
     expect(api.player.setActive).toHaveBeenLastCalledWith(false);
-    expect(container.querySelector(".now-pill")).toBeNull();
     expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
   });
 

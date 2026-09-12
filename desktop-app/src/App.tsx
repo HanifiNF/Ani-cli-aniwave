@@ -884,7 +884,6 @@ function App() {
           )}
         </div>
         <nav className="icons" aria-label="Sections">
-          {session && screen !== "player" && <button type="button" className="now-pill" onClick={expandPlayer} aria-keyshortcuts="`" title="Expand the corner player (`). Resize with ⌘+ and ⌘−"><i />{current?.anime.title ?? session.request.episode?.entry.title ?? session.request.title}{session.request.episode && <span>ep {session.request.episode.entry.lastEpisode}</span>}<span className="sr-only">now playing</span></button>}
           {navIcon("home", "home", "home")}
           {navIcon("saved", "bookmark", "saved")}
           {navIcon("recent", "clock", "recent")}

@@ -6,8 +6,9 @@ The renderer now follows atsu.moe. `atsu.html` holds the mockups; `shots/atsu-*.
 `shots/app-*.png` are captures of the live renderer (`capture-app.cjs`, run against `npx vite`).
 
 - One centred column, 1120px wide (`--container`), shared by the top bar and the page. Gutters grow on wide windows.
-- Top bar: wordmark, a centred search pill (⌘K or / focuses it), then home, saved, recent, and settings icons. While
-  something plays a "now playing" pill sits before the icons; the backtick expands the corner player.
+- Top bar: wordmark, a centred search pill (⌘K or / focuses it), then home, saved, recent, and settings icons. The bar
+  carries nothing about playback: the corner player is the way back to the full player (its expand button or the
+  backtick).
 - Home: "Continue watching" and "Saved" as poster-card rows, eight across, with a next-episode badge, the audio mode,
   and a progress line on the poster. Arrow keys move between cards, up and down switch sections, Enter plays, o opens,
   x removes.
