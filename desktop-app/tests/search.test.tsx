@@ -57,6 +57,7 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   Element.prototype.scrollIntoView = vi.fn();
+  localStorage.clear();
   state = {
     bookmarks: [], history: [],
     settings: {
@@ -100,12 +101,11 @@ describe("built-in player screen", () => {
     vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
     vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
     await type("frieren"); await advance(); await enter();
-    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label^="play episode 2 "]')!.click(); });
     expect(api.play).toHaveBeenCalledOnce();
     await act(async () => load(session("s1", "ep-2")));
     expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Frieren — Episode 2 of 3");
-    expect(container.querySelector(".field")).toBeNull();
-    expect(container.querySelector(".foot")?.textContent).toContain("next");
+    expect(container.querySelector(".page")).toBeNull();
     expect(api.player.setActive).toHaveBeenLastCalledWith(true);
     expect(playerStub.props?.onPrev).toBeDefined();
 
@@ -125,11 +125,11 @@ describe("built-in player screen", () => {
     const player = () => container.querySelector<HTMLElement>('[data-testid="player"]');
     expect(player()?.dataset.docked).toBe("true");
     expect(player()?.dataset.corner).toBe("bottom-right");
-    expect(container.querySelector(".field")).not.toBeNull();
-    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+    expect(container.querySelector(".page")).not.toBeNull();
+    expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
     expect(api.player.setActive).toHaveBeenLastCalledWith(true);
     expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
-    expect(container.querySelector(".foot")?.textContent).toContain("now playing");
+    expect(container.querySelector(".now-pill")?.textContent).toContain("now playing");
 
     // Browsing elsewhere keeps it docked; the backtick brings it back.
     await click("saved");
@@ -138,7 +138,7 @@ describe("built-in player screen", () => {
     expect(document.activeElement).toBe(input());
     await press("`");
     expect(player()?.dataset.docked).toBe("false");
-    expect(container.querySelector(".field")).toBeNull();
+    expect(container.querySelector(".page")).toBeNull();
     await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     expect(player()?.dataset.docked).toBe("false");
 
@@ -155,9 +155,7 @@ describe("built-in player screen", () => {
     expect(player()?.dataset.width).toBe("400");
     vi.mocked(api.saveSettings).mockClear();
     await press("`"); expect(player()?.dataset.docked).toBe("false");
-    expect(container.querySelector(".foot")?.textContent).not.toContain("size");
     await click("dock player");
-    expect(container.querySelector(".foot")?.textContent).toContain("size");
     await act(async () => { input().focus(); });
     const typed = input().value;
     await press("="); expect(player()?.dataset.width).toBe("400");
@@ -178,19 +176,19 @@ describe("built-in player screen", () => {
     await click("close player");
     expect(player()).toBeNull();
     expect(api.player.setActive).toHaveBeenLastCalledWith(false);
-    expect(container.querySelector(".foot")?.textContent).not.toContain("now playing");
-    expect(container.querySelector('.grid [data-cursor="true"]')?.textContent).toBe("3");
+    expect(container.querySelector(".now-pill")).toBeNull();
+    expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
   });
 
   it("keeps next and previous for the playing series while another series is open", async () => {
     vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2, 3].map((number) => ({ id: `ep-${number}`, number: String(number), provider: "aniwave" as const })) }] });
     vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]);
     await type("frieren"); await advance(); await enter();
-    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="play episode 2"]')!.click(); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label^="play episode 2 "]')!.click(); });
     await act(async () => load(session("s1", "ep-2")));
     await click("dock player");
     vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "other-1", number: "1", provider: "aniwave" }] }] });
-    await click("search");
+    await click("home");
     await type("dandadan"); await advance(); await enter();
     expect(container.querySelector("h1")?.textContent).toBe("dandadan");
     expect(container.querySelector('[data-testid="player"]')?.textContent).toContain("Episode 2 of 3");
@@ -244,19 +242,19 @@ describe("live catalog search", () => {
     if (method === "keyboard") await press("Enter");
     else await act(async () => { container.querySelector<HTMLButtonElement>(".section-results .hit")!.click(); });
     await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: Array.from({ length: 6 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1), provider: "aniwave" as const })) }] }));
-    const cells = [...container.querySelectorAll<HTMLButtonElement>(".grid button")];
-    cells.forEach((cell, index) => Object.defineProperty(cell, "offsetTop", { value: Math.floor(index / 3) * 62 }));
-    expect(document.activeElement).toBe(cells[0]);
-    await press("ArrowRight"); expect(document.activeElement).toBe(cells[1]);
+    // Newest first: episode 6 is on top and, with nothing watched, episode 1 is next up.
+    const cells = [...container.querySelectorAll<HTMLButtonElement>(".eps .src-hit")];
+    expect(cells.map((cell) => cell.textContent)).toEqual(["Episode 6aniwave", "Episode 5aniwave", "Episode 4aniwave", "Episode 3aniwave", "Episode 2aniwave", "Episode 1aniwave"]);
+    expect(document.activeElement).toBe(cells[5]);
+    await press("ArrowUp"); expect(document.activeElement).toBe(cells[4]);
+    await press("ArrowUp"); expect(document.activeElement).toBe(cells[3]);
     await press("ArrowDown"); expect(document.activeElement).toBe(cells[4]);
-    await press("ArrowLeft"); expect(document.activeElement).toBe(cells[3]);
-    await press("ArrowUp"); expect(document.activeElement).toBe(cells[0]);
-    await press("ArrowRight"); await press("Enter");
+    await press("Enter");
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-2", "sub");
     await press("/"); expect(document.activeElement).toBe(input());
     expect(input().selectionStart).toBe(0); expect(input().selectionEnd).toBe("frieren".length);
     await press("ArrowLeft");
-    expect(container.querySelector('.grid [data-cursor="true"]')).toBe(cells[1]);
+    expect(container.querySelector('.eps [data-cursor="true"] .src-hit')).toBe(cells[4]);
     await type("another title"); await advance(); expect(titles()).toEqual(["another title"]);
   });
 
@@ -276,9 +274,8 @@ describe("live catalog search", () => {
     vi.mocked(api.recordHistory).mockResolvedValue(await api.getState());
 
     await type("re zero"); await advance(); await press("Enter");
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("aniwave 1");
-    await click("anidb 1");
-    const episode = container.querySelector<HTMLButtonElement>('[aria-label="play episode 81"]')!;
+    expect([...container.querySelectorAll(".grp-head")].map((node) => node.textContent)).toEqual(["Ep 81", "Ep 15Next up"]);
+    const episode = container.querySelector<HTMLButtonElement>('[aria-label="play episode 81 from anidb"]')!;
     expect(episode).toBeDefined();
     await act(async () => { episode.click(); });
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("anidb:episode-81", "sub");
@@ -292,7 +289,7 @@ describe("live catalog search", () => {
     const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
     vi.mocked(api.episodes).mockReturnValue(pending.promise);
     await type("frieren"); await advance(); await press("Enter");
-    expect(document.activeElement).toBe(container.querySelector(".grid"));
+    expect(document.activeElement).toBe(container.querySelector(".eps"));
     await press("/"); expect(document.activeElement).toBe(input());
     await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }));
     expect(document.activeElement).toBe(input());
@@ -307,12 +304,12 @@ describe("live catalog search", () => {
     state.bookmarks = entries;
     await act(async () => { root.render(<StrictMode><App key="library" /></StrictMode>); });
     if (screen !== "home") await click(screen);
-    const selected = () => container.querySelector('.item[data-cursor="true"] .t')?.textContent;
+    const selected = () => container.querySelector('.card[data-cursor="true"] .t')?.textContent;
     expect(input().value).toBe("");
     expect(selected()).toBe("first");
-    await press("ArrowDown"); expect(selected()).toBe("second");
-    await press("ArrowDown"); expect(selected()).toBe("third");
-    await press("ArrowUp"); expect(selected()).toBe("second");
+    await press("ArrowRight"); expect(selected()).toBe("second");
+    await press("ArrowRight"); expect(selected()).toBe("third");
+    await press("ArrowLeft"); expect(selected()).toBe("second");
     await press("Enter");
     expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:second-1" }));
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-1", "sub");
@@ -348,7 +345,7 @@ describe("live catalog search", () => {
     search.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
     await type("older"); await advance(); await type("newer");
     expect(titles()).toEqual(["first"]);
-    expect(container.querySelector("#results-heading")?.textContent).toContain('results for "first"');
+    expect(container.querySelector("#results-heading")?.textContent).toContain('result for "first"');
     await enter(); await act(async () => newer.resolve(result("newer")));
     await act(async () => older.resolve(result("older")));
     expect(titles()).toEqual(["newer"]);
@@ -391,7 +388,7 @@ describe("live catalog search", () => {
     await type("x"); await advance(1000);
     expect(search).not.toHaveBeenCalled();
     expect(container.querySelector(".search-throbber")?.children).toHaveLength(0);
-    expect(container.querySelector(".foot")?.textContent).toContain("search now");
+    expect(container.querySelector(".foot-hints")?.textContent).toContain("search now");
     await enter(); expect(search).toHaveBeenCalledExactlyOnceWith("x", "auto");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("provider unavailable");
     await enter(); expect(search).toHaveBeenCalledTimes(2);
@@ -429,8 +426,8 @@ describe("live catalog search", () => {
     await type("frieren"); await advance();
     await click("saved"); expect(input().value).toBe(""); expect(titles()).toEqual([]);
     await press("Escape"); expect(titles()).toEqual(["frieren"]);
-    expect(container.querySelector("#results-heading")?.textContent).toContain('results for "frieren"');
-    expect(container.querySelector(".foot")?.textContent).toContain("open");
+    expect(container.querySelector("#results-heading")?.textContent).toContain('result for "frieren"');
+    expect(container.querySelector(".foot-hints")?.textContent).toContain("open");
     await press("Enter"); expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
     await press("Escape"); expect(titles()).toEqual(["frieren"]);
     await press("Escape"); expect(titles()).toEqual([]); expect(search).toHaveBeenCalledTimes(1);
