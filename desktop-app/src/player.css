@@ -2,7 +2,8 @@
    the controls take the theme highlight, which the renderer keeps visible on black. */
 .player-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
-.now { display: flex; align-items: center; gap: 16px; padding: 4px 0 14px; flex-shrink: 0; min-width: 0; }
+/* The context line keeps the page column; the video below it takes the whole window width. */
+.now { display: flex; align-items: center; gap: 16px; padding: 4px var(--gutter) 14px; flex-shrink: 0; min-width: 0; }
 .now .now-title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .now .now-ep { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .now .now-detail { color: var(--dim); font-size: 13px; white-space: nowrap; }
@@ -13,7 +14,7 @@
 .now .now-acts button:disabled { color: var(--dim); cursor: default; }
 .player-shell.is-fullscreen .now { display: none; }
 
-.player-surface { position: relative; flex: 1; min-height: 0; margin: 0 calc(-1 * var(--gutter)); background: #000; overflow: hidden; }
+.player-surface { position: relative; flex: 1; min-height: 0; margin: 0; background: #000; overflow: hidden; }
 .player-shell.is-fullscreen .player-surface { margin: 0; }
 
 /* Size the playback surface from its box, independently of the video's
@@ -97,7 +98,7 @@
 
 /* ---- Docked mini player -------------------------------------------------- */
 /* The expanded player takes the page. The docked one is a box in a corner of the body. */
-.player-shell.is-expanded { padding: 8px var(--gutter) 0; }
+.player-shell.is-expanded { padding: 8px 0 0; }
 .app.is-fullscreen .player-shell.is-expanded { padding: 0; }
 .player-shell.is-docked {
   position: absolute; z-index: 50; flex: none;
