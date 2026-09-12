@@ -84,13 +84,14 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .dim { position: absolute; inset: 0; background: rgb(0 0 0 / 55%); z-index: 20; }
 .searchbox.open { z-index: 31; }
 .searchbox.open .search { background: var(--bg); box-shadow: 0 0 0 1px var(--rule); }
+/* The results panel hangs below the pill rather than wrapping it, which keeps it clear of the window's top edge. */
 .palette {
-  position: absolute; top: -12px; left: -12px; right: -12px; z-index: -1; padding: 68px 12px 12px;
-  max-height: calc(100vh - 36px); overflow: auto; border-radius: 14px; background: var(--raised);
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 1; padding: 6px 12px 12px;
+  max-height: calc(100vh - 100px); overflow: auto; border-radius: 14px; background: var(--raised);
   box-shadow: 0 0 0 1px var(--rule), 0 24px 60px rgb(0 0 0 / 45%);
 }
 .palette .chips-row { display: flex; align-items: center; margin-top: 2px; }
-.palette .found { margin: 12px 4px 8px; color: var(--muted); font-size: 12px; }
+.palette .found { margin: 6px 4px 8px; color: var(--muted); font-size: 12px; }
 .palette .msg { margin: 0 4px 8px; }
 .hit-row { position: relative; }
 .hit-row .mini-act { position: absolute; right: 44px; top: 50%; transform: translateY(-50%); }

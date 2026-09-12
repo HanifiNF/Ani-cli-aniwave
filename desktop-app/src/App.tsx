@@ -278,18 +278,17 @@ function App() {
   const matches = (entry: LibraryEntry) => !filter || entry.title.toLowerCase().includes(filter);
   // The search palette covers the home page while a query or its results exist.
   const paletteOpen = screen === "home" && (Boolean(query.trim()) || unifiedResults.length > 0);
+  // The home sections stay on the page behind the palette; the keyboard cursor moves to the results while it is open.
+  const libraryRows = useMemo<Row[]>(() => [
+    ...appState.history.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "continue", entry })),
+    ...appState.bookmarks.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "saved", entry }))
+  ], [appState.history, appState.bookmarks]);
   const rows = useMemo<Row[]>(() => {
-    if (screen === "home") {
-      if (paletteOpen) return unifiedResults.map((anime): Row => ({ kind: "results", anime }));
-      return [
-        ...appState.history.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "continue", entry })),
-        ...appState.bookmarks.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "saved", entry }))
-      ];
-    }
+    if (screen === "home") return paletteOpen ? unifiedResults.map((anime): Row => ({ kind: "results", anime })) : libraryRows;
     if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
     if (screen === "recent") return appState.history.filter(matches).map((entry): Row => ({ kind: "recent", entry }));
     return [];
-  }, [screen, paletteOpen, unifiedResults, appState.history, appState.bookmarks, filter]);
+  }, [screen, paletteOpen, unifiedResults, libraryRows, appState.history, appState.bookmarks, filter]);
 
   const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => overlaps(entry, selectedAnime)));
   const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
@@ -763,7 +762,7 @@ function App() {
     const label = row.anime ? `open ${title}` : entry?.completed === false ? `resume ${title}` : `play next episode of ${title}`;
     return (
       <div key={`${row.kind}:${row.anime?.id ?? entry?.animeId}`} className={`card ${current ? "cur" : ""}`} data-cursor={current}>
-        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={label}>
+        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => { if (index >= 0) setCursor(index); }} aria-label={label}>
           <Art src={poster} className="poster" />
           <span className="badges">
             {entry && next && <span className="badge hi">EP {next}</span>}
@@ -781,7 +780,9 @@ function App() {
   };
 
   const cardSection = (kind: RowKind, heading: string, more?: Screen) => {
-    const items = rows.map((row, index) => ({ row, index })).filter((item) => item.row.kind === kind);
+    // Behind the palette the sections come from the library and carry no cursor.
+    const source = screen === "home" && paletteOpen ? libraryRows : rows;
+    const items = source.map((row, index) => ({ row, index: source === rows ? index : -1 })).filter((item) => item.row.kind === kind);
     if (items.length === 0) return null;
     return (
       <section key={kind} className={`section section-${kind}`} aria-labelledby={`${kind}-heading`}>
@@ -914,8 +915,8 @@ function App() {
         {message && !paletteOpen && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
 
         {screen === "home" && (
-          rows.length === 0 && !paletteOpen
-            ? <div className="empty"><b>Nothing here yet</b>Search for a title with <kbd>⌘K</kbd>. Titles you watch and save appear here.</div>
+          libraryRows.length === 0
+            ? !paletteOpen && <div className="empty"><b>Nothing here yet</b>Search for a title with <kbd>⌘K</kbd>. Titles you watch and save appear here.</div>
             : <>
                 {cardSection("continue", "Continue watching", "recent")}
                 {cardSection("saved", "Saved", "saved")}
