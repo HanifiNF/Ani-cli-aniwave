@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ProviderName, ProviderSourceStatus, Settings } from "../shared/contracts";
 import { catalogRequestId } from "./catalog-request";
+import Switch from "./Switch";
 
 const SOURCES = [
   { provider: "aniwave", name: "AniWave", address: "aniwaveBaseUrl" },
@@ -91,7 +92,7 @@ export default function SourceStatusPanel({ saved, draft, onChange, children }: 
           onChange={(event) => onChange({ ...draft, [address]: event.target.value })} />
         <button type="button" className="btn small" aria-label={`Check ${name} now`} disabled={!on || busy || changed || status?.canRetry === false}
           onClick={() => { void check(provider); }}>{busy ? "Checking…" : status?.state === "paused" ? "Retry" : "Check now"}</button>
-        <button type="button" className="switch" role="switch" aria-checked={on} aria-label={`Use ${name}`} onClick={toggle}><i /></button>
+        <Switch checked={on} label={`Use ${name}`} onChange={toggle} />
       </div>;
     })}{children}</div>
     <p className="group-note">Status reflects recent catalog requests. Playback hosts can have separate outages.</p>

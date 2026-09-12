@@ -19,6 +19,7 @@ import type {
 import { catalogRequestId } from "./catalog-request";
 import { useEpisodeMetadata } from "./useEpisodeMetadata";
 import SourceStatusPanel from "./SourceStatusPanel";
+import Switch from "./Switch";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
@@ -266,6 +267,7 @@ function App() {
     void operation.then(setAppState, (reason) => setError(messageFrom(reason))).finally(() => { mergePromptActive.current = false; });
   }, [stateLoaded, appState.history, appState.bookmarks, appState.dismissedMergeKeys]);
 
+  const settingsDirty = JSON.stringify(settingsDraft) !== JSON.stringify(appState.settings);
   const themeSource = screen === "settings" ? settingsDraft : appState.settings;
   useEffect(() => applyTheme(themeSource.theme, themeSource.customTheme), [themeSource.theme, themeSource.customTheme]);
 
@@ -1062,34 +1064,35 @@ function App() {
             <h1>Settings</h1>
             <div className="group"><h3>Playback</h3><div className="box">
               <div className="r"><span className="k">Player<small>Built-in works without installing another player</small></span><Chips value={settingsDraft.playbackTarget} options={["builtin", "external"] as const} onChange={(playbackTarget) => setSettingsDraft({ ...settingsDraft, playbackTarget })} names={{ builtin: "built-in" }} /></div>
-              <div className="r"><span className="k">Start playback<small>Go fullscreen as soon as an episode starts</small></span><Chips value={settingsDraft.startPlayerFullscreen ? "fullscreen" : "windowed"} options={["fullscreen", "windowed"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen: value === "fullscreen" })} /></div>
-              <div className="r"><span className="k">Next episode<small>Built-in player only. Autoplay waits five seconds and can be cancelled</small></span><Chips value={settingsDraft.autoplayNext !== false ? "autoplay" : "manual"} options={["autoplay", "manual"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, autoplayNext: value === "autoplay" })} /></div>
-              <div className="r"><span className="k">Player diagnostics<small>Local keyboard and playback logs for troubleshooting</small></span><span className="v-row"><Chips label="logging" value={settingsDraft.playerDiagnostics ? "on" : "off"} options={["off", "on"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, playerDiagnostics: value === "on" })} /><button type="button" className="btn small" onClick={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }}>open logs</button></span></div>
-              <div className="r"><label htmlFor="player" className="k">External fallback<small>Optional for built-in playback. On macOS use IINA's iina-cli</small></label><input id="player" value={settingsDraft.playerPath} placeholder={settingsDraft.playbackTarget === "external" ? "required" : "optional"} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div>
+              <div className="r"><span className="k">Start fullscreen<small>Enter fullscreen as soon as an episode starts</small></span><Switch checked={settingsDraft.startPlayerFullscreen} label="Start fullscreen" onChange={(startPlayerFullscreen) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen })} /></div>
+              <div className="r"><span className="k">Autoplay next episode<small>Built-in player only. Waits five seconds and can be cancelled</small></span><Switch checked={settingsDraft.autoplayNext !== false} label="Autoplay next episode" onChange={(autoplayNext) => setSettingsDraft({ ...settingsDraft, autoplayNext })} /></div>
+              <div className="r"><span className="k">Diagnostics<small>Local keyboard and playback logs for troubleshooting</small></span><span className="v-row"><button type="button" className="btn small" onClick={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }}>open logs</button><Switch checked={settingsDraft.playerDiagnostics === true} label="Diagnostics logging" onChange={(playerDiagnostics) => setSettingsDraft({ ...settingsDraft, playerDiagnostics })} /></span></div>
+              <div className="r"><label htmlFor="player" className="k">External player<small>Optional with the built-in player. On macOS use IINA's iina-cli</small></label><input id="player" value={settingsDraft.playerPath} placeholder={settingsDraft.playbackTarget === "external" ? "required" : "optional"} spellCheck={false} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div>
             </div></div>
             <div className="group"><h3>Defaults</h3><div className="box">
-              <div className="r"><span className="k">Quality</span><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div>
-              <div className="r"><span className="k">Audio</span><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div>
-              <div className="r"><span className="k">Preferred playback source<small>Search always checks every provider. Auto uses the first available source.</small></span><Chips value={settingsDraft.preferredProvider} options={["auto", ...enabledProviders(settingsDraft)] as ProviderPreference[]} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
+              <div className="r"><span className="k">Quality<small>Best takes the highest stream a source offers</small></span><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div>
+              <div className="r"><span className="k">Audio<small>Used when a source offers both</small></span><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div>
+              <div className="r"><span className="k">Preferred source<small>Search checks every source that is on. Auto plays from the first available</small></span><Chips value={settingsDraft.preferredProvider} options={["auto", ...enabledProviders(settingsDraft)] as ProviderPreference[]} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
             </div></div>
             <div className="group"><h3>Appearance</h3><div className="box">
-              <div className="r"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="chips" role="radiogroup" aria-label="theme">
+              <div className="r stack"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="tiles" role="radiogroup" aria-label="theme">
                 {THEME_NAMES.map((name) => {
                   const colours = resolveTheme(name, settingsDraft.customTheme);
                   return (
-                    <button type="button" key={name} role="radio" aria-checked={settingsDraft.theme === name} className={settingsDraft.theme === name ? "on" : ""}
+                    <button type="button" key={name} role="radio" aria-checked={settingsDraft.theme === name} className={`tile${settingsDraft.theme === name ? " on" : ""}`}
+                      style={{ "--t-bg": colours.background, "--t-text": colours.text, "--t-cur": colours.highlight } as React.CSSProperties}
                       onClick={() => setSettingsDraft({ ...settingsDraft, theme: name, customTheme: name === "custom" && settingsDraft.theme !== "custom" ? { ...resolveTheme(settingsDraft.theme, settingsDraft.customTheme) } : settingsDraft.customTheme })}>
-                      <i className="sw" style={{ "--sw-bg": colours.background, "--sw-cur": colours.highlight } as React.CSSProperties} />{name.replace("-", " ")}
+                      <span className="prev" aria-hidden="true"><i /><i /><b /></span><span>{name.replace("-", " ")}</span>
                     </button>
                   );
                 })}
               </span></div>
               {settingsDraft.theme === "custom" && (
-                <div className="r"><span className="k">Custom colours<small>The rest is mixed from these. Highlight marks the selected card, row, and chip</small></span><span className="colours">
+                <div className="r"><span className="k">Custom colours<small>Every other tone is mixed from these three</small></span><span className="swatches">
                   {(["background", "text", "highlight"] as const).map((key) => (
-                    <span className="colour" key={key}>
-                      <span>{key}</span>
+                    <span className="swatch" key={key}>
                       <input type="color" value={settingsDraft.customTheme[key]} aria-label={`${key} colour`} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
+                      <span>{key}</span>
                       <input value={settingsDraft.customTheme[key]} aria-label={`${key} hex`} maxLength={7} spellCheck={false} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
                     </span>
                   ))}
@@ -1099,7 +1102,7 @@ function App() {
             <SourceStatusPanel saved={appState.settings} draft={settingsDraft} onChange={setSettingsDraft}>
               <div className="r"><span className="k">Source links<small>{(appState.providerLinks ?? []).length} remembered {(appState.providerLinks ?? []).length === 1 ? "match" : "matches"} between providers. Forget them if a series shows the wrong records together</small></span><button type="button" className="btn small" disabled={!(appState.providerLinks ?? []).length} onClick={() => void clearSourceLinks()}>forget links</button></div>
             </SourceStatusPanel>
-            <div className="acts-row"><button type="button" className="btn" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
+            <div className="acts-row"><button type="button" className="btn" onClick={goBack}>cancel</button><button type="submit" className="btn primary" disabled={!settingsDirty}>save changes</button></div>
           </form>
         )}
       </div>}

@@ -205,9 +205,9 @@ describe("built-in player screen", () => {
 describe("live catalog search", () => {
   it("saves opt-in diagnostics and opens the log folder from settings", async () => {
     await click("settings");
-    const group = container.querySelector('[role="radiogroup"][aria-label="logging"]')!;
-    expect(group.querySelector('[aria-checked="true"]')?.textContent).toBe("off");
-    await act(async () => { [...group.querySelectorAll("button")].find(button => button.textContent === "on")!.click(); });
+    const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Diagnostics logging"]')!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => { toggle.click(); });
     await click("open logs");
     expect(api.openPlayerLogs).toHaveBeenCalledOnce();
     expect(api.saveSettings).not.toHaveBeenCalled();

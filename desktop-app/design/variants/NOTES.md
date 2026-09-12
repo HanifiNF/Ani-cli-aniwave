@@ -33,7 +33,13 @@ The renderer now follows atsu.moe. `atsu.html` holds the mockups; `shots/atsu-*.
 - Saved and recent: full card grids filtered by the pill. Settings: grouped cards. The Sources group is one row per
   provider: a status dot with the name and a one-line state on the left, the address in a fixed middle column, and a
   single Check now / Retry button and an on/off switch on the right (`sources-settings.html`, variant B, chosen
-  September 13 2026). A source that is off dims and is left out of search, lookup, and episode loading. The key-hint footer is gone; `?`
+  September 13 2026). A source that is off dims and is left out of search, lookup, and episode loading.
+  The theme picker is a row of preview tiles, one per preset plus custom, each drawn in its own background, text,
+  and highlight colours; custom adds a row of colour swatches with editable hex values (`theme-settings.html`,
+  variant A, chosen September 13 2026).
+  Yes/no settings (start fullscreen, autoplay, diagnostics) are switches; chips are reserved for choices between
+  named options (player, quality, audio, preferred source). The cancel/save row sticks to the bottom of the scrolling
+  form and save is disabled until something changes (`playback-settings.html`, variant A). The key-hint footer is gone; `?`
   shows a hint pill.
 - Type is the system sans-serif (Inter when installed); Fragment Mono is no longer bundled. Themes are unchanged.
 

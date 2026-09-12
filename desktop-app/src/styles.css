@@ -173,7 +173,6 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .chips button { padding: 4px 11px; border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap; }
 .chips button:hover { color: var(--text); }
 .chips button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 20%); }
-.chips .sw { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 7px; vertical-align: -1px; background: var(--sw-bg); box-shadow: inset 0 0 0 3px var(--sw-bg), inset 0 0 0 6px var(--sw-cur), 0 0 0 1px var(--rule); }
 .btn { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 10px; font-size: 14px; font-weight: 500; background: var(--raised); color: var(--text); }
 .btn:hover:not(:disabled) { background: var(--raised2); }
 .btn.primary { background: var(--cursor); color: var(--cursor-text); }
@@ -260,19 +259,34 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .group .r:first-child { border-top: 0; }
 .group .r .k { flex: 1; }
 .group .r .k small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-.group .r > input { min-width: 300px; height: 34px; padding: 0 12px; border-radius: 8px; background: var(--bg); font-size: 13px; }
+.group .r > input { width: 300px; height: 34px; padding: 0 12px; border-radius: 8px; background: var(--bg); font-size: 13px; }
 .group .r > input:focus-visible { outline-offset: 0; }
 .group .r .chips { background: var(--bg); }
 .group .r .chips button.on { background: var(--raised2); }
 .group .r .v-row { display: flex; align-items: center; gap: 12px; }
-.colours { display: grid; gap: 6px; }
-.colour { display: grid; grid-template-columns: 90px 18px 110px; gap: 12px; align-items: center; }
-.colour span { color: var(--muted); font-size: 13px; }
-.colour input[type="color"] { width: 18px; height: 18px; padding: 0; border: 1px solid var(--rule); border-radius: 4px; background: none; cursor: pointer; -webkit-appearance: none; appearance: none; }
-.colour input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-.colour input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
-.colour input:not([type="color"]) { height: 30px; padding: 0 10px; border-radius: 8px; background: var(--bg); font-size: 13px; }
+.group .r .btn { background: var(--bg); }
+.group .r .btn:hover:not(:disabled) { background: var(--raised2); }
+.group .r.stack { flex-direction: column; align-items: stretch; gap: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.tile { display: flex; flex-direction: column; gap: 6px; border-radius: 10px; }
+.tile .prev { display: flex; flex-direction: column; gap: 4px; position: relative; height: 52px; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--rule); background: var(--t-bg); overflow: hidden; }
+.tile .prev i { display: block; width: 60%; height: 4px; border-radius: 2px; background: var(--t-text); opacity: .55; }
+.tile .prev i + i { width: 40%; opacity: .3; }
+.tile .prev b { position: absolute; right: 8px; bottom: 8px; width: 18px; height: 8px; border-radius: 3px; background: var(--t-cur); }
+.tile > span:last-child { font-size: 12px; color: var(--muted); text-align: center; }
+.tile:hover > span:last-child { color: var(--text); }
+.tile.on .prev { border-color: transparent; box-shadow: 0 0 0 2px var(--cursor); }
+.tile.on > span:last-child { color: var(--text); }
+.swatches { display: flex; gap: 12px; }
+.swatch { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px; border-radius: 8px; background: var(--bg); }
+.swatch > span { color: var(--muted); font-size: 13px; }
+.swatch input[type="color"] { width: 22px; height: 22px; padding: 0; border: 1px solid var(--rule); border-radius: 6px; background: none; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.swatch input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.swatch input:not([type="color"]) { width: 72px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
 .acts-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+/* The form is taller than the window, so the actions stay in view while it scrolls. */
+.settings .acts-row { position: sticky; bottom: 0; margin: 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--rule); }
 
 /* ---- key hints -------------------------------------------------------- */
 .hints { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40; display: flex; gap: 18px; padding: 8px 14px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 12px; box-shadow: 0 0 0 1px var(--rule), 0 6px 20px rgb(0 0 0 / 25%); white-space: nowrap; }
