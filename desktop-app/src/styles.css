@@ -97,11 +97,9 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .hit-row.cur .hit { background: var(--raised2); box-shadow: 0 0 0 1px var(--rule); }
 .hit .thumb { position: relative; width: 56px; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--bg); }
 .hit .thumb .art { display: block; width: 100%; height: 100%; }
-.hit .thumb .badge { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 0; text-align: center; padding: 3px 0; font-size: 9px; letter-spacing: .04em; }
 .hit .text { min-width: 0; }
-.hit .t { display: block; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit .t { display: block; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
 .hit .s { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hit .m { display: block; margin-top: 4px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .hit .icon-chevron { color: var(--dim); }
 .hit-row.cur .icon-chevron { color: var(--text); }
 .foot-hints { display: flex; gap: 16px; margin: 10px 4px 0; color: var(--dim); font-size: 11px; }

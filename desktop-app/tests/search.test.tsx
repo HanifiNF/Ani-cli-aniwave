@@ -583,9 +583,14 @@ describe("progressive catalog navigation", () => {
     const pending = deferred<AnimeResult[]>();
     search.mockReturnValueOnce(pending.promise);
     await type("frieren"); await advance();
-    await act(async () => { search.mock.calls[0][3]!({ value: result("frieren"), pending: ["anidb"], errors: {} }); });
+    await act(async () => { search.mock.calls[0][3]!({ value: [result("frieren")[0], { id: "hianime:frieren-x", title: "frieren", provider: "hianime" }], pending: ["anidb"], errors: {} }); });
     expect(titles()).toEqual(["frieren"]);
+    expect(container.querySelector(".section-results")?.textContent).toBe("frieren");
+    expect(container.querySelector(".section-results .badge")).toBeNull();
+    await act(async () => { search.mock.calls[0][3]!({ value: [result("frieren")[0], { id: "hianime:frieren-x", title: "frieren", provider: "hianime" }], pending: [], errors: { anidb: "AniDB search failed (503)" } }); });
+    expect(container.querySelector('.palette [role="status"]')?.textContent).toContain("Some results may be missing.");
     await enter(); expect(container.querySelector("h1")?.textContent).toBe("frieren");
+    expect(vi.mocked(api.episodes).mock.calls[0][0].sources?.map((source) => source.provider)).toEqual(["aniwave", "hianime"]);
     expect(api.cancelCatalog).toHaveBeenCalledWith(search.mock.calls[0][2]!.id);
     await act(async () => pending.resolve(result("late")));
     expect(container.querySelector("h1")?.textContent).toBe("frieren");

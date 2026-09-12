@@ -773,7 +773,7 @@ function App() {
   const searching = catalogSearch.loading;
   const searchError = catalogSearch.error === undefined ? undefined : messageFrom(catalogSearch.error);
   const displayError = error ?? searchError;
-  const searchNotice = catalogSearch.providerErrors.length ? catalogSearch.providerErrors.join("; ") : catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
+  const searchNotice = catalogSearch.providerErrors.length ? "Some results may be missing. Try searching again." : catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
   const message = displayError ?? busy ?? searchNotice ?? notice;
   const searchMessage = paletteOpen ? (searchError ?? (busy === undefined ? searchNotice : undefined)) : undefined;
 
@@ -878,7 +878,7 @@ function App() {
               <div className="found" id="results-heading" aria-live="polite">
                 {catalogSearch.ready || unifiedResults.length ? <>{unifiedResults.length} {unifiedResults.length === 1 ? "result" : "results"} for "{lastQuery}"</> : catalogSearch.pending ? "Searching…" : "Press Enter to search"}
               </div>
-              {searchMessage && <div className={`msg ${searchError ? "err" : ""}`} role={searchError ? "alert" : "status"}>{searchMessage}{catalogSearch.providerErrors.length > 0 && <button type="button" className="link" onClick={catalogSearch.retrySources}>Retry sources</button>}</div>}
+              {searchMessage && <div className={`msg ${searchError ? "err" : ""}`} role={searchError ? "alert" : "status"} title={catalogSearch.providerErrors.join("; ") || undefined}>{searchMessage}{catalogSearch.providerErrors.length > 0 && <button type="button" className="link" onClick={catalogSearch.retrySources}>Retry search</button>}</div>}
               <div className="section-results" role="listbox" aria-label="Results">
                 {rows.map((row, index) => {
                   const anime = row.anime!;
@@ -889,11 +889,10 @@ function App() {
                   return (
                     <div key={anime.id} className={`hit-row ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}>
                       <button type="button" className="hit" role="option" aria-selected={index === cursor} onClick={() => void activate(row)} onFocus={() => setCursor(index)}>
-                        <span className="thumb"><Art src={anime.poster} /><span className={`badge ${index === cursor ? "hi" : ""}`}>{anime.provider}</span></span>
+                        <span className="thumb"><Art src={anime.poster} /></span>
                         <span className="text">
                           <span className="t">{anime.title}</span>
                           {alias && <span className="s">{alias}</span>}
-                          <span className="m">{[...new Set(sources.map((source) => source.provider))].join(" · ")}</span>
                         </span>
                         <Icon name="chevron" />
                       </button>

@@ -25,7 +25,7 @@ npm start
 
 Type at least two characters to search automatically after a short pause, or press Enter to search immediately. Results, saved titles, and recent titles support mouse and keyboard navigation.
 
-- Catalog search checks AniWave, AniDB, and HiAnime concurrently and displays results as each provider responds. The preferred source setting controls playback selection.
+- Catalog search checks AniWave, AniDB, and HiAnime concurrently and combines matching titles as each provider responds. Results show posters and full titles, keeping season, part, and special names visible. Provider choices appear under episodes. The preferred source setting controls playback selection.
 - Open a series to see episodes grouped by number, with provider sources underneath. Known and newly discovered sources populate independently, preserving the selected episode and scroll position.
 - Supported sub/dub availability loads before full stream resolution. Audio labels describe provider-listed availability; playback verifies the host. Quality checks prioritize the selected episode and nearby visible rows. Failed checks offer **Retry info**.
 - **Refresh sources** bypasses cached responses and provider cooldowns. Cached episode lists remain visible if a refresh fails, alongside the provider error.
