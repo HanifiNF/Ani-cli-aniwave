@@ -18,6 +18,13 @@ describe("built-in playback security", () => {
     });
   });
 
+  it("validates caption metadata before exposing it to the player", () => {
+    expect(validatePlayRequest({ url: "https://cdn.test/video.m3u8", title: "Example", textTracks: [{ src: "https://cdn.test/en.vtt", label: "English", lang: "en", default: true }] }).textTracks).toEqual([
+      { src: "https://cdn.test/en.vtt", label: "English", lang: "en", default: true }
+    ]);
+    expect(() => validatePlayRequest({ url: "https://cdn.test/video.m3u8", title: "Example", textTracks: [{ src: "file:///secret", label: "English", lang: "en" }] })).toThrow(/caption URL/);
+  });
+
   it("replaces conflicting CORS values only inside the caller-provided response", () => {
     expect(withMediaCors({ Server: ["test"], "access-control-allow-origin": ["https://wrong.test"] })).toEqual({
       Server: ["test"],

@@ -1,10 +1,11 @@
 import type { AnimeResult, Episode, EpisodeCatalog, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
 import { animeSources, unifyAnimeResults } from "../shared/catalog";
-import { findEmbedUrl, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
+import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl">;
+export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl" | "hianimeBaseUrl">;
+const HIANIME_API_BASE = "https://animehot.cc/api";
 
 function sourceBase(value: string): string {
   const url = new URL(value);
@@ -27,12 +28,23 @@ async function request(url: string, label: string, accept: string, referrer?: st
   }
   throw new Error(`${label} failed (${response.status})`);
 }
+async function postJson(url: string, body: unknown, label: string, referrer?: string): Promise<unknown> {
+  let response!: Response;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    response = await fetch(url, { method: "POST", headers: { "User-Agent": USER_AGENT, Accept: "application/json", "Content-Type": "application/json", ...(referrer ? { Referer: referrer } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+    if (response.ok) return response.json() as Promise<unknown>;
+    if (response.status !== 429 && response.status < 500) break;
+  }
+  throw new Error(`${label} failed (${response.status})`);
+}
 const fetchText = async (url: string, label: string, referrer?: string) => (await request(url, label, "text/html,application/json;q=0.9,*/*;q=0.8", referrer)).text();
 const fetchJson = async (url: string, label: string, referrer?: string) => (await request(url, label, "application/json", referrer)).json() as Promise<unknown>;
 
 function splitId(id: string): { provider: ProviderName; value: string } {
   if (id.startsWith("aniwave:")) return { provider: "aniwave", value: id.slice(8) };
   if (id.startsWith("anidb:")) return { provider: "anidb", value: id.slice(6) };
+  if (id.startsWith("hianime:")) return { provider: "hianime", value: id.slice(8) };
   return { provider: "anidb", value: id };
 }
 
@@ -40,6 +52,10 @@ async function searchOne(query: string, provider: ProviderName, config: SourceCo
   if (provider === "aniwave") {
     const root = sourceBase(config.aniwaveBaseUrl);
     return parseAniwaveSearch(await fetchText(`${root}/filter?keyword=${encodeURIComponent(query)}`, "AniWave search", `${root}/`));
+  }
+  if (provider === "hianime") {
+    const root = sourceBase(config.hianimeBaseUrl);
+    return parseHiAnimeSearch(await postJson(`${HIANIME_API_BASE}/search`, { title: query }, "HiAnime search", `${root}/`));
   }
   const root = sourceBase(config.anidbBaseUrl);
   return parseSearchPage(await fetchText(`${root}/browse?q=${encodeURIComponent(query)}`, "AniDB search", `${root}/`));
@@ -51,7 +67,7 @@ export async function searchAnime(query: string, config: SourceConfig, requested
   if (cleaned.length > 120) throw new Error("Search query is too long");
   const preference = requested ?? config.preferredProvider;
   if (preference !== "auto") return searchOne(cleaned, preference, config);
-  const settled = await Promise.allSettled((["aniwave", "anidb"] as const).map((provider) => searchOne(cleaned, provider, config)));
+  const settled = await Promise.allSettled((["aniwave", "anidb", "hianime"] as const).map((provider) => searchOne(cleaned, provider, config)));
   const found = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   if (settled.every((result) => result.status === "rejected")) {
     throw new Error(`All providers failed: ${settled.map((result) => result.status === "rejected" && (result.reason instanceof Error ? result.reason.message : String(result.reason))).join("; ")}`);
@@ -65,6 +81,10 @@ async function getProviderEpisodes(animeId: string, config: SourceConfig): Promi
     if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniWave anime identifier");
     const numeric = value.slice(value.lastIndexOf("-") + 1);
     return parseAniwaveEpisodes(await fetchJson(`${sourceBase(config.aniwaveBaseUrl)}/ajax/episode/list/${numeric}?vrf=`, "AniWave episode lookup"), numeric);
+  }
+  if (provider === "hianime") {
+    if (!/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(value)) throw new Error("Invalid HiAnime anime identifier");
+    return parseHiAnimeEpisodes(await fetchJson(`${HIANIME_API_BASE}/anime/${encodeURIComponent(value)}`, "HiAnime episode lookup", `${sourceBase(config.hianimeBaseUrl)}/`));
   }
   if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniDB anime identifier");
   const numeric = value.slice(value.lastIndexOf("-") + 1);
@@ -101,6 +121,27 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
     if (!rawMaster) throw new Error("Vidplay returned no playable stream");
     const masterUrl = absolute(rawMaster, embed.origin);
     return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "aniwave", embed.toString()).map((stream) => ({ ...stream, server: "Vidplay" }));
+  }
+  if (provider === "hianime") {
+    if (!/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(value)) throw new Error("Invalid HiAnime episode identifier");
+    const root = sourceBase(config.hianimeBaseUrl);
+    const payload = await fetchJson(`${HIANIME_API_BASE}/episode/${encodeURIComponent(value)}`, "HiAnime stream lookup", `${root}/`);
+    const candidates = hiAnimeEmbedUrls(payload, mode);
+    if (candidates.length === 0) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} HiAnime source is available`);
+    const failures: string[] = [];
+    for (const candidate of candidates) {
+      let embed: URL;
+      try { embed = new URL(candidate); } catch { failures.push("invalid embed URL"); continue; }
+      if (embed.protocol !== "https:" || embed.hostname !== "zokoanime.video") { failures.push(`unsupported host ${embed.hostname || "unknown"}`); continue; }
+      try {
+        const parsed = parseHiAnimeEmbed(await fetchText(embed.toString(), "HiAnime video host", `${root}/`));
+        if (!parsed) { failures.push(`${embed.hostname} response changed`); continue; }
+        const masterUrl = absolute(parsed.src, embed.origin);
+        return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "hianime", embed.toString())
+          .map((stream) => ({ ...stream, server: "ZokoAnime", textTracks: parsed.subtitles }));
+      } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    }
+    throw new Error(`No supported HiAnime server could be resolved: ${failures.join("; ")}`);
   }
   if (!/^\d+$/.test(value)) throw new Error("Invalid AniDB episode identifier");
   const root = sourceBase(config.anidbBaseUrl);

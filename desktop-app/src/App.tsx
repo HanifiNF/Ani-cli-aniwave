@@ -31,7 +31,7 @@ interface PlayStatus { episode: Episode; phase: "finding" | "opening" | "opened"
 interface NowPlaying { episodeId: string; detail: string; mode: TranslationMode; anime: AnimeResult; episodes: Episode[]; }
 
 const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
-const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb"];
+const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb", "hianime"];
 const EPISODE_CELL = 62; // 56px cell plus 6px gap, used for arrow-key movement in the grid
 
 const emptyState: PersistedState = {
@@ -39,11 +39,11 @@ const emptyState: PersistedState = {
   history: [],
   settings: {
     playerPath: "", playbackTarget: "builtin", startPlayerFullscreen: true, autoplayNext: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
+    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
   }, providerLinks: [], dismissedMergeKeys: []
 };
 
-const providerOf = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : "anidb";
+const providerOf = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 const asAnime = (entry: LibraryEntry): AnimeResult => ({ id: entry.animeId, title: entry.title, poster: entry.poster, provider: entry.lastProvider ?? providerOf(entry.animeId), sources: animeSources(entry) });
 const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") || "player";
 
@@ -127,7 +127,7 @@ function App() {
   const [stateLoaded, setStateLoaded] = useState(false);
 
   const catalogSearch = useAnimeSearch(query, provider,
-    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl], screen === "home" && !composing);
+    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl], screen === "home" && !composing);
   const { results, lastQuery } = catalogSearch;
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
   const activeEpisodeGroup = episodeGroups.find((group) => group.provider === activeEpisodeProvider);
@@ -342,13 +342,17 @@ function App() {
     catch (reason) {
       setBusy(undefined);
       if (options.allowRemap) {
-        const other: ProviderName = providerOf(anime.id) === "aniwave" ? "anidb" : "aniwave";
-        const candidates = await run(`checking ${other} for a replacement`, () => window.aniDesktop.search(anime.title, other));
-        const replacement = candidates?.[0];
-        if (replacement && window.confirm(`${providerOf(anime.id)} is unavailable. Remap "${anime.title}" to "${replacement.title}" on ${other}?`)) {
+        const alternatives = (["aniwave", "anidb", "hianime"] as ProviderName[]).filter((item) => item !== providerOf(anime.id));
+        let replacement: AnimeResult | undefined;
+        let replacementProvider: ProviderName | undefined;
+        for (const alternative of alternatives) {
+          const candidates = await run(`checking ${alternative} for a replacement`, () => window.aniDesktop.search(anime.title, alternative));
+          if (candidates?.[0]) { replacement = candidates[0]; replacementProvider = alternative; break; }
+        }
+        if (replacement && replacementProvider && window.confirm(`${providerOf(anime.id)} is unavailable. Remap "${anime.title}" to "${replacement.title}" on ${replacementProvider}?`)) {
           if (await openAnime(replacement, { ...options, allowRemap: false })) {
             setAppState(await window.aniDesktop.remapEntry(anime.id, replacement));
-            setNotice(`remapped to ${replacement.title} on ${other}`);
+            setNotice(`remapped to ${replacement.title} on ${replacementProvider}`);
             return true;
           }
           return false;
@@ -361,7 +365,7 @@ function App() {
     setEpisodeGroups(groups);
     const available = groups.filter((group) => group.episodes.length);
     const wanted = animeProgress?.lastProvider ?? anime.provider;
-    const active = available.find((group) => group.provider === wanted)?.provider ?? available.find((group) => group.provider === "aniwave")?.provider ?? available[0]?.provider ?? groups[0]?.provider ?? "aniwave";
+    const active = available.find((group) => group.provider === wanted)?.provider ?? (["aniwave", "anidb", "hianime"] as ProviderName[]).find((item) => available.some((group) => group.provider === item)) ?? available[0]?.provider ?? groups[0]?.provider ?? "aniwave";
     setActiveEpisodeProvider(active);
     const list = groups.find((group) => group.provider === active)?.episodes ?? [];
     let index = 0;
@@ -391,7 +395,7 @@ function App() {
       setStatus({ episode, phase: "opening", detail });
       setNowPlaying({ episodeId: episode.id, detail, mode: playMode, anime, episodes: anime.id === selectedAnime?.id && episodes.some((item) => item.id === episode.id) ? episodes : [episode] });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
-      await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
+      await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, textTracks: stream.textTracks, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
       if (token !== playToken.current) return;
       setAppState(appState.settings.playbackTarget === "builtin"
         ? await window.aniDesktop.getState()
@@ -781,9 +785,10 @@ function App() {
                 ))}
               </div></div>
             )}
-            <div className="r"><span className="k">source<small>auto tries aniwave, then anidb</small></span><div className="v"><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div></div>
+            <div className="r"><span className="k">source<small>auto combines aniwave, anidb, and hianime</small></span><div className="v"><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div></div>
             <div className="r"><label htmlFor="aniwave">aniwave address</label><div className="v"><input id="aniwave" value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></div></div>
             <div className="r"><label htmlFor="anidb">anidb address</label><div className="v"><input id="anidb" value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></div></div>
+            <div className="r"><label htmlFor="hianime">hianime address</label><div className="v"><input id="hianime" value={settingsDraft.hianimeBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, hianimeBaseUrl: event.target.value })} /></div></div>
             <div className="acts-row"><button type="button" className="btn quiet" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
           </form>
         )}

@@ -1,4 +1,4 @@
-import type { AnimeResult, Episode, ProviderName, Stream, TranslationMode } from "../shared/contracts";
+import type { AnimeResult, Episode, ProviderName, Stream, TextTrackSource, TranslationMode } from "../shared/contracts";
 
 const decodeEntities = (value: string): string =>
   value
@@ -167,4 +167,83 @@ export function parseVidplaySource(payload: unknown): string | undefined {
   if (!Array.isArray(sources)) return undefined;
   const source = sources.find((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).file === "string") as Record<string, unknown> | undefined;
   return typeof source?.file === "string" ? source.file.replaceAll("\\/", "/") : undefined;
+}
+
+const stringValue = (record: Record<string, unknown>, key: string): string | undefined =>
+  typeof record[key] === "string" && record[key] ? record[key] as string : undefined;
+
+export function parseHiAnimeSearch(payload: unknown): AnimeResult[] {
+  if (typeof payload === "string") {
+    try { return parseHiAnimeSearch(JSON.parse(payload)); } catch { return []; }
+  }
+  if (!Array.isArray(payload)) return [];
+  const results = new Map<string, AnimeResult>();
+  for (const item of payload) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const slugs = Array.isArray(record.slugs) ? record.slugs.filter((value): value is string => typeof value === "string" && value.length > 0) : [];
+    const slug = stringValue(record, "slug") ?? slugs[10] ?? slugs[0];
+    const title = stringValue(record, "English") ?? stringValue(record, "title");
+    if (!slug || !title || !/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(slug)) continue;
+    const poster = stringValue(record, "image");
+    const aliases = [...new Set([title, stringValue(record, "title"), stringValue(record, "Japanese"), stringValue(record, "alternateTitle")].filter((value): value is string => Boolean(value)))];
+    const id = `hianime:${slug}`;
+    results.set(slug, { id, title, poster, provider: "hianime", sources: [{ id, title, aliases, poster, provider: "hianime" }] });
+  }
+  return [...results.values()];
+}
+
+export function parseHiAnimeEpisodes(payload: unknown): Episode[] {
+  if (typeof payload === "string") {
+    try { return parseHiAnimeEpisodes(JSON.parse(payload)); } catch { return []; }
+  }
+  if (!payload || typeof payload !== "object") return [];
+  const anime = (payload as Record<string, unknown>).anime;
+  if (!anime || typeof anime !== "object") return [];
+  const raw = (anime as Record<string, unknown>).episodes;
+  if (!Array.isArray(raw)) return [];
+  const episodes = new Map<string, Episode>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const slug = stringValue(record, "slug") ?? (Array.isArray(record.slugs) ? record.slugs.find((value): value is string => typeof value === "string" && value.length > 0) : undefined);
+    const number = record.episodeNumber;
+    if (!slug || (typeof number !== "number" && typeof number !== "string")) continue;
+    episodes.set(slug, { id: `hianime:${slug}`, number: String(number), provider: "hianime" });
+  }
+  return [...episodes.values()].sort((a, b) => Number(a.number) - Number(b.number));
+}
+
+export function hiAnimeEmbedUrls(payload: unknown, mode: TranslationMode): string[] {
+  if (typeof payload === "string") {
+    try { return hiAnimeEmbedUrls(JSON.parse(payload), mode); } catch { return []; }
+  }
+  if (!payload || typeof payload !== "object") return [];
+  const episode = (payload as Record<string, unknown>).episode;
+  if (!episode || typeof episode !== "object") return [];
+  const link = (episode as Record<string, unknown>).link;
+  if (!link || typeof link !== "object") return [];
+  const urls = (link as Record<string, unknown>)[mode];
+  return Array.isArray(urls) ? urls.filter((value): value is string => typeof value === "string") : [];
+}
+
+export interface HiAnimeEmbedSource { src: string; subtitles: TextTrackSource[]; }
+
+export function parseHiAnimeEmbed(html: string): HiAnimeEmbedSource | undefined {
+  const blob = html.match(/window\.__P\s*=\s*["']([^"']+)["']/)?.[1];
+  if (!blob) return undefined;
+  try {
+    const encoded = Buffer.from(blob, "base64");
+    const key = Buffer.from("otaku-embed-v1", "utf8");
+    const decoded = Buffer.alloc(encoded.length);
+    for (let index = 0; index < encoded.length; index += 1) decoded[index] = encoded[index] ^ key[index % key.length];
+    const record = JSON.parse(decoded.toString("utf8")) as Record<string, unknown>;
+    if (typeof record.src !== "string") return undefined;
+    const subtitles = Array.isArray(record.subtitles) ? record.subtitles.flatMap((item): TextTrackSource[] => {
+      if (!item || typeof item !== "object") return [];
+      const track = item as Record<string, unknown>;
+      return typeof track.src === "string" ? [{ src: track.src, label: typeof track.label === "string" ? track.label : "Subtitles", lang: typeof track.lang === "string" ? track.lang : "und", default: track.default === true }] : [];
+    }) : [];
+    return { src: record.src, subtitles };
+  } catch { return undefined; }
 }

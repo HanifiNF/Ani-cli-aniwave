@@ -3,13 +3,15 @@ import type { AnimeResult, AnimeSource, LibraryEntry, ProviderName } from "./con
 export function normalizedTitle(value: string): string {
   return value.normalize("NFKD").toLowerCase()
     .replace(/\b(\d+)(?:st|nd|rd|th)\b/g, "$1")
-    .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
+
+const providerFromId = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 
 export function animeSources(anime: AnimeResult | LibraryEntry): AnimeSource[] {
   if (anime.sources?.length) return anime.sources;
   const id = "animeId" in anime ? anime.animeId : anime.id;
-  const provider: ProviderName = id.startsWith("aniwave:") ? "aniwave" : "anidb";
+  const provider = providerFromId(id);
   return [{ id, provider, title: anime.title, aliases: [anime.title], poster: anime.poster }];
 }
 
@@ -24,14 +26,19 @@ export function unifyAnimeResults(results: AnimeResult[], links: string[][] = []
   for (const result of results) {
     for (const source of animeSources(result)) {
       const keys = sourceKeys(source);
-      const index = groups.findIndex((group) => linked(group, [source], links) || group.some((item) => [...sourceKeys(item)].some((key) => keys.has(key))));
-      if (index < 0) groups.push([source]);
-      else if (!groups[index].some((item) => item.id === source.id)) groups[index].push(source);
+      const indexes = groups.flatMap((group, index) => linked(group, [source], links) || (!group.some((item) => item.provider === source.provider) && group.some((item) => [...sourceKeys(item)].some((key) => keys.has(key)))) ? [index] : []);
+      if (indexes.length === 0) groups.push([source]);
+      else {
+        const combined = [...groups[indexes[0]], source, ...indexes.slice(1).flatMap((index) => groups[index])]
+          .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
+        groups[indexes[0]] = combined;
+        for (const index of indexes.slice(1).sort((a, b) => b - a)) groups.splice(index, 1);
+      }
     }
   }
   return groups.map((sources) => {
     const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
-    const english = sources.find((source) => source.provider === "aniwave")?.title ?? sources.find((source) => source.provider === "anidb")?.title ?? primary.title;
+    const english = sources.find((source) => source.provider === "aniwave")?.title ?? sources.find((source) => source.provider === "anidb")?.title ?? sources.find((source) => source.provider === "hianime")?.title ?? primary.title;
     return { id: primary.id, title: english, poster: primary.poster ?? sources.find((source) => source.poster)?.poster, provider: primary.provider, sources };
   });
 }

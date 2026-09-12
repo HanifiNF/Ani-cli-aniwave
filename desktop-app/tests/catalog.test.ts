@@ -3,7 +3,7 @@ import type { AnimeResult } from "../shared/contracts";
 import { likelyDuplicate, unifyAnimeResults } from "../shared/catalog";
 
 const anime = (id: string, title: string, aliases = [title]): AnimeResult => {
-  const provider = id.startsWith("aniwave:") ? "aniwave" as const : "anidb" as const;
+  const provider = id.startsWith("aniwave:") ? "aniwave" as const : id.startsWith("hianime:") ? "hianime" as const : "anidb" as const;
   return { id, title, provider, sources: [{ id, title, provider, aliases }] };
 };
 
@@ -38,5 +38,19 @@ describe("multi-source catalog identity", () => {
       anime("aniwave:rezero-1", "Re:Zero kara Hajimeru Isekai Seikatsu 4th Season"),
       anime("anidb:rezero-2", "Re:ZERO -Starting Life in Another World- Season 4")
     )).toBe(true);
+  });
+
+  it("coalesces three groups when a third source bridges their exact aliases", () => {
+    const results = unifyAnimeResults([
+      anime("aniwave:example-1", "Example English"),
+      anime("anidb:example-2", "作品名"),
+      anime("hianime:example-series-abc123", "Example English", ["Example English", "作品名"])
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0].sources?.map((source) => source.provider)).toEqual(["aniwave", "hianime", "anidb"]);
+  });
+
+  it("does not combine duplicate records from the same provider", () => {
+    expect(unifyAnimeResults([anime("hianime:example-one-abc123", "Example"), anime("hianime:example-two-def456", "Example")])).toHaveLength(2);
   });
 });

@@ -1,6 +1,6 @@
 # Ani Desktop
 
-A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, and AniDB providers. HLS video plays in a built-in Vidstack window on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
+A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, AniDB, and HiAnime providers. HLS video plays in a built-in Vidstack window on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ npm start
 
 Type at least two characters to search automatically after a short pause, or press Enter to search immediately. Results, saved titles, and recent titles support mouse and keyboard navigation.
 
-- Auto search combines matching AniWave and AniDB titles while keeping provider-native episode lists.
+- Auto search combines exact matching aliases from AniWave, AniDB, and HiAnime while keeping provider-native episode lists.
 - Open a series, select a provider tab, and choose an episode to resolve and play its stream.
 - The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and native fullscreen controls. Video keeps its aspect ratio with black bars filling the remaining window area.
 - Volume, mute, playback speed, caption visibility/language, and episode resume positions are saved locally. Positions use provider episode IDs and audio mode, so refreshed stream URLs resume correctly.

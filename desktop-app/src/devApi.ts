@@ -28,7 +28,7 @@ const state: PersistedState = {
   ],
   settings: {
     playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
+    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
   }, providerLinks: [], dismissedMergeKeys: []
 };
 
@@ -120,7 +120,7 @@ export function installDevApi(): void {
       const sources = [...animeSources(first), ...animeSources(second)].filter((source, index, list) => list.findIndex((item) => item.id === source.id) === index);
       const latest = new Date(first.updatedAt) > new Date(second.updatedAt) ? first : second;
       const progressByProvider = { ...(first.progressByProvider ?? {}), ...(second.progressByProvider ?? {}) };
-      const lastProvider = latest.lastProvider ?? (latest.animeId.startsWith("aniwave:") ? "aniwave" : "anidb");
+      const lastProvider = latest.lastProvider ?? (latest.animeId.startsWith("aniwave:") ? "aniwave" : latest.animeId.startsWith("hianime:") ? "hianime" : "anidb");
       const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
       const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
       const merged: LibraryEntry = { ...latest, animeId: primary.id, sources, lastProvider, progressByProvider, lastEpisode: progress.lastEpisode, mode: progress.mode, poster: primary.poster ?? first.poster ?? second.poster };
