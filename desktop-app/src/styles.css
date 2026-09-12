@@ -10,6 +10,7 @@
   --dim: color-mix(in oklab, var(--bg), var(--text) 36%);
   --muted: color-mix(in oklab, var(--bg), var(--text) 60%);
   --danger: #E08A80;
+  --ok: #8FC7A0;
   --radius: 10px;
   /* The bar and the page share one centred column, like a fixed-width site. */
   --container: 1120px;
@@ -106,6 +107,26 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .foot-hints b, .hints b { color: var(--muted); font-weight: 600; }
 
 /* ---- sections and cards ----------------------------------------------- */
+.group .r.source-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto auto; gap: 8px 18px; }
+.source-row[data-off] .k, .source-row[data-off] > input { opacity: .45; }
+.source-row .k { min-width: 0; }
+.source-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.source-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.source-dot[data-state="reachable"] { background: var(--ok); }
+.source-dot[data-state="paused"] { background: var(--danger); }
+.source-dot[data-state="checking"] { background: var(--muted); animation: source-pulse 1s infinite alternate; }
+@keyframes source-pulse { to { opacity: .3; } }
+.source-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-state[data-state="paused"] { color: var(--danger); }
+.group .r.source-row > input { min-width: 0; width: 100%; }
+.source-row .btn { min-width: 96px; justify-content: center; }
+.source-note { grid-column: 1 / -1; margin-top: -4px; color: var(--muted); font-size: 12px; }
+.source-note.err { color: var(--danger); }
+.group-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.switch { position: relative; width: 36px; height: 22px; border-radius: 11px; background: var(--raised2); flex: none; transition: background .15s; }
+.switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: left .15s, background .15s; }
+.switch[aria-checked="true"] { background: var(--cursor); }
+.switch[aria-checked="true"] i { left: 17px; background: var(--cursor-text); }
 .section { margin-top: 24px; }
 .section:first-child { margin-top: 12px; }
 .section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }

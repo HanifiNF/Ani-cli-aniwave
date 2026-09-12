@@ -76,6 +76,7 @@ beforeEach(async () => {
     },
     search, resolveSources: vi.fn(async (anime) => anime), clearSourceLinks: vi.fn(), getState: vi.fn().mockResolvedValue(state), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
     episodeMetadata: vi.fn().mockResolvedValue(undefined), clearEpisodeMetadata: vi.fn().mockResolvedValue(undefined),
+    sourceStatus: vi.fn().mockResolvedValue([]), checkSource: vi.fn().mockResolvedValue(undefined),
     availability: vi.fn().mockResolvedValue({ sub: true, dub: true, checkedAt: Date.now() }), cancelCatalog: vi.fn(),
     streams: vi.fn().mockResolvedValue([]), play: vi.fn().mockResolvedValue(true),
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
@@ -521,10 +522,13 @@ describe("live catalog search", () => {
     expect(container.querySelector(".search-throbber")?.children).toHaveLength(0);
     expect(container.querySelector(".foot-hints")?.textContent).toContain("search now");
     await enter(); expect(search).toHaveBeenCalledExactlyOnceWith("x", "auto", expect.any(Object), expect.any(Function));
+    expect(search.mock.calls[0][2]?.checkNow).toBe(false);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("provider unavailable");
     await enter(); expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1][2]?.checkNow).toBe(true);
     expect(container.textContent).toContain('nothing found for "x"');
     await type("next"); expect(container.textContent).not.toContain('nothing found for "x"');
+    await advance(); expect(search.mock.calls.at(-1)?.[2]?.checkNow).toBe(false);
   });
   it("waits for IME composition and ignores its Enter key", async () => {
     await act(async () => { input().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); });

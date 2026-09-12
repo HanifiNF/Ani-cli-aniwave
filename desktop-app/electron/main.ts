@@ -1,5 +1,5 @@
 import { CatalogService, catalogScope } from "./catalog-service";
-import { catalogContext } from "./catalog-requests";
+import { catalogContext, catalogRequests } from "./catalog-requests";
 import { EpisodeMetadataCache } from "./episode-metadata-cache";
 import { availabilityFresh } from "../shared/episode-metadata";
 import { randomUUID } from "node:crypto";
@@ -7,11 +7,11 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from "electron";
-import type { AnimeResult, CatalogRequest, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
+import type { AnimeResult, CatalogRequest, LibraryEntry, PlayerSession, PlayRequest, ProviderName, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
-import { getAvailability, getEpisodes, getStreams, searchAnime } from "./scraper";
+import { getAvailability, getEpisodes, getStreams, providerOrigin, searchAnime, searchOne } from "./scraper";
 import { animeSources, expandWithLinks } from "../shared/catalog";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
@@ -50,7 +50,7 @@ function catalogCall<T>(event: Electron.IpcMainInvokeEvent, request: CatalogRequ
     event.sender.once("destroyed", () => { for (const [id, consumer] of catalogConsumers) if (id.startsWith(`${senderId}:`)) consumer.abort(); });
   }
   const priority = request?.priority === "playback" ? 0 : request?.priority === "selected" ? 1 : request?.priority === "nearby" ? 3 : 2;
-  return catalogContext.run({ signal: controller.signal, priority, refresh: request?.refresh, scope: catalogScope(store.snapshot().settings) }, async () => {
+  return catalogContext.run({ signal: controller.signal, priority, refresh: request?.refresh, recoveryChecks: request?.checkNow === true ? new Set() : undefined, scope: catalogScope(store.snapshot().settings) }, async () => {
     try {
       return await operation((value) => {
         if (request && !controller.signal.aborted && !event.sender.isDestroyed()) event.sender.send("catalog:update", { id: request.id, value });
@@ -209,6 +209,21 @@ function registerIpc(): void {
     assertPlayerSender(mainWindow, event);
     catalogConsumers.get(`${event.sender.id}:${id}`)?.abort();
   });
+  ipcMain.handle("catalog:source-status", (event) => {
+    assertPlayerSender(mainWindow, event);
+    const settings = store.snapshot().settings;
+    return (["aniwave", "anidb", "hianime"] as const).map((provider) => {
+      const origin = providerOrigin(provider, settings);
+      return { provider, origin, ...catalogRequests.health.snapshot(origin) };
+    });
+  });
+  ipcMain.handle("catalog:source-check", (event, provider: ProviderName, request?: CatalogRequest) => {
+    if (!["aniwave", "anidb", "hianime"].includes(provider)) throw new Error("Unknown source provider");
+    return catalogCall(event, { ...request, id: request?.id ?? randomUUID(), refresh: true, checkNow: true }, async () => {
+      // Exercise the actual catalog endpoint through the shared recovery gate.
+      await searchOne("naruto", provider, store.snapshot().settings);
+    });
+  });
   ipcMain.handle("catalog:search", (event, query: string, provider?: ProviderPreference, request?: CatalogRequest) => catalogCall(event, request, (update) => {
     const state = store.snapshot();
     return catalogService.search(query, state.settings, provider ?? "auto", state.providerLinks, update);
@@ -320,6 +335,7 @@ app.whenReady().then(async () => {
   await store.load();
   episodeMetadata = new EpisodeMetadataCache(join(app.getPath("userData"), "episode-metadata.json"));
   await episodeMetadata.load();
+  await catalogRequests.health.load(join(app.getPath("userData"), "source-health.json"));
   diagnostics = new PlayerDiagnostics(join(app.getPath("userData"), "logs"));
   diagnostics.setEnabled(store.snapshot().settings.playerDiagnostics === true);
   app.setName("Ani Desktop");
@@ -358,5 +374,5 @@ app.on("before-quit", (event) => {
   flushingDiagnostics = true;
   event.preventDefault();
   const timeout = setTimeout(() => app.quit(), 2000);
-  void Promise.allSettled([diagnostics.close(), episodeMetadata.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
+  void Promise.allSettled([diagnostics.close(), episodeMetadata.flush(), catalogRequests.health.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
 });

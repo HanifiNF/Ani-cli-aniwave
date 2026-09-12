@@ -44,7 +44,15 @@ export interface EpisodeGroup {
 
 export interface EpisodeCatalog { groups: EpisodeGroup[]; }
 
-export interface CatalogRequest { id: string; priority?: "playback" | "selected" | "visible" | "nearby"; refresh?: boolean; }
+export interface CatalogRequest { id: string; priority?: "playback" | "selected" | "visible" | "nearby"; refresh?: boolean; checkNow?: boolean; }
+export interface SourceHealthStatus {
+  state: "unknown" | "reachable" | "paused" | "checking";
+  checkedAt?: number;
+  retryAt?: number;
+  canRetry: boolean;
+  serverRequested?: boolean;
+}
+export interface ProviderSourceStatus extends SourceHealthStatus { provider: ProviderName; origin: string; }
 export interface CatalogProgress<T> { value: T; pending: ProviderName[]; errors: Partial<Record<ProviderName, string>>; }
 /** Availability advertised by a supported provider server; playback is verified separately. */
 export interface EpisodeAvailability { sub: boolean; dub: boolean; checkedAt: number; }
@@ -112,6 +120,8 @@ export interface Settings {
   aniwaveBaseUrl: string;
   anidbBaseUrl: string;
   hianimeBaseUrl: string;
+  /** Providers left out of search, lookup, and episode loading. Every provider is on unless listed here. */
+  disabledSources?: ProviderName[];
   theme: ThemePreset;
   customTheme: CustomTheme;
 }
@@ -156,6 +166,8 @@ export interface AniDesktopApi {
   availability(episodeId: string, request?: CatalogRequest): Promise<EpisodeAvailability>;
   episodeMetadata(episodeId: string): Promise<CachedEpisodeMetadata | undefined>;
   clearEpisodeMetadata(episodeIds: string[]): Promise<void>;
+  sourceStatus(): Promise<ProviderSourceStatus[]>;
+  checkSource(provider: ProviderName, request?: CatalogRequest): Promise<void>;
   cancelCatalog(requestId: string): void;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;

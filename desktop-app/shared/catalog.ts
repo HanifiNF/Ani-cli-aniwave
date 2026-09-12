@@ -1,4 +1,12 @@
-import type { AnimeResult, AnimeSource, LibraryEntry, ProviderName } from "./contracts";
+import type { AnimeResult, AnimeSource, LibraryEntry, ProviderName, Settings } from "./contracts";
+
+export const PROVIDER_NAMES: readonly ProviderName[] = ["aniwave", "anidb", "hianime"];
+export const isProviderName = (value: unknown): value is ProviderName => PROVIDER_NAMES.includes(value as ProviderName);
+/** Providers that take part in catalog work, in the app's fixed order. */
+export function enabledProviders(settings: Pick<Settings, "disabledSources">): ProviderName[] {
+  const disabled = settings.disabledSources ?? [];
+  return PROVIDER_NAMES.filter((provider) => !disabled.includes(provider));
+}
 
 export function normalizedTitle(value: string): string {
   return value.normalize("NFKD").toLowerCase()

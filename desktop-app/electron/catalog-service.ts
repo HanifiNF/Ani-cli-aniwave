@@ -1,9 +1,8 @@
 import type { AnimeResult, CatalogProgress, Episode, EpisodeCatalog, EpisodeGroup, ProviderName, ProviderPreference } from "../shared/contracts";
-import { animeSources, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, enabledProviders, unifyAnimeResults } from "../shared/catalog";
 import { catalogContext } from "./catalog-requests";
 import { getProviderEpisodes, resolveSource, searchOne, type SourceConfig } from "./scraper";
 
-const PROVIDERS: ProviderName[] = ["aniwave", "anidb", "hianime"];
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const scope = (config: SourceConfig) => JSON.stringify([config.aniwaveBaseUrl, config.anidbBaseUrl, config.hianimeBaseUrl]);
 export const catalogScope = scope;
@@ -15,7 +14,9 @@ export class CatalogService {
     const cleaned = query.trim();
     if (!cleaned) return [];
     if (cleaned.length > 120) throw new Error("Search query is too long");
-    const providers = provider === "auto" ? PROVIDERS : [provider];
+    // A preferred provider that has since been switched off falls back to every enabled one.
+    const enabled = enabledProviders(config);
+    const providers = provider !== "auto" && enabled.includes(provider) ? [provider] : enabled;
     const pending = new Set(providers);
     const results = new Map<ProviderName, AnimeResult[]>();
     const errors: Partial<Record<ProviderName, string>> = {};
@@ -31,7 +32,8 @@ export class CatalogService {
   }
 
   async episodes(anime: AnimeResult, config: SourceConfig, update?: (value: EpisodeCatalog) => void): Promise<EpisodeCatalog> {
-    const sources = animeSources(anime).filter((source, index, all) => all.findIndex((other) => other.provider === source.provider) === index);
+    const enabled = enabledProviders(config);
+    const sources = animeSources(anime).filter((source, index, all) => enabled.includes(source.provider) && all.findIndex((other) => other.provider === source.provider) === index);
     const groups = new Map<ProviderName, EpisodeGroup>();
     const snapshot = () => ({ groups: sources.flatMap((source) => groups.has(source.provider) ? [groups.get(source.provider)!] : []) });
     for (const source of sources) {
@@ -58,7 +60,7 @@ export class CatalogService {
 
   async resolve(anime: AnimeResult, config: SourceConfig, update?: (value: CatalogProgress<AnimeResult>) => void) {
     const known = animeSources(anime);
-    const pending = new Set(PROVIDERS.filter((provider) => !known.some((source) => source.provider === provider)));
+    const pending = new Set(enabledProviders(config).filter((provider) => !known.some((source) => source.provider === provider)));
     const sources = [...known];
     const confirmed: string[] = [];
     const errors: Partial<Record<ProviderName, string>> = {};

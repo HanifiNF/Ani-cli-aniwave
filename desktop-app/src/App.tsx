@@ -18,11 +18,12 @@ import type {
 } from "../shared/contracts";
 import { catalogRequestId } from "./catalog-request";
 import { useEpisodeMetadata } from "./useEpisodeMetadata";
+import SourceStatusPanel from "./SourceStatusPanel";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
 import { applyAppIcon } from "./appIcon";
-import { animeSources, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, enabledProviders, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 import { Icon } from "./icons";
 
 type Screen = "home" | "series" | "saved" | "recent" | "settings" | "player";
@@ -40,7 +41,6 @@ type EpisodeFilter = "all" | "unwatched" | "watched";
 type EpisodeSort = "newest" | "oldest";
 
 const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
-const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb", "hianime"];
 const PROVIDER_ORDER: ProviderName[] = ["aniwave", "anidb", "hianime"];
 const HOME_CARDS = 8; // cards per row on the home screen; the full lists use the same column count
 
@@ -204,7 +204,7 @@ function App() {
   const [pendingSources, setPendingSources] = useState<ProviderName[]>([]);
 
   const catalogSearch = useAnimeSearch(query, "auto",
-    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl], screen === "home" && !composing);
+    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl, enabledProviders(appState.settings).join(",")], screen === "home" && !composing);
   const { results, lastQuery } = catalogSearch;
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
 
@@ -461,7 +461,7 @@ function App() {
   }, [screen, sourceScope]);
   useEffect(() => () => cancelSeries(), []);
 
-  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean; refresh?: boolean } = {}): Promise<boolean> {
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean; refresh?: boolean; checkNow?: boolean } = {}): Promise<boolean> {
     cancelSeries();
     const token = openToken.current;
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
@@ -480,11 +480,11 @@ function App() {
     let positioned = Boolean(options.refresh && selectedEpisodeId);
     let played = false;
     const known = new Set(animeSources(anime).map((source) => source.id));
-    const missing = PROVIDER_ORDER.filter((name) => !animeSources(anime).some((source) => source.provider === name));
+    const missing = enabledProviders(appState.settings).filter((name) => !animeSources(anime).some((source) => source.provider === name));
     setPendingSources(missing); setResolving(missing.length > 0);
     const request = async <T,>(purpose: string, operation: (request: import("../shared/contracts").CatalogRequest) => Promise<T>) => {
       const id = catalogRequestId(purpose); catalogTasks.current.add(id);
-      try { return await operation({ id, priority: "selected", refresh: options.refresh }); }
+      try { return await operation({ id, priority: "selected", refresh: options.refresh, checkNow: options.checkNow }); }
       finally { catalogTasks.current.delete(id); }
     };
     const position = (allowFallback = false) => {
@@ -556,7 +556,8 @@ function App() {
     try {
       const requestId = catalogRequestId("playback");
       playbackRequest.current = requestId;
-      const streams = await window.aniDesktop.streams(episode.id, playMode, { id: requestId, priority: "playback", refresh: refresh || (status?.phase === "failed" && status.episode.id === episode.id) });
+      const retry = refresh || (status?.phase === "failed" && status.episode.id === episode.id);
+      const streams = await window.aniDesktop.streams(episode.id, playMode, { id: requestId, priority: "playback", refresh: retry, checkNow: retry });
       if (playbackRequest.current === requestId) playbackRequest.current = undefined;
       if (token !== playToken.current) return;
       const stream = (quality === "best" ? undefined : streams.find((item) => item.quality === quality)) ?? streams[0];
@@ -990,10 +991,10 @@ function App() {
                 <div><small>Last source</small>{progress ? `${progress.lastProvider ?? providerOf(progress.animeId)} · ${progress.mode}` : "—"}</div>
                 <div><small>Plays in</small>{player}</div>
               </div>
-              {Object.entries(sourceErrors).map(([name, error]) => <div className="notice" key={name}>{name}: {error}</div>)}
+              {Object.entries(sourceErrors).map(([name, error]) => <div className="notice" key={name}>{name}: {error} <button type="button" className="link" onClick={() => void openAnime(selectedAnime, { refresh: true, checkNow: true })}>Check now</button></div>)}
               {episodeGroups.some((group) => group.refreshing) && <div className="notice" role="status">Showing cached episodes · refreshing sources</div>}
               {episodeGroups.filter((group) => group.error).map((group) => (
-                <div className="msg err" role="alert" key={group.provider}><b>{group.provider}</b> {group.error} <button type="button" className="link" onClick={() => void openAnime(selectedAnime, { refresh: true })}>retry</button></div>
+                <div className="msg err" role="alert" key={group.provider}><b>{group.provider}</b> {group.error} <button type="button" className="link" onClick={() => void openAnime(selectedAnime, { refresh: true, checkNow: true })}>Check now</button></div>
               ))}
               <div className="ep-head">
                 <h2>Episodes</h2>
@@ -1069,7 +1070,7 @@ function App() {
             <div className="group"><h3>Defaults</h3><div className="box">
               <div className="r"><span className="k">Quality</span><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div>
               <div className="r"><span className="k">Audio</span><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div>
-              <div className="r"><span className="k">Preferred playback source<small>Search always checks every provider. Auto uses the first available source.</small></span><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
+              <div className="r"><span className="k">Preferred playback source<small>Search always checks every provider. Auto uses the first available source.</small></span><Chips value={settingsDraft.preferredProvider} options={["auto", ...enabledProviders(settingsDraft)] as ProviderPreference[]} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
             </div></div>
             <div className="group"><h3>Appearance</h3><div className="box">
               <div className="r"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="chips" role="radiogroup" aria-label="theme">
@@ -1095,12 +1096,9 @@ function App() {
                 </span></div>
               )}
             </div></div>
-            <div className="group"><h3>Sources</h3><div className="box">
-              <div className="r"><label htmlFor="aniwave" className="k">aniwave address</label><input id="aniwave" value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></div>
-              <div className="r"><label htmlFor="anidb" className="k">anidb address</label><input id="anidb" value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></div>
-              <div className="r"><label htmlFor="hianime" className="k">hianime address</label><input id="hianime" value={settingsDraft.hianimeBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, hianimeBaseUrl: event.target.value })} /></div>
-              <div className="r"><span className="k">Source links<small>{(appState.providerLinks ?? []).length} remembered {(appState.providerLinks ?? []).length === 1 ? "match" : "matches"} between providers. Forget them if a series shows the wrong records together</small></span><button type="button" className="btn small" disabled={!(appState.providerLinks ?? []).length} onClick={() => void clearSourceLinks()}>forget source links</button></div>
-            </div></div>
+            <SourceStatusPanel saved={appState.settings} draft={settingsDraft} onChange={setSettingsDraft}>
+              <div className="r"><span className="k">Source links<small>{(appState.providerLinks ?? []).length} remembered {(appState.providerLinks ?? []).length === 1 ? "match" : "matches"} between providers. Forget them if a series shows the wrong records together</small></span><button type="button" className="btn small" disabled={!(appState.providerLinks ?? []).length} onClick={() => void clearSourceLinks()}>forget links</button></div>
+            </SourceStatusPanel>
             <div className="acts-row"><button type="button" className="btn" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
           </form>
         )}

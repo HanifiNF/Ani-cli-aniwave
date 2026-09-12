@@ -30,7 +30,10 @@ The renderer now follows atsu.moe. `atsu.html` holds the mockups; `shots/atsu-*.
   The search palette has no source control; the search scope is the Source setting. Settings also offers "forget
   source links" for when a series shows the wrong records together. The manual "merge" action remains for anything
   the matcher misses.
-- Saved and recent: full card grids filtered by the pill. Settings: grouped cards. The key-hint footer is gone; `?`
+- Saved and recent: full card grids filtered by the pill. Settings: grouped cards. The Sources group is one row per
+  provider: a status dot with the name and a one-line state on the left, the address in a fixed middle column, and a
+  single Check now / Retry button and an on/off switch on the right (`sources-settings.html`, variant B, chosen
+  September 13 2026). A source that is off dims and is left out of search, lookup, and episode loading. The key-hint footer is gone; `?`
   shows a hint pill.
 - Type is the system sans-serif (Inter when installed); Fragment Mono is no longer bundled. Themes are unchanged.
 

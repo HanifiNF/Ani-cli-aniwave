@@ -51,6 +51,8 @@ describe("episode metadata lifecycle", () => {
     await act(async () => container.querySelector("button")!.click());
     expect(availability.mock.calls.at(-1)?.[1]?.refresh).toBe(true);
     expect(streams.mock.calls.at(-1)?.[2]?.refresh).toBe(true);
+    expect(availability.mock.calls.at(-1)?.[1]?.checkNow).toBe(true);
+    expect(streams.mock.calls.at(-1)?.[2]?.checkNow).toBe(true);
     expect(container.textContent).toContain("720p");
   });
   it("does not resolve video hosts when the requested audio is unavailable", async () => {
@@ -87,6 +89,8 @@ describe("episode metadata lifecycle", () => {
     expect(clearMetadata).toHaveBeenCalledWith(["aniwave:1:1"]);
     expect(availability.mock.calls.at(-1)?.[1]?.refresh).toBe(true);
     expect(streams.mock.calls.at(-1)?.[2]?.refresh).toBe(true);
+    expect(availability.mock.calls.at(-1)?.[1]?.checkNow).toBe(false);
+    expect(streams.mock.calls.at(-1)?.[2]?.checkNow).toBe(false);
     expect(container.textContent).toContain("1080p");
   });
   it("ignores a cached read completed after leaving the series", async () => {

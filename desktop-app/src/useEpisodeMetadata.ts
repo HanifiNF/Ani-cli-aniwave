@@ -22,6 +22,7 @@ export function useEpisodeMetadata(list: RefObject<HTMLDivElement | null>, enabl
   const cache = useRef(new Map<string, EpisodeMetadata>());
   const tasks = useRef(new Map<string, Task>());
   const forced = useRef(new Set<string>());
+  const recoveryChecks = useRef(new Set<string>());
   const clearing = useRef(false);
   const keyFor = (id: string) => JSON.stringify([scope, id, mode]);
   const idsKey = ids.join("|");
@@ -61,6 +62,7 @@ export function useEpisodeMetadata(list: RefObject<HTMLDivElement | null>, enabl
       const task: Task = { key, requests: new Set(), cancelled: false };
       tasks.current.set(key, task);
       const refresh = forced.current.delete(key);
+      const checkNow = recoveryChecks.current.delete(key);
       const publish = (value: EpisodeMetadata) => {
         if (task.cancelled) return;
         setValues((current) => ({ ...current, [key]: value }));
@@ -75,7 +77,7 @@ export function useEpisodeMetadata(list: RefObject<HTMLDivElement | null>, enabl
       };
       const request = async <T,>(purpose: string, operation: (request: import("../shared/contracts").CatalogRequest) => Promise<T>, priority: "selected" | "visible" | "nearby") => {
         const requestId = catalogRequestId(purpose); task.requests.add(requestId);
-        try { return await operation({ id: requestId, priority, refresh }); }
+        try { return await operation({ id: requestId, priority, refresh, checkNow }); }
         finally { task.requests.delete(requestId); }
       };
       publish({ ...cached, phase: "audio", at: Date.now() });
@@ -115,7 +117,7 @@ export function useEpisodeMetadata(list: RefObject<HTMLDivElement | null>, enabl
     retry: (id: string) => {
       const key = keyFor(id), task = tasks.current.get(key);
       if (task) stop(task);
-      forced.current.add(key); setRevision((value) => value + 1);
+      forced.current.add(key); recoveryChecks.current.add(key); setRevision((value) => value + 1);
     },
     refresh: async (episodeIds = ids) => {
       clearing.current = true;

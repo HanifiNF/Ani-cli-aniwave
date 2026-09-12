@@ -94,6 +94,16 @@ describe("StateStore", () => {
     expect(store.snapshot().history).toHaveLength(0);
   });
 
+  it("keeps at least one source on and drops unknown or preferred-but-off sources", async () => {
+    const settings = store.snapshot().settings;
+    await expect(store.saveSettings({ ...settings, disabledSources: ["aniwave", "anidb", "hianime"] })).rejects.toThrow(/at least one source/i);
+    const saved = await store.saveSettings({ ...settings, preferredProvider: "anidb", disabledSources: ["anidb", "bogus" as never] });
+    expect(saved.settings.disabledSources).toEqual(["anidb"]);
+    expect(saved.settings.preferredProvider).toBe("auto");
+    const reloaded = new StateStore(join(directory, "state.json")); await reloaded.load();
+    expect(reloaded.snapshot().settings.disabledSources).toEqual(["anidb"]);
+  });
+
   it("validates themes when saving settings", async () => {
     const settings = store.snapshot().settings;
     await expect(store.saveSettings({ ...settings, theme: "custom", customTheme: { background: "#1F2023", text: "#EDEDEE", highlight: "not-a-colour" } })).rejects.toThrow(/highlight/);

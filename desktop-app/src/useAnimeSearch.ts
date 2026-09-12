@@ -56,9 +56,10 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
 
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const execute = () => {
+    const execute = (manual = false) => {
       if (started) return;
       started = true;
+      const checkNow = forceNext.current || (manual && latest.current.key === key && latest.current.phase === "error");
       const refresh = forceNext.current || latest.current.phase === "error"; forceNext.current = false;
       clearTimeout(timer);
       setState((previous) => ({ ...previous, key, phase: "loading", error: undefined }));
@@ -66,7 +67,7 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
       if (!request) {
         requestId = catalogRequestId("search");
         let providerFailed = false;
-        request = Promise.resolve().then(() => window.aniDesktop.search(cleaned, provider, { id: requestId!, priority: "selected", refresh }, (progress) => {
+        request = Promise.resolve().then(() => window.aniDesktop.search(cleaned, provider, { id: requestId!, priority: "selected", refresh, checkNow }, (progress) => {
           providerFailed = Object.keys(progress.errors).length > 0;
           if (generation.current === token) setState({ results: progress.value, lastQuery: cleaned, key, phase: "loading", providerErrors: Object.entries(progress.errors).map(([name, error]) => `${name}: ${error}`) });
         }));
@@ -84,8 +85,8 @@ export function useAnimeSearch(query: string, provider: ProviderPreference, sour
         }
       });
     };
-    if (scheduled) timer = setTimeout(execute, DEBOUNCE_MS);
-    flush.current = execute;
+    if (scheduled) timer = setTimeout(() => execute(), DEBOUNCE_MS);
+    flush.current = () => execute(true);
     return () => {
       clearTimeout(timer);
       invalidate();

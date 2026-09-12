@@ -1,12 +1,15 @@
 import { catalogContext, catalogRequests, CatalogNetworkError } from "./catalog-requests";
 import type { AnimeResult, Episode, EpisodeCatalog, EpisodeAvailability, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
-import { animeSources, sourceMatch, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, sourceMatch, unifyAnimeResults, enabledProviders } from "../shared/catalog";
 import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl" | "hianimeBaseUrl">;
+export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl" | "hianimeBaseUrl" | "disabledSources">;
 const HIANIME_API_BASE = "https://animehot.cc/api";
+export function providerOrigin(provider: ProviderName, config: SourceConfig): string {
+  return new URL(provider === "hianime" ? HIANIME_API_BASE : provider === "aniwave" ? config.aniwaveBaseUrl : config.anidbBaseUrl).origin;
+}
 
 function sourceBase(value: string): string {
   const url = new URL(value);
@@ -18,10 +21,18 @@ function absolute(value: string, relativeTo: string): string {
   if (!/^https?:$/.test(url.protocol)) throw new Error("Unsupported source URL");
   return url.toString();
 }
+export function retryAfterDelay(value: string | null, now = Date.now()): number {
+  if (!value?.trim()) return 0;
+  const clean = value.trim();
+  const delay = /^\d+$/.test(clean) ? Number(clean) * 1000 : Date.parse(clean) - now;
+  return Number.isFinite(delay) ? Math.max(0, delay) : 0;
+}
+
 async function responseBody(url: string, label: string, accept: string, referrer?: string, body?: unknown): Promise<string> {
   const context = catalogContext.getStore();
-  const execute = async (signal?: AbortSignal) => {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+  const execute = async (signal?: AbortSignal, recovery = false) => {
+    const attempts = recovery ? 1 : 2;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       signal?.throwIfAborted();
       if (attempt > 0) await new Promise<void>((resolve, reject) => {
         const abort = () => { clearTimeout(timer); reject(signal?.reason); };
@@ -38,7 +49,8 @@ async function responseBody(url: string, label: string, accept: string, referrer
         if (response.ok) return await response.text();
         await response.body?.cancel();
         if (response.status !== 429 && response.status < 500) throw new Error(`${label} failed (${response.status})`);
-        if (attempt === 1) throw new CatalogNetworkError(`${label} failed (${response.status})`);
+        const retryAfter = retryAfterDelay(response.headers.get("retry-after"));
+        if (response.status === 429 || retryAfter > 0 || attempt === attempts - 1) throw new CatalogNetworkError(`${label} failed (${response.status})`, retryAfter);
       } catch (error) {
         if (signal?.aborted) throw signal.reason;
         if (error instanceof TypeError || (error instanceof Error && error.name === "TimeoutError")) throw new CatalogNetworkError(`${label}: ${error.message}`);
@@ -49,7 +61,7 @@ async function responseBody(url: string, label: string, accept: string, referrer
   };
   if (!context) return execute();
   const ttl = /search|server lookup|stream lookup/.test(label) ? 60_000 : /episode lookup/.test(label) ? 30_000 : 20_000;
-  return catalogRequests.read(JSON.stringify([url, accept, referrer, body]), new URL(url).host, ttl, execute, context);
+  return catalogRequests.read(JSON.stringify([url, accept, referrer, body]), new URL(url).origin, ttl, execute, context);
 }
 const fetchText = (url: string, label: string, referrer?: string) => responseBody(url, label, "text/html,application/json;q=0.9,*/*;q=0.8", referrer);
 const fetchJson = async (url: string, label: string, referrer?: string): Promise<unknown> => JSON.parse(await responseBody(url, label, "application/json", referrer));
@@ -80,9 +92,10 @@ export async function searchAnime(query: string, config: SourceConfig, requested
   if (!cleaned) return [];
   if (cleaned.length > 120) throw new Error("Search query is too long");
   const preference = requested ?? config.preferredProvider;
-  if (preference !== "auto") return searchOne(cleaned, preference, config);
+  const providers = enabledProviders(config);
+  if (preference !== "auto" && providers.includes(preference)) return searchOne(cleaned, preference, config);
   const partial: AnimeResult[] = [];
-  const settled = await Promise.allSettled(ALL_PROVIDERS.map(async (provider) => {
+  const settled = await Promise.allSettled(providers.map(async (provider) => {
     const hits = await searchOne(cleaned, provider, config);
     partial.push(...hits); onUpdate?.(unifyAnimeResults(partial, links));
     return hits;
@@ -94,7 +107,6 @@ export async function searchAnime(query: string, config: SourceConfig, requested
   return unifyAnimeResults(found, links);
 }
 
-const ALL_PROVIDERS: readonly ProviderName[] = ["aniwave", "anidb", "hianime"];
 const RESOLVE_QUERIES = 3;
 
 /** Find the anime on every provider it is not yet known on. Each provider is searched with the title and aliases
@@ -102,7 +114,7 @@ const RESOLVE_QUERIES = 3;
  *  return no convincing hit are simply left out. */
 export async function resolveSources(anime: AnimeResult, config: SourceConfig): Promise<{ anime: AnimeResult; confirmed: string[] }> {
   const known = animeSources(anime);
-  const missing = ALL_PROVIDERS.filter((provider) => !known.some((source) => source.provider === provider));
+  const missing = enabledProviders(config).filter((provider) => !known.some((source) => source.provider === provider));
   if (missing.length === 0) return { anime, confirmed: [] };
   const found = await Promise.all(missing.map(async (provider) => {
     try { return await resolveSource(anime, provider, config); } catch { return undefined; }

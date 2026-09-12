@@ -1,7 +1,7 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
 import type { AniDesktopApi, AniPlayerApi, AnimeResult, AnimeSource, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
-import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults, enabledProviders } from "../shared/catalog";
 import { THEME_PRESETS } from "../shared/theme";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
@@ -79,12 +79,17 @@ const player: AniPlayerApi = {
 export function installDevApi(): void {
   const api: AniDesktopApi = {
     player,
-    async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : unifyAnimeResults(results, state.providerLinks ?? []); },
+    async search(query) {
+      await wait(400);
+      const enabled = enabledProviders(state.settings);
+      return query.toLowerCase().includes("nothing") ? [] : unifyAnimeResults(results.filter((hit) => enabled.includes(hit.provider)), state.providerLinks ?? []);
+    },
     async resolveSources(raw) {
       await wait(900);
       const anime = expandWithLinks(raw, state.providerLinks ?? []);
       const known = animeSources(anime);
-      const extra = known.flatMap((source) => elsewhere[source.id] ?? []).filter((source) => !known.some((item) => item.provider === source.provider));
+      const enabled = enabledProviders(state.settings);
+      const extra = known.flatMap((source) => elsewhere[source.id] ?? []).filter((source) => enabled.includes(source.provider) && !known.some((item) => item.provider === source.provider));
       if (extra.length === 0) return anime;
       const sources = [...known, ...extra];
       state.providerLinks = [...(state.providerLinks ?? []), sources.map((source) => source.id)];
@@ -92,12 +97,15 @@ export function installDevApi(): void {
     },
     async episodes(anime) {
       await wait(300);
-      return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => source.id.includes("mahou")
+      const enabled = enabledProviders(state.settings);
+      return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).filter((source) => enabled.includes(source.provider)).map((source) => source.id.includes("mahou")
         ? { provider: source.provider, episodes: [], error: "AniDB episode lookup failed (503)" }
         : { provider: source.provider, episodes: Array.from({ length: source.provider === "aniwave" ? 28 : 24 }, (_, index): Episode => ({ id: `${source.id}:${index + 1}`, number: String(index + 1), provider: source.provider })) }) };
     },
     async episodeMetadata() { return undefined; },
     async clearEpisodeMetadata() {},
+    async sourceStatus() { return (["aniwave", "anidb", "hianime"] as const).map((provider) => ({ provider, origin: `https://${provider}.example`, state: "unknown" as const, canRetry: true })); },
+    async checkSource() { await wait(300); },
     cancelCatalog() {},
     async availability() { await wait(150); return { sub: true, dub: true, checkedAt: Date.now() }; },
     async streams(episodeId, mode) {

@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type AnimeSource, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type ProviderName, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
-import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
+import { PROVIDER_NAMES, animeSources, isProviderName, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
 
 const defaults: PersistedState = {
@@ -39,6 +39,7 @@ function normalizePoster(value: unknown): string | undefined {
   }
 }
 
+const normalizeDisabledSources = (value: unknown): ProviderName[] => Array.isArray(value) ? PROVIDER_NAMES.filter((provider) => value.includes(provider)) : [];
 const normalizeCorner = (value: unknown): MiniPlayerCorner => (MINI_PLAYER_CORNERS as readonly unknown[]).includes(value) ? value as MiniPlayerCorner : "bottom-right";
 
 const HIANIME_SLUG = "[\\p{L}\\p{N}:!'().,_+~-]+(?:-[\\p{L}\\p{N}:!'().,_+~-]+)*";
@@ -127,6 +128,7 @@ export class StateStore {
           miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
           miniPlayerWidth: clampMiniPlayerWidth(settings.miniPlayerWidth),
           playerDiagnostics: settings.playerDiagnostics === true,
+          disabledSources: normalizeDisabledSources(settings.disabledSources),
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
         }
@@ -170,6 +172,8 @@ export class StateStore {
     if (settings.playbackTarget === "external" && !settings.playerPath.trim()) throw new Error("External player path cannot be empty");
     if (!isThemePreset(settings.theme)) throw new Error("Unknown theme");
     if (!["auto", "aniwave", "anidb", "hianime"].includes(settings.preferredProvider)) throw new Error("Unknown source provider");
+    const disabledSources = normalizeDisabledSources(settings.disabledSources);
+    if (disabledSources.length >= PROVIDER_NAMES.length) throw new Error("At least one source must stay on");
     const custom = settings.customTheme ?? {};
     for (const key of ["background", "text", "highlight"] as const) {
       if (!isHexColor(custom[key])) throw new Error(`Custom ${key} colour must be a hex value like #1F2023`);
@@ -184,7 +188,9 @@ export class StateStore {
       playerDiagnostics: settings.playerDiagnostics === true,
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",
-      preferredProvider: settings.preferredProvider,
+      // A preferred source that is switched off would search nothing, so it falls back to auto.
+      preferredProvider: isProviderName(settings.preferredProvider) && disabledSources.includes(settings.preferredProvider) ? "auto" : settings.preferredProvider,
+      disabledSources,
       aniwaveBaseUrl: normalizeSource(settings.aniwaveBaseUrl, "AniWave"),
       anidbBaseUrl: normalizeSource(settings.anidbBaseUrl, "AniDB"),
       hianimeBaseUrl: normalizeSource(settings.hianimeBaseUrl, "HiAnime"),

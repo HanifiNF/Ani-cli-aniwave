@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getEpisodes, getStreams, resolveSources, searchAnime, type SourceConfig } from "../electron/scraper";
+import { getEpisodes, getStreams, resolveSources, retryAfterDelay, searchAnime, searchOne, type SourceConfig } from "../electron/scraper";
+import { catalogContext, catalogRequests } from "../electron/catalog-requests";
 
 const config: SourceConfig = {
   preferredProvider: "auto",
@@ -11,7 +12,7 @@ const config: SourceConfig = {
 const aniwaveHtml = `<div class="item"><a href="/watch/re-zero-season-4-101"><img src="https://img.test/re-zero.jpg"></a><a class="name d-title" href="/watch/re-zero-season-4-101" data-jp="Re:Zero kara Hajimeru Isekai Seikatsu 4th Season">Re:ZERO Starting Life in Another World Season 4</a></div>`;
 const anidbHtml = `<a href="/anime/re-zero-season-4-202"><img src="https://img.test/re-zero.jpg" alt="Re:ZERO Starting Life in Another World Season 4"></a>`;
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("multi-source scraper", () => {
   it("combines matching results returned by both providers", async () => {
@@ -151,6 +152,51 @@ describe("multi-source scraper", () => {
   it("rejects unsupported HiAnime video hosts", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ episode: { link: { sub: ["https://unknown.test/embed"] } } }), { status: 200, headers: { "content-type": "application/json" } })));
     await expect(getStreams("hianime:naruto-episode-1-aaa111", "sub", config)).rejects.toThrow("unsupported host unknown.test");
+  });
+});
+
+describe("source recovery HTTP policy", () => {
+  it("parses Retry-After seconds and dates and ignores invalid or past values", () => {
+    const now = Date.UTC(2026, 8, 13);
+    expect(retryAfterDelay("120", now)).toBe(120_000);
+    expect(retryAfterDelay(new Date(now + 60_000).toUTCString(), now)).toBe(60_000);
+    expect(retryAfterDelay(new Date(now - 1000).toUTCString(), now)).toBe(0);
+    expect(retryAfterDelay("invalid", now)).toBe(0);
+    expect(retryAfterDelay(null, now)).toBe(0);
+  });
+
+  it("waits on rate limits, keeps refresh protected, and sends only one HTTP request for recovery", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async () => new Response("busy", { status: 429, headers: { "Retry-After": "60" } }));
+    vi.stubGlobal("fetch", fetch);
+    const testConfig = { ...config, aniwaveBaseUrl: "https://rate-limit.test" };
+    const request = (refresh = false, checkNow = false) => catalogContext.run({ signal: new AbortController().signal, scope: "rate-limit", priority: 2, refresh,
+      recoveryChecks: checkNow ? new Set() : undefined }, () => searchOne("test", "aniwave", testConfig));
+    await expect(request()).rejects.toThrow("429");
+    await expect(request(true, true)).rejects.toThrow("Source asked us to wait");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    fetch.mockImplementation(async () => new Response("offline", { status: 503 }));
+    await expect(request()).rejects.toThrow("503");
+    expect(fetch).toHaveBeenCalledTimes(2); // The probe has no internal HTTP retry.
+    await expect(request(true)).rejects.toThrow("paused");
+    fetch.mockImplementation(async () => new Response(aniwaveHtml));
+    expect(await request(true, true)).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("backs off after a timeout without treating a missing record as a source outage", async () => {
+    const fetch = vi.fn(async () => { throw new DOMException("Timed out", "TimeoutError"); });
+    vi.stubGlobal("fetch", fetch);
+    const testConfig = { ...config, aniwaveBaseUrl: "https://timeout.test" };
+    const request = () => catalogContext.run({ signal: new AbortController().signal, scope: "timeout", priority: 2 }, () => searchOne("test", "aniwave", testConfig));
+    await expect(request()).rejects.toThrow("Timed out");
+    await expect(request()).rejects.toThrow("paused");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("missing", { status: 404 })));
+    await expect(catalogContext.run({ signal: new AbortController().signal, scope: "missing", priority: 2 },
+      () => searchOne("test", "aniwave", { ...config, aniwaveBaseUrl: "https://missing.test" }))).rejects.toThrow("404");
+    expect(catalogRequests.health.blocked("https://missing.test", false)).toBeUndefined();
   });
 });
 

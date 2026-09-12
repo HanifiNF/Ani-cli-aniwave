@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogService } from "../electron/catalog-service";
 import { getProviderEpisodes, resolveSource, searchOne } from "../electron/scraper";
 import type { AnimeResult, CatalogProgress, EpisodeCatalog } from "../shared/contracts";
+import { animeSources } from "../shared/catalog";
 vi.mock("../electron/scraper", () => ({ getProviderEpisodes: vi.fn(), resolveSource: vi.fn(), searchOne: vi.fn() }));
 const config = { preferredProvider: "auto" as const, aniwaveBaseUrl: "https://a.test", anidbBaseUrl: "https://b.test", hianimeBaseUrl: "https://c.test" };
 const source = (provider: "aniwave" | "anidb" | "hianime") => ({ id: `${provider}:frieren-1`, provider, title: "Frieren", aliases: ["Frieren"] });
@@ -18,6 +19,21 @@ describe("incremental catalog delivery", () => {
     expect(updates.at(-1)?.value).toHaveLength(1);
     expect(updates.at(-1)?.pending).toEqual(["anidb"]);
     slow.resolve([]); expect(await result).toHaveLength(1);
+  });
+
+  it("leaves switched-off sources out of search, lookup, and episode loading", async () => {
+    const off = { ...config, disabledSources: ["anidb" as const] };
+    vi.mocked(searchOne).mockImplementation(async (_query, provider) => [{ ...source(provider) }]);
+    const hits = await new CatalogService().search("Frieren", off, "anidb");
+    expect(hits.flatMap((hit) => animeSources(hit).map((item) => item.provider)).sort()).toEqual(["aniwave", "hianime"]);
+    expect(vi.mocked(searchOne).mock.calls.map((call) => call[1])).not.toContain("anidb");
+    vi.mocked(resolveSource).mockResolvedValue(undefined);
+    const updates: CatalogProgress<AnimeResult>[] = [];
+    await new CatalogService().resolve({ ...anime, sources: [source("aniwave")] }, off, (value) => updates.push(value));
+    expect(updates[0].pending).toEqual(["hianime"]);
+    vi.mocked(getProviderEpisodes).mockResolvedValue([]);
+    const catalog = await new CatalogService().episodes({ ...anime, sources: [source("aniwave"), source("anidb")] }, off);
+    expect(catalog.groups.map((group) => group.provider)).toEqual(["aniwave"]);
   });
 
   it("delivers each episode group independently and preserves cached episodes when refresh fails", async () => {
