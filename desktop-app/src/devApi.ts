@@ -96,6 +96,8 @@ export function installDevApi(): void {
         ? { provider: source.provider, episodes: [], error: "AniDB episode lookup failed (503)" }
         : { provider: source.provider, episodes: Array.from({ length: source.provider === "aniwave" ? 28 : 24 }, (_, index): Episode => ({ id: `${source.id}:${index + 1}`, number: String(index + 1), provider: source.provider })) }) };
     },
+    async episodeMetadata() { return undefined; },
+    async clearEpisodeMetadata() {},
     cancelCatalog() {},
     async availability() { await wait(150); return { sub: true, dub: true, checkedAt: Date.now() }; },
     async streams(episodeId, mode) {

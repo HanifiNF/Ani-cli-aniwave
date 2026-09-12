@@ -87,7 +87,9 @@ The Electron main process shares in-flight HTTP requests and caches their respon
 
 Background traffic is limited to five active requests overall and two per host. Playback can use a reserved sixth slot and a third request to a host. Queued playback requests take priority. Cancellation releases an individual consumer; shared upstream work stops only when its last consumer leaves. Rate limits, server failures, and network failures trigger a 10-second host cooldown after the request fails. Explicit retries bypass it.
 
-Renderer metadata is keyed by source configuration, provider episode ID, and audio mode. It expires after 60 seconds (10 seconds for failures), is bounded to 1,000 completed entries, and stops loading when the associated rows leave the active view. Raw playable URLs stay in the short-lived main-process response cache rather than the UI metadata cache.
+Episode audio availability and best resolution are saved to `episode-metadata.json` in Electron's user-data directory, keyed by source configuration and provider episode ID, with separate sub/dub resolutions. Successful resolutions and complete audio availability remain fresh for 24 hours. Missing audio or resolution is checked again after 15 minutes, so newly added versions can appear sooner. Fresh metadata restores without provider requests; expired metadata remains visible during viewport-driven refresh, including when a provider fails. Entries expire entirely after seven days, with a limit of 5,000 episodes. Writes are batched and atomic, and a damaged cache is rebuilt automatically.
+
+The renderer holds up to 1,000 completed metadata entries and pauses failed lookups for 10 seconds. Work stops when rows leave the active view. **Refresh sources** clears metadata for the current series across both audio modes and forces new requests; **Retry info** forces another lookup for that row. Playback resolutions also update the metadata cache. Playable URLs continue using the short-lived memory cache and are resolved separately when playback starts.
 
 ## Checks
 

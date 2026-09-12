@@ -1,5 +1,7 @@
 import { CatalogService, catalogScope } from "./catalog-service";
 import { catalogContext } from "./catalog-requests";
+import { EpisodeMetadataCache } from "./episode-metadata-cache";
+import { availabilityFresh } from "../shared/episode-metadata";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -27,6 +29,7 @@ let playerActive = false;
 const playbackSessions = new Map<string, PlayRequest>();
 let store: StateStore;
 let diagnostics: PlayerDiagnostics;
+let episodeMetadata: EpisodeMetadataCache;
 let refreshMenu: () => void = () => undefined;
 // In-memory partition: stream segments never reach the disk cache, and the renderer gets no permissions.
 const APP_PARTITION = "ani-desktop";
@@ -218,8 +221,30 @@ function registerIpc(): void {
     if (confirmed.length) await store.linkSources([...animeSources(linked).map((source) => source.id), ...confirmed], resolved.sources ?? []);
     return resolved;
   }));
-  ipcMain.handle("catalog:streams", (event, episodeId: string, mode: TranslationMode, request?: CatalogRequest) => catalogCall(event, request, () => getStreams(episodeId, mode, store.snapshot().settings)));
-  ipcMain.handle("catalog:availability", (event, episodeId: string, request?: CatalogRequest) => catalogCall(event, request, () => getAvailability(episodeId, store.snapshot().settings)));
+  ipcMain.handle("catalog:metadata", (event, episodeId: string) => {
+    assertPlayerSender(mainWindow, event);
+    if (typeof episodeId !== "string" || episodeId.length > 2048) throw new Error("Invalid episode identifier");
+    return episodeMetadata.get(catalogScope(store.snapshot().settings), episodeId);
+  });
+  ipcMain.handle("catalog:metadata-clear", (event, ids: string[]) => {
+    assertPlayerSender(mainWindow, event);
+    if (!Array.isArray(ids) || ids.length > 20_000 || ids.some((id) => typeof id !== "string" || id.length > 2048)) throw new Error("Invalid episode identifiers");
+    return episodeMetadata.clear(catalogScope(store.snapshot().settings), ids);
+  });
+  ipcMain.handle("catalog:streams", (event, episodeId: string, mode: TranslationMode, request?: CatalogRequest) => catalogCall(event, request, async () => {
+    const settings = store.snapshot().settings, scope = catalogScope(settings), generation = episodeMetadata.generation;
+    const streams = await getStreams(episodeId, mode, settings);
+    if (!catalogContext.getStore()?.signal?.aborted && generation === episodeMetadata.generation) episodeMetadata.recordStreams(scope, episodeId, mode, streams);
+    return streams;
+  }));
+  ipcMain.handle("catalog:availability", (event, episodeId: string, request?: CatalogRequest) => catalogCall(event, request, async () => {
+    const settings = store.snapshot().settings, scope = catalogScope(settings), generation = episodeMetadata.generation;
+    const cached = episodeMetadata.get(scope, episodeId)?.availability;
+    if (!request?.refresh && availabilityFresh(cached)) return cached!;
+    const availability = await getAvailability(episodeId, settings);
+    if (!catalogContext.getStore()?.signal?.aborted && generation === episodeMetadata.generation) episodeMetadata.recordAvailability(scope, episodeId, availability);
+    return availability;
+  }));
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", async (_event, settings: Settings) => {
     const state = await store.saveSettings(settings);
@@ -293,6 +318,8 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  episodeMetadata = new EpisodeMetadataCache(join(app.getPath("userData"), "episode-metadata.json"));
+  await episodeMetadata.load();
   diagnostics = new PlayerDiagnostics(join(app.getPath("userData"), "logs"));
   diagnostics.setEnabled(store.snapshot().settings.playerDiagnostics === true);
   app.setName("Ani Desktop");
@@ -331,5 +358,5 @@ app.on("before-quit", (event) => {
   flushingDiagnostics = true;
   event.preventDefault();
   const timeout = setTimeout(() => app.quit(), 2000);
-  void diagnostics.close().then(() => { clearTimeout(timeout); app.quit(); });
+  void Promise.allSettled([diagnostics.close(), episodeMetadata.flush()]).then(() => { clearTimeout(timeout); app.quit(); });
 });

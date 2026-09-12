@@ -998,7 +998,12 @@ function App() {
               ))}
               <div className="ep-head">
                 <h2>Episodes</h2>
-                <button type="button" className="btn small" onClick={() => { if (selectedAnime) void openAnime(selectedAnime, { refresh: true }); }}>Refresh sources</button>
+                <button type="button" className="btn small" onClick={() => {
+                  if (selectedAnime) {
+                    void metadata.refresh(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.id))).catch((error) => setError(messageFrom(error)));
+                    void openAnime(selectedAnime, { refresh: true });
+                  }
+                }}>Refresh sources</button>
                 <Chips value={episodeFilter} options={["all", "unwatched", "watched"] as const} onChange={(value) => reorder(value, episodeSort)} names={{ all: "All", unwatched: "Unwatched", watched: "Watched" }} />
                 <label className="jump"><Icon name="search" /><input value={jump} onChange={(event) => jumpTo(event.target.value)} placeholder="Jump to" aria-label="Jump to episode" inputMode="numeric" /></label>
                 <span className="sort" role="radiogroup" aria-label="Sort">

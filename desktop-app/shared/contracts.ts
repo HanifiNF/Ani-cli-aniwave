@@ -48,6 +48,11 @@ export interface CatalogRequest { id: string; priority?: "playback" | "selected"
 export interface CatalogProgress<T> { value: T; pending: ProviderName[]; errors: Partial<Record<ProviderName, string>>; }
 /** Availability advertised by a supported provider server; playback is verified separately. */
 export interface EpisodeAvailability { sub: boolean; dub: boolean; checkedAt: number; }
+export interface EpisodeQuality { quality?: string; checkedAt: number; }
+export interface CachedEpisodeMetadata {
+  availability?: EpisodeAvailability;
+  qualities: Partial<Record<TranslationMode, EpisodeQuality>>;
+}
 
 export interface ProviderProgress {
   lastEpisode: string;
@@ -149,6 +154,8 @@ export interface AniDesktopApi {
   resolveSources(anime: AnimeResult, request?: CatalogRequest, onUpdate?: (progress: CatalogProgress<AnimeResult>) => void): Promise<AnimeResult>;
   streams(episodeId: string, mode: TranslationMode, request?: CatalogRequest): Promise<Stream[]>;
   availability(episodeId: string, request?: CatalogRequest): Promise<EpisodeAvailability>;
+  episodeMetadata(episodeId: string): Promise<CachedEpisodeMetadata | undefined>;
+  clearEpisodeMetadata(episodeIds: string[]): Promise<void>;
   cancelCatalog(requestId: string): void;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
