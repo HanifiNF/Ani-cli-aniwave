@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type Settings, type PlayRequest } from "../shared/contracts";
+import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type AnimeSource, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type ProviderName, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
 import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
 import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
@@ -45,7 +45,7 @@ const HIANIME_SLUG = "[\\p{L}\\p{N}:!'().,_+~-]+(?:-[\\p{L}\\p{N}:!'().,_+~-]+)*
 const isProviderId = (id: unknown): id is string => typeof id === "string" && (
   id.length <= 512 && (/^(?:aniwave|anidb):[a-z0-9-]+-\d+$/i.test(id) || new RegExp(`^hianime:${HIANIME_SLUG}$`, "u").test(id))
 );
-const providerForId = (id: string) => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
+const providerForId = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!isProviderId(entry.animeId) && !/^[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
@@ -219,7 +219,9 @@ export class StateStore {
     const historyEntry = this.state.history.find((item) => overlaps(item, entry));
     const known = entry.poster ?? historyEntry?.poster ?? this.state.bookmarks[bookmarkIndex]?.poster;
     let merged = known ? { ...entry, poster: known } : entry;
+    // Combining keeps sources gathered earlier, whether the anime sits in history or only among bookmarks.
     if (historyEntry) merged = combineEntries(historyEntry, merged);
+    else if (bookmarkIndex >= 0) merged = combineEntries(this.state.bookmarks[bookmarkIndex], merged);
     this.state.history = [merged, ...this.state.history.filter((item) => !overlaps(item, entry))].slice(0, 100);
     if (bookmarkIndex >= 0) this.state.bookmarks[bookmarkIndex] = merged;
     await this.persist();
@@ -262,13 +264,27 @@ export class StateStore {
     return this.snapshot();
   }
 
-  async linkSources(ids: string[]): Promise<PersistedState> {
+  async linkSources(ids: string[], sources: AnimeSource[] = []): Promise<PersistedState> {
     const unique = [...new Set(ids.filter(isProviderId))];
     if (unique.length < 2) return this.snapshot();
     const links = this.state.providerLinks ?? [];
     const touching = links.filter((group) => group.some((id) => unique.includes(id)));
     const combined = [...new Set([...unique, ...touching.flat()])];
     this.state.providerLinks = [...links.filter((group) => !touching.includes(group)), combined];
+    // Library entries for this anime learn the linked records too, so opening them later starts with every source.
+    const attach = (entry: LibraryEntry): LibraryEntry => {
+      const known = animeSources(entry);
+      if (!known.some((source) => combined.includes(source.id))) return entry;
+      const merged = [...known];
+      for (const id of combined) {
+        if (merged.some((source) => source.id === id)) continue;
+        const source = sources.find((item) => item.id === id) ?? { id, provider: providerForId(id), title: entry.title, aliases: [entry.title] };
+        if (!merged.some((item) => item.provider === source.provider)) merged.push(source);
+      }
+      return merged.length > known.length ? { ...entry, sources: merged } : entry;
+    };
+    this.state.bookmarks = this.state.bookmarks.map(attach);
+    this.state.history = this.state.history.map(attach);
     await this.persist();
     return this.snapshot();
   }

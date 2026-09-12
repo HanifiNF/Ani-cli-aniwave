@@ -62,6 +62,20 @@ export function sourceMatch(anime: AnimeResult | LibraryEntry, candidate: AnimeR
   return likelyDuplicate(anime, candidate) ? "likely" : undefined;
 }
 
+/** Add every record a remembered link ties to this anime, so library entries and player state see all sources. */
+export function expandWithLinks(anime: AnimeResult, links: string[][]): AnimeResult {
+  const known = animeSources(anime);
+  const ids = new Set(known.map((source) => source.id));
+  const linkedIds = links.filter((group) => group.some((id) => ids.has(id))).flat().filter((id) => !ids.has(id));
+  if (linkedIds.length === 0) return anime;
+  const merged = [...known];
+  for (const id of linkedIds) {
+    const provider = providerFromId(id);
+    if (!merged.some((source) => source.provider === provider)) merged.push({ id, provider, title: anime.title, aliases: [anime.title] });
+  }
+  return merged.length > known.length ? { ...anime, sources: merged } : anime;
+}
+
 export const sourceIds = (anime: AnimeResult | LibraryEntry): string[] => animeSources(anime).map((source) => source.id);
 export const overlaps = (left: AnimeResult | LibraryEntry, right: AnimeResult | LibraryEntry): boolean => {
   const ids = new Set(sourceIds(left));

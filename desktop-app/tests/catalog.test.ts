@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnimeResult } from "../shared/contracts";
-import { likelyDuplicate, sourceMatch, unifyAnimeResults } from "../shared/catalog";
+import { expandWithLinks, likelyDuplicate, sourceMatch, unifyAnimeResults } from "../shared/catalog";
 
 const anime = (id: string, title: string, aliases = [title]): AnimeResult => {
   const provider = id.startsWith("aniwave:") ? "aniwave" as const : id.startsWith("hianime:") ? "hianime" as const : "anidb" as const;
@@ -73,6 +73,15 @@ describe("multi-source catalog identity", () => {
       anime("aniwave:frieren-2", "Frieren: Beyond Journey's End Season 2"), anime("hianime:frieren-b", "Frieren: Beyond Journey's End Season 2")
     ], [link]);
     expect(results.map((result) => result.sources?.map((source) => source.id))).toEqual([["aniwave:frieren-1", "hianime:frieren-a"], ["aniwave:frieren-2", "hianime:frieren-b"]]);
+  });
+
+  it("expands an anime with the records a remembered link ties to it, one per provider", () => {
+    const known = anime("aniwave:frieren-1", "Frieren");
+    const expanded = expandWithLinks(known, [["aniwave:frieren-1", "anidb:frieren-2", "hianime:frieren-3", "hianime:frieren-4"]]);
+    expect(expanded.sources?.map((source) => [source.id, source.provider, source.title])).toEqual([
+      ["aniwave:frieren-1", "aniwave", "Frieren"], ["anidb:frieren-2", "anidb", "Frieren"], ["hianime:frieren-3", "hianime", "Frieren"]
+    ]);
+    expect(expandWithLinks(known, [["anidb:other-9", "hianime:other-8"]])).toBe(known);
   });
 
   it("does not combine duplicate records from the same provider", () => {

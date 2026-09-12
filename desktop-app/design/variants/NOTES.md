@@ -23,6 +23,9 @@ The renderer now follows atsu.moe. `atsu.html` holds the mockups; `shots/atsu-*.
   (`resolveSources` in `electron/scraper.ts`, searched by title and aliases) while the known sources load; confident
   matches (a shared alias) are remembered as provider links and their episodes join the grouped list as they arrive.
   A result never holds two records from one provider, even through a link, so links cannot chain seasons together.
+  Links also flow into the library: linking attaches the records to every saved or recent entry for that anime, and a
+  play request recorded from one source keeps the sources the entry already had, so continuing from the home page,
+  saved, recent, or the player's "episodes" action reopens the series with every known source before any lookup.
   The search palette has no source control; the search scope is the Source setting. Settings also offers "forget
   source links" for when a series shows the wrong records together. The manual "merge" action remains for anything
   the matcher misses.

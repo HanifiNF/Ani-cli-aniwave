@@ -8,6 +8,7 @@ import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
 import { getEpisodes, getStreams, resolveSources, searchAnime } from "./scraper";
+import { animeSources, expandWithLinks } from "../shared/catalog";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
 import { PlayerDiagnostics } from "./player-diagnostics";
@@ -178,9 +179,12 @@ function registerIpc(): void {
   });
   ipcMain.handle("catalog:episodes", (_event, anime: AnimeResult) => getEpisodes(anime, store.snapshot().settings));
   ipcMain.handle("catalog:resolve", async (_event, anime: AnimeResult) => {
-    const { anime: resolved, confirmed } = await resolveSources(anime, store.snapshot().settings);
+    const state = store.snapshot();
+    // Records already tied to this anime by a remembered link need no lookup.
+    const linked = expandWithLinks(anime, state.providerLinks ?? []);
+    const { anime: resolved, confirmed } = await resolveSources(linked, state.settings);
     // Remember alias-confirmed matches so searches and the library treat these records as one anime from now on.
-    if (confirmed.length) await store.linkSources([...(anime.sources ?? [{ id: anime.id }]).map((source) => source.id), ...confirmed]);
+    if (confirmed.length) await store.linkSources([...animeSources(linked).map((source) => source.id), ...confirmed], resolved.sources ?? []);
     return resolved;
   });
   ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));

@@ -1,7 +1,7 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
 import type { AniDesktopApi, AniPlayerApi, AnimeResult, AnimeSource, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
-import { animeSources, mergeKey, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults } from "../shared/catalog";
 import { THEME_PRESETS } from "../shared/theme";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
@@ -80,8 +80,9 @@ export function installDevApi(): void {
   const api: AniDesktopApi = {
     player,
     async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : unifyAnimeResults(results, state.providerLinks ?? []); },
-    async resolveSources(anime) {
+    async resolveSources(raw) {
       await wait(900);
+      const anime = expandWithLinks(raw, state.providerLinks ?? []);
       const known = animeSources(anime);
       const extra = known.flatMap((source) => elsewhere[source.id] ?? []).filter((source) => !known.some((item) => item.provider === source.provider));
       if (extra.length === 0) return anime;

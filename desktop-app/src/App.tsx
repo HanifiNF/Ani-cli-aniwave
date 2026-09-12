@@ -462,6 +462,8 @@ function App() {
       const added = animeSources(resolved).filter((source) => !known.some((item) => item.id === source.id));
       if (added.length === 0) return;
       setSelectedAnime(resolved);
+      // The player's "episodes" action reopens the playing anime, so it should know the new sources as well.
+      setNowPlaying((playing) => playing && overlaps(playing.anime, resolved) ? { ...playing, anime: { ...playing.anime, sources: animeSources(resolved) } } : playing);
       const extra = await window.aniDesktop.episodes({ ...resolved, sources: added });
       if (token !== openToken.current) return;
       setEpisodeGroups((current) => [...current.filter((group) => !extra.groups.some((item) => item.provider === group.provider)), ...extra.groups]);

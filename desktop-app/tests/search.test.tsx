@@ -329,6 +329,28 @@ describe("live catalog search", () => {
     expect(api.play).toHaveBeenCalledWith(expect.objectContaining({ episode: expect.objectContaining({ entry: expect.objectContaining({ lastProvider: "anidb", sources: expect.arrayContaining([expect.objectContaining({ id: "anidb:frieren-9" })]) }) }) }));
   });
 
+  it("resolves the other providers when a series is continued from the home page", async () => {
+    const state = await api.getState();
+    state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "1", mode: "sub", updatedAt: "2026-09-09T00:00:00Z", lastProvider: "aniwave",
+      progressByProvider: { aniwave: { lastEpisode: "1", mode: "sub", updatedAt: "" } } }];
+    const pending = deferred<AnimeResult>();
+    vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise);
+    vi.mocked(api.episodes).mockImplementation(async (anime) => ({ groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => ({ provider: source.provider, episodes: [1, 2].map((number) => ({ id: `${source.provider}-ep-${number}`, number: String(number), provider: source.provider })) })) }));
+    vi.mocked(api.streams).mockResolvedValue([{ quality: "1080p", url: "https://cdn.test/2.m3u8", provider: "aniwave" }]);
+    await act(async () => { root.render(<StrictMode><App key="continue" /></StrictMode>); });
+    await press("Enter");
+    // Playback of the next episode starts from the known source while the other providers are still being looked up.
+    expect(api.streams).toHaveBeenCalledExactlyOnceWith("aniwave-ep-2", "sub");
+    expect(api.resolveSources).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:frieren-1" }));
+    await act(async () => pending.resolve({ id: "aniwave:frieren-1", title: "frieren", provider: "aniwave", sources: [
+      { id: "aniwave:frieren-1", provider: "aniwave", title: "frieren", aliases: ["frieren"] },
+      { id: "hianime:frieren-x", provider: "hianime", title: "frieren", aliases: ["frieren"] }
+    ] }));
+    expect([...container.querySelectorAll(".series .meta .tag")].map((node) => node.textContent)).toEqual(["aniwave", "hianime"]);
+    expect([...container.querySelectorAll(".grp-head")].map((node) => node.textContent)).toEqual(["Ep 2Next up", "Ep 1"]);
+    expect(container.querySelectorAll(".eps .src")).toHaveLength(4);
+  });
+
   it("drops source lookups that finish after another series was opened", async () => {
     const pending = deferred<AnimeResult>();
     vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise).mockImplementation(async (anime) => anime);
