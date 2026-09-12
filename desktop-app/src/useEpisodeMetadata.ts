@@ -3,7 +3,7 @@ import type { EpisodeAvailability, TranslationMode } from "../shared/contracts";
 import { catalogRequestId } from "./catalog-request";
 import { availabilityFresh, bestQuality, qualityFresh } from "../shared/episode-metadata";
 
-export interface EpisodeMetadata {
+interface EpisodeMetadata {
   availability?: EpisodeAvailability;
   quality?: string;
   qualityCheckedAt?: number;

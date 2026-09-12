@@ -1,3 +1,5 @@
+import type { PlayerDiagnosticRecord } from "./player-diagnostics";
+
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
@@ -88,7 +90,6 @@ export interface Stream {
   url: string;
   masterUrl?: string;
   provider: ProviderName;
-  server?: string;
   referrer?: string;
   textTracks?: TextTrackSource[];
 }
@@ -199,7 +200,6 @@ export interface AniDesktopApi {
   clearHistory(): Promise<PersistedState>;
   /** Forget every remembered provider link, automatic and manual. */
   clearSourceLinks(): Promise<PersistedState>;
-  remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState>;
   linkSources(sourceIds: string[]): Promise<PersistedState>;
   mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
   dismissMerge(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
@@ -224,7 +224,7 @@ export interface AniPlayerApi {
   onCommand(listener: (command: PlayerCommand) => void): () => void;
   onNotice(listener: (message: string) => void): () => void;
   onDiagnosticsChange(listener: (enabled: boolean) => void): () => void;
-  logDiagnostic(sessionId: string, record: Record<string, unknown>): void;
+  logDiagnostic(sessionId: string, record: PlayerDiagnosticRecord): void;
   saveStorage(sessionId: string, update: PlayerStorageUpdate): Promise<void>;
   setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;

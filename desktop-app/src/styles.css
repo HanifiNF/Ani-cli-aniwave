@@ -88,7 +88,6 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
   max-height: calc(100vh - 100px); overflow: auto; border-radius: 14px; background: var(--raised);
   box-shadow: 0 0 0 1px var(--rule), 0 24px 60px rgb(0 0 0 / 45%);
 }
-.palette .chips-row { display: flex; align-items: center; margin-top: 2px; }
 .palette .found { margin: 6px 4px 8px; color: var(--muted); font-size: 12px; }
 .palette .msg { margin: 0 4px 8px; }
 .hit-row { position: relative; }
@@ -223,9 +222,9 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .src-wrap.in-cur.first:last-child, .src-wrap.in-cur.first:has(+ .src-wrap.first) { clip-path: none; }
 .grp-head { margin: 0 6px 4px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
 .grp-head .up { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text); font-size: 11px; }
-.src { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border-radius: 8px; }
+.src { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; border-radius: 8px; }
 .src:hover { background: var(--raised2); }
-.src-hit { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; height: 34px; padding: 0 4px 0 8px; color: var(--text); }
+.src-hit { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 14px; align-items: center; height: 34px; padding: 0 4px 0 8px; color: var(--text); }
 .src-hit:focus-visible { outline: 0; }
 .src .t { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src .t small { color: var(--muted); font-size: 12px; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--rule); }
@@ -296,8 +295,6 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
   .searchbox { width: 340px; }
 }
 
-.src-hit { grid-template-columns: minmax(0, 1fr) auto auto auto; }
-.src { grid-template-columns: minmax(0, 1fr) auto auto; }
 .src .chk { grid-column: 3; }
 .audio-availability, .metadata-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .audio-availability { text-transform: uppercase; }

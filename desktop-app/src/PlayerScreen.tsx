@@ -1,3 +1,4 @@
+import type { PlayerDiagnosticRecord } from "../shared/player-diagnostics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MediaPlayer,
@@ -150,7 +151,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   const storage = useMemo(() => new DesktopMediaStorage(session, api,
     (reason) => setNotice(`Could not save playback preferences: ${errorMessage(reason)}`)), [session, api]);
 
-  const logDiagnostic = useCallback((record: Record<string, unknown>) => {
+  const logDiagnostic = useCallback((record: PlayerDiagnosticRecord) => {
     if (diagnostics) api.logDiagnostic(session.id, record);
   }, [api, diagnostics, session.id]);
   useEffect(() => api.onDiagnosticsChange(setDiagnostics), [api]);

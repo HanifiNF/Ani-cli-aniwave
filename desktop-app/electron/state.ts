@@ -1,33 +1,10 @@
+import { DEFAULT_STATE } from "../shared/settings";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type AnimeSource, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type ProviderName, type Settings, type PlayRequest } from "../shared/contracts";
+import { MINI_PLAYER_CORNERS, clampMiniPlayerWidth, type AnimeSource, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type ProviderName, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
-import { PROVIDER_NAMES, animeSources, isProviderName, mergeKey, overlaps, sourceIds } from "../shared/catalog";
-import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
-
-const defaults: PersistedState = {
-  bookmarks: [],
-  history: [],
-  providerLinks: [],
-  dismissedMergeKeys: [],
-  settings: {
-    playerPath: "",
-    playbackTarget: "builtin",
-    startPlayerFullscreen: true,
-    autoplayNext: true,
-    miniPlayerCorner: "bottom-right",
-    miniPlayerWidth: MINI_PLAYER_WIDTH.default,
-    playerDiagnostics: false,
-    preferredQuality: "best",
-    preferredMode: "sub",
-    preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru",
-    anidbBaseUrl: "https://anidb.app",
-    hianimeBaseUrl: "https://hianimes.se",
-    theme: "graphite",
-    customTheme: { ...THEME_PRESETS.graphite }
-  }
-};
+import { PROVIDER_NAMES, providerFromId, animeSources, isProviderName, mergeKey, overlaps, sourceIds } from "../shared/catalog";
+import { isHexColor, isThemePreset } from "../shared/theme";
 
 function normalizePoster(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 2048) return undefined;
@@ -46,7 +23,6 @@ const HIANIME_SLUG = "[\\p{L}\\p{N}:!'().,_+~-]+(?:-[\\p{L}\\p{N}:!'().,_+~-]+)*
 const isProviderId = (id: unknown): id is string => typeof id === "string" && (
   id.length <= 512 && (/^(?:aniwave|anidb):[a-z0-9-]+-\d+$/i.test(id) || new RegExp(`^hianime:${HIANIME_SLUG}$`, "u").test(id))
 );
-const providerForId = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!isProviderId(entry.animeId) && !/^[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
@@ -54,7 +30,7 @@ export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!/^\d+(?:\.\d+)?$/.test(entry.lastEpisode)) throw new Error("Invalid episode number");
   const poster = normalizePoster(entry.poster);
   const sources = animeSources(entry).map((source) => {
-    if (!isProviderId(source.id) || source.provider !== providerForId(source.id)) throw new Error("Invalid source identifier");
+    if (!isProviderId(source.id) || source.provider !== providerFromId(source.id)) throw new Error("Invalid source identifier");
     return { ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) };
   });
   const lastProvider = entry.lastProvider && sources.some((source) => source.provider === entry.lastProvider) ? entry.lastProvider : sources[0].provider;
@@ -101,7 +77,7 @@ function combineEntries(left: LibraryEntry, right: LibraryEntry): LibraryEntry {
 
 function normalizeTheme(value: unknown): CustomTheme {
   const record = (value && typeof value === "object" ? value : {}) as Partial<CustomTheme>;
-  const fallback = defaults.settings.customTheme;
+  const fallback = DEFAULT_STATE.settings.customTheme;
   return {
     background: isHexColor(record.background) ? record.background : fallback.background,
     text: isHexColor(record.text) ? record.text : fallback.text,
@@ -110,7 +86,7 @@ function normalizeTheme(value: unknown): CustomTheme {
 }
 
 export class StateStore {
-  private state: PersistedState = structuredClone(defaults);
+  private state: PersistedState = structuredClone(DEFAULT_STATE);
   private writeQueue = Promise.resolve();
 
   constructor(private readonly filePath: string) {}
@@ -118,7 +94,7 @@ export class StateStore {
   async load(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<PersistedState>;
-      const settings = { ...defaults.settings, ...(parsed.settings ?? {}) };
+      const settings = { ...DEFAULT_STATE.settings, ...(parsed.settings ?? {}) };
       this.state = {
         bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks.map(migrateEntry) : [],
         history: Array.isArray(parsed.history) ? parsed.history.map(migrateEntry) : [],
@@ -257,19 +233,6 @@ export class StateStore {
     return this.snapshot();
   }
 
-  async remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState> {
-    if (!isProviderId(replacement.id)) throw new Error("Invalid replacement identifier");
-    if (!replacement.title.trim() || replacement.title.length > 240) throw new Error("Invalid replacement title");
-    const poster = normalizePoster(replacement.poster);
-    const remap = (entry: LibraryEntry): LibraryEntry => entry.animeId === oldAnimeId
-      ? { ...entry, animeId: replacement.id, title: replacement.title, updatedAt: new Date().toISOString(), ...(poster ? { poster } : {}) }
-      : entry;
-    this.state.bookmarks = this.state.bookmarks.map(remap);
-    this.state.history = this.state.history.map(remap);
-    await this.persist();
-    return this.snapshot();
-  }
-
   async clearSourceLinks(): Promise<PersistedState> {
     this.state.providerLinks = [];
     await this.persist();
@@ -290,7 +253,7 @@ export class StateStore {
       const merged = [...known];
       for (const id of combined) {
         if (merged.some((source) => source.id === id)) continue;
-        const source = sources.find((item) => item.id === id) ?? { id, provider: providerForId(id), title: entry.title, aliases: [entry.title] };
+        const source = sources.find((item) => item.id === id) ?? { id, provider: providerFromId(id), title: entry.title, aliases: [entry.title] };
         if (!merged.some((item) => item.provider === source.provider)) merged.push(source);
       }
       return merged.length > known.length ? { ...entry, sources: merged } : entry;

@@ -42,6 +42,15 @@ describe("player diagnostic files", () => {
     expect(Number.isFinite(Date.parse(rows[1].timestamp))).toBe(true);
   });
 
+  it("records the end of a playback session", async () => {
+    const logger = loggerIn();
+    logger.setEnabled(true);
+    logger.record("finished-session", { event: "session-end" });
+    await logger.flush();
+    const rows = (await readFile(logger.filePath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(rows).toContainEqual(expect.objectContaining({ event: "session-end", sessionId: "finished-session" }));
+  });
+
   it("expires records at five minutes while keeping newer events", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const start = new Date("2026-09-10T00:00:00Z").getTime();

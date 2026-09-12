@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getEpisodes, getStreams, resolveSources, retryAfterDelay, searchAnime, searchOne, type SourceConfig } from "../electron/scraper";
+import { getStreams, retryAfterDelay, searchOne, type SourceConfig } from "../electron/scraper";
 import { catalogContext, catalogRequests } from "../electron/catalog-requests";
+
+import { CatalogService } from "../electron/catalog-service";
 
 const config: SourceConfig = {
   preferredProvider: "auto",
@@ -23,7 +25,7 @@ describe("multi-source scraper", () => {
       return new Response(JSON.stringify([{ English: "Re:ZERO Starting Life in Another World Season 4", Japanese: "Re:Zero kara Hajimeru Isekai Seikatsu 4th Season", slugs: ["re-zero-season-4-abc123"] }]), { status: 200, headers: { "content-type": "application/json" } });
     }));
 
-    const results = await searchAnime("re zero", config, "auto");
+    const results = await new CatalogService().search("re zero", config, "auto");
     expect(results).toHaveLength(1);
     expect(results[0].sources?.map((source) => source.provider)).toEqual(["aniwave", "anidb", "hianime"]);
   });
@@ -38,7 +40,7 @@ describe("multi-source scraper", () => {
       return new Response(url.startsWith(config.aniwaveBaseUrl) ? aniwaveHtml : anidbHtml, { status: 200 });
     }));
 
-    const results = await searchAnime("re zero", config, "auto");
+    const results = await new CatalogService().search("re zero", config, "auto");
     expect(results.map((result) => result.provider)).toEqual([expectedProvider]);
   });
 
@@ -48,28 +50,28 @@ describe("multi-source scraper", () => {
       if (url.startsWith("https://animehot.cc/")) throw new Error("HiAnime offline");
       return new Response(url.startsWith(config.aniwaveBaseUrl) ? aniwaveHtml : anidbHtml, { status: 200 });
     }));
-    const results = await searchAnime("re zero", config, "auto");
+    const results = await new CatalogService().search("re zero", config, "auto");
     expect(results).toHaveLength(1);
     expect(results[0].sources?.map((source) => source.provider)).toEqual(["aniwave", "anidb"]);
   });
 
   it("reports a combined error only when all providers fail", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-    await expect(searchAnime("re zero", config, "auto")).rejects.toThrow("All providers failed");
+    await expect(new CatalogService().search("re zero", config, "auto")).rejects.toThrow("All providers failed");
   });
 
   it("does not contact the other provider in an explicit source mode", async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request) => new Response(aniwaveHtml, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    await searchAnime("re zero", config, "aniwave");
+    await new CatalogService().search("re zero", config, "aniwave");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/aniwave\.test\//);
   });
 
   it("uses HiAnime's JSON search API only in explicit HiAnime mode", async () => {
-    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify([{ English: "Naruto", Japanese: "ナルト", image: "https://img.test/n.jpg", slugs: ["naruto-vwgihd"] }]), { status: 200, headers: { "content-type": "application/json" } }));
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify([{ English: "Naruto", Japanese: "ナルト", image: "https://img.test/n.jpg", slugs: ["naruto-vwgihd"] }]), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const results = await searchAnime("naruto", config, "hianime");
+    const results = await new CatalogService().search("naruto", config, "hianime");
     expect(results[0]).toMatchObject({ id: "hianime:naruto-vwgihd", provider: "hianime" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ title: "naruto" }) });
@@ -91,14 +93,14 @@ describe("multi-source scraper", () => {
     vi.stubGlobal("fetch", fetchMock);
     const anime = { id: "aniwave:frieren-101", title: "Frieren: Beyond Journey's End", provider: "aniwave" as const,
       sources: [{ id: "aniwave:frieren-101", provider: "aniwave" as const, title: "Frieren: Beyond Journey's End", aliases: ["Frieren: Beyond Journey's End", "Sousou no Frieren"] }] };
-    const { anime: resolved, confirmed } = await resolveSources(anime, config);
+    const { anime: resolved, confirmed } = await new CatalogService().resolve(anime, config);
     expect(resolved.sources?.map((source) => source.id)).toEqual(["aniwave:frieren-101", "anidb:sousou-no-frieren-303"]);
     expect(confirmed).toEqual(["anidb:sousou-no-frieren-303"]);
     expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.startsWith(config.aniwaveBaseUrl))).toHaveLength(0);
     // Nothing to do when every provider is already known.
     vi.mocked(fetchMock).mockClear();
     const complete = { ...anime, sources: (["aniwave", "anidb", "hianime"] as const).map((provider) => ({ id: `${provider}:x-1`, provider, title: "x", aliases: ["x"] })) };
-    expect((await resolveSources(complete, config)).anime).toBe(complete);
+    expect((await new CatalogService().resolve(complete, config)).anime).toEqual(complete);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -111,7 +113,7 @@ describe("multi-source scraper", () => {
       });
     }));
 
-    const catalog = await getEpisodes({
+    const catalog = await new CatalogService().episodes({
       id: "aniwave:re-zero-season-4-101", title: "Re:ZERO Season 4", provider: "aniwave",
       sources: [
         { id: "aniwave:re-zero-season-4-101", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"], provider: "aniwave" },
@@ -127,7 +129,7 @@ describe("multi-source scraper", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ anime: { episodes: [
       { episodeNumber: 2, slug: "naruto-episode-2-bbb222" }, { episodeNumber: 1, slug: "naruto-episode-1-aaa111" }
     ] } }), { status: 200, headers: { "content-type": "application/json" } })));
-    const catalog = await getEpisodes({ id: "hianime:naruto-vwgihd", title: "Naruto", provider: "hianime" }, config);
+    const catalog = await new CatalogService().episodes({ id: "hianime:naruto-vwgihd", title: "Naruto", provider: "hianime" }, config);
     expect(catalog.groups).toEqual([{ provider: "hianime", episodes: [
       { id: "hianime:naruto-episode-1-aaa111", number: "1", provider: "hianime" },
       { id: "hianime:naruto-episode-2-bbb222", number: "2", provider: "hianime" }
@@ -145,7 +147,7 @@ describe("multi-source scraper", () => {
       return new Response("#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1280x720\n720/index.m3u8", { status: 200 });
     }));
     await expect(getStreams("hianime:naruto-episode-1-aaa111", "sub", config)).resolves.toEqual([
-      { quality: "720p", url: "https://media.test/720/index.m3u8", masterUrl: "https://media.test/master.m3u8", provider: "hianime", referrer: "https://zokoanime.video/stream/test", server: "ZokoAnime", textTracks: metadata.subtitles }
+      { quality: "720p", url: "https://media.test/720/index.m3u8", masterUrl: "https://media.test/master.m3u8", provider: "hianime", referrer: "https://zokoanime.video/stream/test", textTracks: metadata.subtitles }
     ]);
   });
 

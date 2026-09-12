@@ -1,8 +1,8 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
 import type { AniDesktopApi, AniPlayerApi, AnimeResult, AnimeSource, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
-import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults, enabledProviders } from "../shared/catalog";
-import { THEME_PRESETS } from "../shared/theme";
+import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults, enabledProviders, providerFromId } from "../shared/catalog";
+import { DEFAULT_STATE } from "../shared/settings";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
 const posters = {
@@ -26,10 +26,8 @@ const state: PersistedState = {
     { animeId: "aniwave:apothecary-5", title: "The Apothecary Diaries", lastEpisode: "7", mode: "sub", updatedAt: days(7), poster: posters.apothecary },
     { animeId: "anidb:vinland-2", title: "Vinland Saga Season 2", lastEpisode: "19", mode: "sub", updatedAt: days(12), poster: posters.vinland }
   ],
-  settings: {
-    playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
-  }, providerLinks: [], dismissedMergeKeys: []
+  settings: { ...structuredClone(DEFAULT_STATE.settings), playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli" },
+  providerLinks: [], dismissedMergeKeys: []
 };
 
 const results: AnimeResult[] = [
@@ -139,11 +137,6 @@ export function installDevApi(): void {
     async removeHistory(animeId) { state.history = state.history.filter((item) => item.animeId !== animeId); return snapshot(); },
     async clearHistory() { state.history = []; return snapshot(); },
     async clearSourceLinks() { state.providerLinks = []; return snapshot(); },
-    async remapEntry(oldId, replacement) {
-      const remap = (item: LibraryEntry) => item.animeId === oldId ? { ...item, animeId: replacement.id, title: replacement.title, poster: replacement.poster } : item;
-      state.bookmarks = state.bookmarks.map(remap); state.history = state.history.map(remap);
-      return snapshot();
-    },
     async linkSources(ids) { state.providerLinks = [...(state.providerLinks ?? []), [...new Set(ids)]]; return snapshot(); },
     async mergeEntries(firstId, secondId) {
       const all = [...state.bookmarks, ...state.history];
@@ -152,7 +145,7 @@ export function installDevApi(): void {
       const sources = [...animeSources(first), ...animeSources(second)].filter((source, index, list) => list.findIndex((item) => item.id === source.id) === index);
       const latest = new Date(first.updatedAt) > new Date(second.updatedAt) ? first : second;
       const progressByProvider = { ...(first.progressByProvider ?? {}), ...(second.progressByProvider ?? {}) };
-      const lastProvider = latest.lastProvider ?? (latest.animeId.startsWith("aniwave:") ? "aniwave" : latest.animeId.startsWith("hianime:") ? "hianime" : "anidb");
+      const lastProvider = latest.lastProvider ?? providerFromId(latest.animeId);
       const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
       const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
       const merged: LibraryEntry = { ...latest, animeId: primary.id, sources, lastProvider, progressByProvider, lastEpisode: progress.lastEpisode, mode: progress.mode, poster: primary.poster ?? first.poster ?? second.poster };

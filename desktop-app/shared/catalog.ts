@@ -8,13 +8,13 @@ export function enabledProviders(settings: Pick<Settings, "disabledSources">): P
   return PROVIDER_NAMES.filter((provider) => !disabled.includes(provider));
 }
 
-export function normalizedTitle(value: string): string {
+function normalizedTitle(value: string): string {
   return value.normalize("NFKD").toLowerCase()
     .replace(/\b(\d+)(?:st|nd|rd|th)\b/g, "$1")
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
-const providerFromId = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
+export const providerFromId = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 
 export function animeSources(anime: AnimeResult | LibraryEntry): AnimeSource[] {
   if (anime.sources?.length) return anime.sources;

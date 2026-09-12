@@ -89,7 +89,6 @@ const api: AniDesktopApi = {
   removeHistory: (animeId: string) => ipcRenderer.invoke("state:history-remove", animeId),
   clearHistory: () => ipcRenderer.invoke("state:history-clear"),
   clearSourceLinks: () => ipcRenderer.invoke("state:clear-links"),
-  remapEntry: (oldAnimeId, replacement) => ipcRenderer.invoke("state:remap", oldAnimeId, replacement),
   linkSources: (sourceIds) => ipcRenderer.invoke("state:link-sources", sourceIds),
   mergeEntries: (firstAnimeId, secondAnimeId) => ipcRenderer.invoke("state:merge-entries", firstAnimeId, secondAnimeId),
   dismissMerge: (firstAnimeId, secondAnimeId) => ipcRenderer.invoke("state:dismiss-merge", firstAnimeId, secondAnimeId)

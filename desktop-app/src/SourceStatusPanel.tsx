@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ProviderName, ProviderSourceStatus, Settings } from "../shared/contracts";
 import { catalogRequestId } from "./catalog-request";
 import Switch from "./Switch";
+import { catalogScope } from "../shared/settings";
+import { messageFrom } from "./errors";
 
 const SOURCES = [
   { provider: "aniwave", name: "AniWave", address: "aniwaveBaseUrl" },
@@ -9,7 +11,6 @@ const SOURCES = [
   { provider: "hianime", name: "HiAnime", address: "hianimeBaseUrl" }
 ] as const;
 interface Session { active: boolean; requests: Map<ProviderName, string>; refresh: () => Promise<void>; }
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "").replace(/^\w*Error: /, "");
 
 export default function SourceStatusPanel({ saved, draft, onChange, children }: { saved: Settings; draft: Settings; onChange: (settings: Settings) => void; children?: ReactNode }) {
   const [statuses, setStatuses] = useState<ProviderSourceStatus[]>([]);
@@ -17,7 +18,7 @@ export default function SourceStatusPanel({ saved, draft, onChange, children }: 
   const [errors, setErrors] = useState<Partial<Record<ProviderName, string>>>({});
   const [readError, setReadError] = useState<string>();
   const session = useRef<Session | undefined>(undefined);
-  const scope = JSON.stringify(SOURCES.map((source) => saved[source.address]));
+  const scope = catalogScope(saved);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined, revision = 0;
@@ -26,7 +27,7 @@ export default function SourceStatusPanel({ saved, draft, onChange, children }: 
       try {
         const values = await window.aniDesktop.sourceStatus();
         if (current.active && token === revision) { setStatuses(values); setReadError(undefined); }
-      } catch (error) { if (current.active && token === revision) setReadError(message(error)); }
+      } catch (error) { if (current.active && token === revision) setReadError(messageFrom(error)); }
     } };
     session.current = current;
     setStatuses([]); setChecking({}); setErrors({}); setReadError(undefined);
@@ -48,7 +49,7 @@ export default function SourceStatusPanel({ saved, draft, onChange, children }: 
     setChecking((values) => ({ ...values, [provider]: true }));
     setErrors((values) => ({ ...values, [provider]: undefined }));
     try { await window.aniDesktop.checkSource(provider, { id, priority: "selected", refresh: true, checkNow: true }); }
-    catch (error) { if (current.active) setErrors((values) => ({ ...values, [provider]: message(error) })); }
+    catch (error) { if (current.active) setErrors((values) => ({ ...values, [provider]: messageFrom(error) })); }
     finally {
       current.requests.delete(provider);
       if (current.active) {

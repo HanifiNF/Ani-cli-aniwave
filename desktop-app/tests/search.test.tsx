@@ -83,7 +83,7 @@ beforeEach(async () => {
     saveSettings: vi.fn(async (settings) => ({ ...state, settings })),
     openPlayerLogs: vi.fn().mockResolvedValue(undefined),
     setAppIcon: vi.fn().mockResolvedValue(undefined),
-    toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(), remapEntry: vi.fn(),
+    toggleBookmark: vi.fn(), removeBookmark: vi.fn(), recordHistory: vi.fn(), removeHistory: vi.fn(), clearHistory: vi.fn(),
     linkSources: vi.fn(), mergeEntries: vi.fn(), dismissMerge: vi.fn()
   };
   window.aniDesktop = api;
@@ -709,4 +709,37 @@ it("cancels a pending play lookup when leaving the series and ignores its late r
   await press("Escape"); expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
   await act(async () => pending.resolve([{ quality: "720p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]));
   expect(api.play).not.toHaveBeenCalled();
+});
+
+describe("responsive library navigation", () => {
+  it.each([6, 8])("moves one visual row through a %i-column library", async (columns) => {
+    state.bookmarks = Array.from({ length: 16 }, (_, index) => ({ animeId: `aniwave:series-${index + 1}`, title: `Series ${index + 1}`, lastEpisode: "1", mode: "sub", updatedAt: "" }));
+    vi.mocked(api.getState).mockResolvedValue({ ...state });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[title="saved"]')!.click(); });
+    container.querySelector<HTMLElement>(".cards")!.style.setProperty("--cols", String(columns));
+    await press("ArrowDown");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe(`Series ${columns + 1}`);
+    await press("ArrowUp");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Series 1");
+  });
+
+  it("moves through a wrapped home section before entering the next section", async () => {
+    state.history = Array.from({ length: 8 }, (_, index) => ({ animeId: `aniwave:recent-${index + 1}`, title: `Recent ${index + 1}`, lastEpisode: "1", mode: "sub", updatedAt: "" }));
+    state.bookmarks = [{ animeId: "aniwave:saved-1", title: "Saved 1", lastEpisode: "1", mode: "sub", updatedAt: "" }];
+    vi.mocked(api.getState).mockResolvedValue({ ...state });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    container.querySelector<HTMLElement>(".cards")!.style.setProperty("--cols", "6");
+    await press("ArrowDown");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Recent 7");
+    await press("ArrowDown");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Saved 1");
+    await press("ArrowUp");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Recent 7");
+    await press("ArrowUp");
+    for (let index = 0; index < 4; index++) await press("ArrowRight");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Recent 5");
+    await press("ArrowDown");
+    expect(container.querySelector('.card[data-cursor="true"] .t')?.textContent).toBe("Recent 8");
+  });
 });

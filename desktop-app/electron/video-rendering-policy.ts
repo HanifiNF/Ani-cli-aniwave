@@ -10,7 +10,7 @@ export interface CommandLineSwitches {
   appendSwitch(name: string, value?: string): void;
 }
 
-export interface VideoRenderingPolicy {
+interface VideoRenderingPolicy {
   directCompositionDisabled: boolean;
   directCompositionVideoOverlaysDisabled: boolean;
 }

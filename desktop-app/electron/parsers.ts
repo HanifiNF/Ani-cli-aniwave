@@ -227,7 +227,7 @@ export function hiAnimeEmbedUrls(payload: unknown, mode: TranslationMode): strin
   return Array.isArray(urls) ? urls.filter((value): value is string => typeof value === "string") : [];
 }
 
-export interface HiAnimeEmbedSource { src: string; subtitles: TextTrackSource[]; }
+interface HiAnimeEmbedSource { src: string; subtitles: TextTrackSource[]; }
 
 export function parseHiAnimeEmbed(html: string): HiAnimeEmbedSource | undefined {
   const blob = html.match(/window\.__P\s*=\s*["']([^"']+)["']/)?.[1];

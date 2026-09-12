@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { BookmarkMetadataProgress, Settings } from "../shared/contracts";
 import { enabledProviders } from "../shared/catalog";
+import { messageFrom } from "./errors";
 import { METADATA_LIMIT } from "../shared/episode-metadata";
-
-const sourceSettings = (settings: Settings) => JSON.stringify([settings.aniwaveBaseUrl, settings.anidbBaseUrl, settings.hianimeBaseUrl, enabledProviders(settings)]);
+import { sourceSettingsKey } from "../shared/settings";
 
 export default function BookmarkMetadataPanel({ count, saved, draft }: { count: number; saved: Settings; draft: Settings }) {
   const [progress, setProgress] = useState<BookmarkMetadataProgress>();
@@ -23,7 +23,7 @@ export default function BookmarkMetadataPanel({ count, saved, draft }: { count: 
           if (current.active && revision === current.revision) { setProgress(value); setError(""); }
         }
       } catch (failure) {
-        if (current.active && revision === current.revision) setError(failure instanceof Error ? failure.message : String(failure));
+        if (current.active && revision === current.revision) setError(messageFrom(failure));
       } finally {
         if (current.active) { setLoading(false); timer = setTimeout(() => void read(), 1000); }
       }
@@ -42,7 +42,7 @@ export default function BookmarkMetadataPanel({ count, saved, draft }: { count: 
       const result = await (cancel ? window.aniDesktop.cancelBookmarkMetadata() : window.aniDesktop.fetchBookmarkMetadata());
       if (current.active) setProgress(result);
     } catch (failure) {
-      if (current.active) setError(failure instanceof Error ? failure.message : String(failure));
+      if (current.active) setError(messageFrom(failure));
     } finally {
       current.busy = false;
       if (current.active) setBusy(false);
@@ -50,7 +50,7 @@ export default function BookmarkMetadataPanel({ count, saved, draft }: { count: 
   };
   const stopping = progress?.state === "cancelling";
   const running = progress?.state === "running" || stopping;
-  const changed = sourceSettings(saved) !== sourceSettings(draft);
+  const changed = sourceSettingsKey(saved) !== sourceSettingsKey(draft);
   const disabledReason = changed ? "Save source changes before fetching." : !count ? "Bookmark a series to prepare its episode metadata." : !enabledProviders(saved).length ? "Turn on a source and save changes before fetching." : undefined;
   return <div className="group">
     <h3>Episode metadata</h3>

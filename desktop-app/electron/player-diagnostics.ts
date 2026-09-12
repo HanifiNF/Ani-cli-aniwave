@@ -1,24 +1,17 @@
+import { isPlayerDiagnosticEvent, type PlayerDiagnosticEvent, type PlayerDiagnosticRecord } from "../shared/player-diagnostics";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const events = new Set([
-  "diagnostics-enabled", "diagnostics-disabled", "session-start", "video-render-policy", "renderer-ready", "keyboard", "command",
-  "load-start", "loaded-metadata", "can-play", "play", "playing", "pause", "waiting", "stalled",
-  "seeking", "seeked", "ended", "error", "volume-change", "rate-change", "text-track-change", "quality-change",
-  "media-seek-request", "media-seeking-request", "media-enter-fullscreen-request", "media-exit-fullscreen-request",
-  "fullscreen-request", "fullscreen-result", "fullscreen-error", "enter-full-screen", "leave-full-screen",
-  "picture-in-picture-change", "resize", "focus", "blur", "closed", "renderer-gone", "unresponsive", "responsive"
-]);
 const numbers = new Set(["inputTime", "time", "duration", "volume", "rate", "width", "height", "videoWidth", "videoHeight", "seekTime", "bufferedEnd", "errorCode", "exitCode", "dropped"]);
 const booleans = new Set(["shift", "ctrl", "alt", "meta", "repeat", "prevented", "trusted", "paused", "muted", "fullscreen", "enabled"]);
 const tokens = new Set(["key", "code", "target", "phase", "command", "reason", "platform", "arch", "electron", "chromium", "version"]);
 
 // Accept a small, flat schema. Arbitrary messages, URLs, titles, and nested error objects never reach disk.
-export function sanitizeDiagnostic(value: unknown): Record<string, string | number | boolean> | undefined {
+export function sanitizeDiagnostic(value: unknown): ({ event: PlayerDiagnosticEvent } & Record<string, string | number | boolean>) | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const input = value as Record<string, unknown>;
-  if (typeof input.event !== "string" || !events.has(input.event)) return;
-  const result: Record<string, string | number | boolean> = { event: input.event };
+  if (!isPlayerDiagnosticEvent(input.event)) return;
+  const result: { event: PlayerDiagnosticEvent } & Record<string, string | number | boolean> = { event: input.event };
   for (const key of numbers) if (typeof input[key] === "number" && Number.isFinite(input[key])) result[key] = input[key];
   for (const key of booleans) if (typeof input[key] === "boolean") result[key] = input[key];
   for (const key of tokens) {
@@ -60,7 +53,7 @@ export class PlayerDiagnostics {
       electron: process.versions.electron, chromium: process.versions.chrome });
   }
 
-  record(sessionId: string, value: unknown): void {
+  record(sessionId: string, value: PlayerDiagnosticRecord): void {
     if (this.closed || !this.enabled) return;
     const data = sanitizeDiagnostic(value);
     if (!data) return;

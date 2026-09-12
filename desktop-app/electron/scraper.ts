@@ -1,6 +1,6 @@
 import { catalogContext, catalogRequests, CatalogNetworkError } from "./catalog-requests";
-import type { AnimeResult, Episode, EpisodeCatalog, EpisodeAvailability, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
-import { animeSources, sourceMatch, unifyAnimeResults, enabledProviders } from "../shared/catalog";
+import type { AnimeResult, Episode, EpisodeAvailability, ProviderName, Settings, Stream, TranslationMode } from "../shared/contracts";
+import { animeSources, sourceMatch } from "../shared/catalog";
 import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
@@ -87,46 +87,7 @@ export async function searchOne(query: string, provider: ProviderName, config: S
   return parseSearchPage(await fetchText(`${root}/browse?q=${encodeURIComponent(query)}`, "AniDB search", `${root}/`));
 }
 
-export async function searchAnime(query: string, config: SourceConfig, requested?: ProviderPreference, links: string[][] = [], onUpdate?: (results: AnimeResult[]) => void): Promise<AnimeResult[]> {
-  const cleaned = query.trim();
-  if (!cleaned) return [];
-  if (cleaned.length > 120) throw new Error("Search query is too long");
-  const preference = requested ?? config.preferredProvider;
-  const providers = enabledProviders(config);
-  if (preference !== "auto" && providers.includes(preference)) return searchOne(cleaned, preference, config);
-  const partial: AnimeResult[] = [];
-  const settled = await Promise.allSettled(providers.map(async (provider) => {
-    const hits = await searchOne(cleaned, provider, config);
-    partial.push(...hits); onUpdate?.(unifyAnimeResults(partial, links));
-    return hits;
-  }));
-  const found = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-  if (settled.every((result) => result.status === "rejected")) {
-    throw new Error(`All providers failed: ${settled.map((result) => result.status === "rejected" && (result.reason instanceof Error ? result.reason.message : String(result.reason))).join("; ")}`);
-  }
-  return unifyAnimeResults(found, links);
-}
-
 const RESOLVE_QUERIES = 3;
-
-/** Find the anime on every provider it is not yet known on. Each provider is searched with the title and aliases
- *  until a hit shares an alias, or failing that names the same franchise and season. Providers that fail or
- *  return no convincing hit are simply left out. */
-export async function resolveSources(anime: AnimeResult, config: SourceConfig): Promise<{ anime: AnimeResult; confirmed: string[] }> {
-  const known = animeSources(anime);
-  const missing = enabledProviders(config).filter((provider) => !known.some((source) => source.provider === provider));
-  if (missing.length === 0) return { anime, confirmed: [] };
-  const found = await Promise.all(missing.map(async (provider) => {
-    try { return await resolveSource(anime, provider, config); } catch { return undefined; }
-  }));
-  const matches = found.filter((item): item is { hit: AnimeResult; exact: boolean } => Boolean(item));
-  if (matches.length === 0) return { anime, confirmed: [] };
-  const extra = matches.flatMap((item) => animeSources(item.hit));
-  // Only alias-confirmed matches are worth remembering; a franchise-and-season guess stays a one-off.
-  const confirmed = matches.filter((item) => item.exact).flatMap((item) => animeSources(item.hit).map((source) => source.id));
-  const sources = [...known, ...extra].filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index);
-  return { anime: { ...anime, sources }, confirmed };
-}
 
 /** Resolve each provider independently; an outage stops alias attempts for that provider. */
 export async function resolveSource(anime: AnimeResult, provider: ProviderName, config: SourceConfig): Promise<{ hit: AnimeResult; exact: boolean } | undefined> {
@@ -158,16 +119,6 @@ export async function getProviderEpisodes(animeId: string, config: SourceConfig)
   if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniDB anime identifier");
   const numeric = value.slice(value.lastIndexOf("-") + 1);
   return parseEpisodes(await fetchJson(`${sourceBase(config.anidbBaseUrl)}/api/frontend/anime/${numeric}/episodes`, "AniDB episode lookup"));
-}
-
-export async function getEpisodes(anime: AnimeResult, config: SourceConfig): Promise<EpisodeCatalog> {
-  const sources = animeSources(anime).filter((source, index, all) => all.findIndex((item) => item.provider === source.provider) === index);
-  const settled = await Promise.allSettled(sources.map((source) => getProviderEpisodes(source.id, config)));
-  return {
-    groups: sources.map((source, index) => settled[index].status === "fulfilled"
-      ? { provider: source.provider, episodes: (settled[index] as PromiseFulfilledResult<Episode[]>).value }
-      : { provider: source.provider, episodes: [], error: (settled[index] as PromiseRejectedResult).reason instanceof Error ? (settled[index] as PromiseRejectedResult).reason.message : String((settled[index] as PromiseRejectedResult).reason) })
-  };
 }
 
 async function getEpisodeServers(episodeId: string, config: SourceConfig): Promise<unknown> {
@@ -214,7 +165,7 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
     const rawMaster = parseVidplaySource(direct);
     if (!rawMaster) throw new Error("Vidplay returned no playable stream");
     const masterUrl = absolute(rawMaster, embed.origin);
-    return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "aniwave", embed.toString()).map((stream) => ({ ...stream, server: "Vidplay" }));
+    return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "aniwave", embed.toString());
   }
   if (provider === "hianime") {
     if (!/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(value)) throw new Error("Invalid HiAnime episode identifier");
@@ -232,7 +183,7 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
         if (!parsed) { failures.push(`${embed.hostname} response changed`); continue; }
         const masterUrl = absolute(parsed.src, embed.origin);
         return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "hianime", embed.toString())
-          .map((stream) => ({ ...stream, server: "ZokoAnime", textTracks: parsed.subtitles }));
+          .map((stream) => ({ ...stream, textTracks: parsed.subtitles }));
       } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     }
     throw new Error(`No supported HiAnime server could be resolved: ${failures.join("; ")}`);

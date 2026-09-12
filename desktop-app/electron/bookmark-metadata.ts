@@ -2,7 +2,8 @@ import type { BookmarkMetadataProgress, PersistedState, ProviderName } from "../
 import { animeSources, enabledProviders, expandWithLinks } from "../shared/catalog";
 import { availabilityFresh, qualityFresh } from "../shared/episode-metadata";
 import { catalogContext, catalogRequests } from "./catalog-requests";
-import { CatalogService, catalogScope } from "./catalog-service";
+import { CatalogService } from "./catalog-service";
+import { catalogScope } from "../shared/settings";
 import { EpisodeMetadataCache } from "./episode-metadata-cache";
 import { getAvailability, getStreams, providerOrigin } from "./scraper";
 

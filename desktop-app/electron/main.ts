@@ -1,4 +1,6 @@
-import { CatalogService, catalogScope } from "./catalog-service";
+import type { PlayerDiagnosticEvent } from "../shared/player-diagnostics";
+import { CatalogService } from "./catalog-service";
+import { catalogScope, sourceSettingsKey } from "../shared/settings";
 import { catalogContext, catalogRequests } from "./catalog-requests";
 import { EpisodeMetadataCache } from "./episode-metadata-cache";
 import { BookmarkMetadataFetcher } from "./bookmark-metadata";
@@ -12,11 +14,11 @@ import type { AnimeResult, CatalogRequest, LibraryEntry, PlayerSession, PlayRequ
 import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
-import { getAvailability, getEpisodes, getStreams, providerOrigin, searchAnime, searchOne } from "./scraper";
-import { animeSources, enabledProviders, expandWithLinks } from "../shared/catalog";
+import { getAvailability, getStreams, providerOrigin, searchOne } from "./scraper";
+import { animeSources, expandWithLinks } from "../shared/catalog";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
-import { PlayerDiagnostics } from "./player-diagnostics";
+import { PlayerDiagnostics, sanitizeDiagnostic } from "./player-diagnostics";
 import { playbackKey } from "../shared/playback";
 import { configureVideoRenderingPolicy } from "./video-rendering-policy";
 
@@ -154,7 +156,7 @@ function createWindow(): void {
     }
   });
   const win = mainWindow;
-  const logWindow = (event: string) => {
+  const logWindow = (event: PlayerDiagnosticEvent) => {
     if (win.isDestroyed() || !activePlayback) return;
     const [width, height] = win.getContentSize();
     diagnostics.record(activePlaybackId, { event, width, height, fullscreen: win.isFullScreen() });
@@ -278,7 +280,7 @@ function registerIpc(): void {
   ipcMain.handle("state:settings", async (_event, settings: Settings) => {
     const previous = store.snapshot().settings;
     const state = await store.saveSettings(settings);
-    if (catalogScope(previous) !== catalogScope(state.settings) || JSON.stringify(enabledProviders(previous)) !== JSON.stringify(enabledProviders(state.settings))) bookmarkMetadata.cancel();
+    if (sourceSettingsKey(previous) !== sourceSettingsKey(state.settings)) bookmarkMetadata.cancel();
     const enabled = state.settings.playerDiagnostics === true;
     diagnostics.setEnabled(enabled);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("player:diagnostics-change", enabled);
@@ -296,7 +298,6 @@ function registerIpc(): void {
   ipcMain.handle("state:history", (_event, entry: LibraryEntry) => store.recordHistory(entry));
   ipcMain.handle("state:history-remove", (_event, animeId: string) => store.removeHistory(String(animeId)));
   ipcMain.handle("state:history-clear", () => store.clearHistory());
-  ipcMain.handle("state:remap", (_event, oldAnimeId: string, replacement) => store.remapEntry(oldAnimeId, replacement));
   ipcMain.handle("state:link-sources", (_event, sourceIds: string[]) => store.linkSources(sourceIds));
   ipcMain.handle("state:clear-links", () => store.clearSourceLinks());
   ipcMain.handle("state:merge-entries", (_event, firstAnimeId: string, secondAnimeId: string) => store.mergeEntries(firstAnimeId, secondAnimeId));
@@ -318,7 +319,8 @@ function registerIpc(): void {
   });
   ipcMain.on("player:diagnostic", (event, sessionId: unknown, record: unknown) => {
     try { assertPlayerSender(mainWindow, event); } catch { return; }
-    if (typeof sessionId === "string" && playbackSessions.has(sessionId)) diagnostics.record(sessionId, record);
+    const validated = sanitizeDiagnostic(record);
+    if (typeof sessionId === "string" && playbackSessions.has(sessionId) && validated) diagnostics.record(sessionId, validated);
   });
   ipcMain.handle("player:fullscreen", async (event, fullscreen: unknown) => {
     assertPlayerSender(mainWindow, event);
@@ -362,9 +364,9 @@ app.whenReady().then(async () => {
   registerIpc();
   if (!app.isPackaged && process.env.ANI_DESKTOP_SMOKE_QUERY) {
     const config = store.snapshot().settings;
-    const results = await searchAnime(process.env.ANI_DESKTOP_SMOKE_QUERY, config);
+    const results = await catalogService.search(process.env.ANI_DESKTOP_SMOKE_QUERY, config, config.preferredProvider);
     if (results.length === 0) throw new Error("Smoke test search returned no results");
-    const catalog = await getEpisodes(results[0], config);
+    const catalog = await catalogService.episodes(results[0], config);
     const episodes = catalog.groups.find((group) => group.episodes.length)?.episodes ?? [];
     if (episodes.length === 0) throw new Error("Smoke test found no episodes");
     const streams = await getStreams(episodes[0].id, "sub", config);

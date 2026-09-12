@@ -21,7 +21,7 @@ export function resolveTheme(theme: ThemePreset, custom: CustomTheme): CustomThe
 }
 
 /** Relative luminance of a hex colour, 0 for black to 1 for white. */
-export function luminance(hex: string): number {
+function luminance(hex: string): number {
   const value = Number.parseInt(hex.slice(1), 16);
   const [r, g, b] = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((channel) => {
     const s = channel / 255;

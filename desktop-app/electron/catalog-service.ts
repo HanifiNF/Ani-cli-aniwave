@@ -1,3 +1,4 @@
+import { catalogScope } from "../shared/settings";
 import type { AnimeResult, CatalogProgress, Episode, EpisodeCatalog, EpisodeGroup, ProviderName, ProviderPreference } from "../shared/contracts";
 import { animeSources, enabledProviders, unifyAnimeResults } from "../shared/catalog";
 import { catalogContext } from "./catalog-requests";
@@ -6,8 +7,6 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
-const scope = (config: SourceConfig) => JSON.stringify([config.aniwaveBaseUrl, config.anidbBaseUrl, config.hianimeBaseUrl]);
-export const catalogScope = scope;
 
 export class CatalogService {
   private episodesCache = new Map<string, { episodes: Episode[]; at: number }>();
@@ -86,7 +85,7 @@ export class CatalogService {
     const groups = new Map<ProviderName, EpisodeGroup>();
     const snapshot = () => ({ groups: sources.flatMap((source) => groups.has(source.provider) ? [groups.get(source.provider)!] : []) });
     for (const source of sources) {
-      const cached = this.episodesCache.get(`${scope(config)}:${source.id}`);
+      const cached = this.episodesCache.get(`${catalogScope(config)}:${source.id}`);
       if (cached && Date.now() - cached.at < this.retention) groups.set(source.provider, { provider: source.provider, episodes: cached.episodes, refreshing: true });
     }
     if (groups.size) update?.(snapshot());
@@ -94,7 +93,7 @@ export class CatalogService {
       try {
         const episodes = await getProviderEpisodes(source.id, config);
         catalogContext.getStore()?.signal.throwIfAborted();
-        const key = `${scope(config)}:${source.id}`;
+        const key = `${catalogScope(config)}:${source.id}`;
         this.episodesCache.delete(key); this.episodesCache.set(key, { episodes, at: Date.now() });
         this.trim(); this.dirty = true;
         if (this.cachePath && !this.timer) this.timer = setTimeout(() => { void this.flush(); }, 250);

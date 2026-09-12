@@ -14,7 +14,7 @@ const PATHS = {
   down: <path d="M12 5v14M6 13l6 6 6-6" />
 } as const;
 
-export type IconName = keyof typeof PATHS;
+type IconName = keyof typeof PATHS;
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   return (
