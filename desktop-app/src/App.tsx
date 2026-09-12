@@ -1,9 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   AnimeResult,
   CustomTheme,
   Episode,
   EpisodeGroup,
+  EpisodeCatalog,
+  CatalogProgress,
   LibraryEntry,
   MiniPlayerCorner,
   PersistedState,
@@ -14,6 +16,8 @@ import type {
   ThemePreset,
   TranslationMode
 } from "../shared/contracts";
+import { catalogRequestId } from "./catalog-request";
+import { useEpisodeMetadata } from "./useEpisodeMetadata";
 import { useAnimeSearch } from "./useAnimeSearch";
 import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
@@ -39,8 +43,6 @@ const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
 const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb", "hianime"];
 const PROVIDER_ORDER: ProviderName[] = ["aniwave", "anidb", "hianime"];
 const HOME_CARDS = 8; // cards per row on the home screen; the full lists use the same column count
-const QUALITY_CACHE_KEY = "ani.episodeQuality";
-const QUALITY_CACHE_LIMIT = 3000;
 
 const emptyState: PersistedState = {
   bookmarks: [],
@@ -149,17 +151,6 @@ function nextUpIndex(rows: EpisodeRow[], groups: EpisodeGroup[], progress: Libra
   return Math.max(0, sameNumber);
 }
 
-function loadQualityCache(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(QUALITY_CACHE_KEY) ?? "{}") as Record<string, string>; }
-  catch { return {}; }
-}
-function saveQualityCache(cache: Record<string, string>) {
-  try {
-    const entries = Object.entries(cache);
-    localStorage.setItem(QUALITY_CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-QUALITY_CACHE_LIMIT))));
-  } catch { /* storage unavailable */ }
-}
-
 function Art({ src, className }: { src?: string; className?: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
@@ -194,8 +185,9 @@ function App() {
   const [episodeSort, setEpisodeSort] = useState<EpisodeSort>("newest");
   const [jump, setJump] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>();
   const [mode, setMode] = useState<TranslationMode>("sub");
-  const [provider, setProvider] = useState<ProviderPreference>("auto"); // search scope, from settings
+  const [provider, setProvider] = useState<ProviderPreference>("auto"); // preferred playback source
   const [quality, setQuality] = useState("best");
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
@@ -208,9 +200,10 @@ function App() {
   const [stateLoaded, setStateLoaded] = useState(false);
   const [showHints, setShowHints] = useState(false);
   const [resolving, setResolving] = useState(false);
-  const [qualities, setQualities] = useState<Record<string, string>>(() => loadQualityCache());
+  const [sourceErrors, setSourceErrors] = useState<Partial<Record<ProviderName, string>>>({});
+  const [pendingSources, setPendingSources] = useState<ProviderName[]>([]);
 
-  const catalogSearch = useAnimeSearch(query, provider,
+  const catalogSearch = useAnimeSearch(query, "auto",
     [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl], screen === "home" && !composing);
   const { results, lastQuery } = catalogSearch;
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
@@ -218,6 +211,8 @@ function App() {
   const fieldRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
+  const playbackRequest = useRef<string | undefined>(undefined);
+  useEffect(() => () => { if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current); }, []);
   const mergePromptActive = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
@@ -294,13 +289,45 @@ function App() {
   const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
   const player = appState.settings.playbackTarget === "builtin" ? "built-in player" : playerName(appState.settings.playerPath);
   const episodeRows = useMemo(() => episodeRowsOf(episodeGroups, progress, episodeFilter, episodeSort), [episodeGroups, progress, episodeFilter, episodeSort]);
-  const episodeCount = Math.max(0, ...episodeGroups.map((group) => group.episodes.length));
+  const episodeCount = new Set(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.number))).size;
+  const seriesCursor = Math.max(0, episodeRows.findIndex((row) => row.episode.id === selectedEpisodeId));
+  const setEpisodeCursor = (index: number) => setSelectedEpisodeId(episodeRows[index]?.episode.id);
+  const sourceScope = JSON.stringify([appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl]);
+  const metadata = useEpisodeMetadata(listRef, screen === "series", episodeRows.map((row) => row.episode.id), episodeRows[seriesCursor]?.episode.id, mode, sourceScope);
 
-  useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, results, filter]);
+  // Anchor the first visible source row while asynchronous provider updates insert rows above it.
+  const scrollAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const page = listRef.current?.closest<HTMLElement>(".page");
+    const anchor = scrollAnchor.current;
+    if (page && anchor) {
+      const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((item) => item.dataset.episode === anchor.id);
+      if (row) page.scrollTop += row.getBoundingClientRect().top - anchor.top;
+    }
+    const capture = () => {
+      if (!page) return;
+      const top = page.getBoundingClientRect().top;
+      const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((item) => item.getBoundingClientRect().bottom > top);
+      scrollAnchor.current = row ? { id: row.dataset.episode!, top: row.getBoundingClientRect().top } : undefined;
+    };
+    capture(); page?.addEventListener("scroll", capture, { passive: true });
+    return () => { page?.removeEventListener("scroll", capture); };
+  }, [episodeRows, screen]);
+
+  const previousResults = useRef(results);
+  useLayoutEffect(() => {
+    const previous = previousResults.current[cursor];
+    if (screen === "home" && previous && results !== previousResults.current) {
+      const index = results.findIndex((anime) => overlaps(previous, anime));
+      setCursor(Math.max(0, index));
+    }
+    previousResults.current = results;
+  }, [results]);
+  useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, filter]);
   // Opening a series shows its header first; the list follows the cursor only once it moves.
   const skipReveal = useRef(false);
   // Reveal follows the selected row itself, so a state refresh (saving, window focus) does not scroll the list back.
-  const cursorKey = screen === "series" ? episodeRows[cursor]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
+  const cursorKey = screen === "series" ? episodeRows[seriesCursor]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
   useEffect(() => {
     if (skipReveal.current) { skipReveal.current = false; return; }
     const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
@@ -317,7 +344,7 @@ function App() {
     const observer = new ResizeObserver(reveal);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [cursor, cursorKey, screen]);
+  }, [cursorKey, screen]);
   useEffect(() => {
     if (screen === "series") listRef.current?.focus();
     else if (screen !== "settings" && screen !== "player") fieldRef.current?.focus();
@@ -328,39 +355,7 @@ function App() {
     if (screen === "series" && list?.contains(document.activeElement)) {
       list.querySelector<HTMLButtonElement>('[data-cursor="true"] .src-hit')?.focus({ preventScroll: true });
     }
-  }, [screen, cursor, episodeRows]);
-
-  // Stream qualities are only known once an episode's streams are resolved. Rows that scroll into view resolve in the
-  // background, a few at a time, and the answer is kept so the list fills in at once on the next visit.
-  const qualityQueue = useRef<{ pending: string[]; active: number; seen: Set<string> }>({ pending: [], active: 0, seen: new Set() });
-  const qualityMode = useRef(mode);
-  qualityMode.current = mode;
-  useEffect(() => {
-    const list = listRef.current;
-    if (screen !== "series" || !list || typeof IntersectionObserver === "undefined") return;
-    const queue = qualityQueue.current;
-    const pump = () => {
-      while (queue.active < 2 && queue.pending.length) {
-        const id = queue.pending.shift()!;
-        queue.active += 1;
-        void window.aniDesktop.streams(id, qualityMode.current).then((streams) => {
-          const best = streams.map((stream) => stream.quality).sort((a, b) => qualityValue(b) - qualityValue(a))[0];
-          if (best) setQualities((current) => { const next = { ...current, [id]: best }; saveQualityCache(next); return next; });
-        }, () => undefined).finally(() => { queue.active -= 1; pump(); });
-      }
-    };
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const id = (entry.target as HTMLElement).dataset.episode;
-        if (!entry.isIntersecting || !id || queue.seen.has(id) || qualities[id]) continue;
-        queue.seen.add(id);
-        queue.pending.push(id);
-      }
-      pump();
-    }, { root: list.closest(".page"), rootMargin: "120px 0px" });
-    for (const row of list.querySelectorAll<HTMLElement>("[data-episode]")) observer.observe(row);
-    return () => observer.disconnect();
-  }, [screen, episodeRows, qualities]);
+  }, [screen, selectedEpisodeId]);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError(undefined); setNotice(undefined);
@@ -383,7 +378,7 @@ function App() {
   function focusPlayingEpisode() {
     const id = session?.request.episode?.id;
     const index = id && nowPlaying?.anime.id === selectedAnime?.id ? episodeRows.findIndex((row) => row.episode.id === id) : -1;
-    if (index >= 0) setCursor(index);
+    if (index >= 0) setEpisodeCursor(index);
   }
 
   function dockPlayer() {
@@ -450,96 +445,124 @@ function App() {
     }
   }
 
-  // Each opened series gets a token so late episode or source lookups for a previous one are dropped.
   const openToken = useRef(0);
-
-  // Other providers are looked up while the known ones load, and their episodes join the list as they arrive.
-  async function resolveOtherSources(anime: AnimeResult, token: number) {
-    setResolving(true);
-    try {
-      const resolved = await window.aniDesktop.resolveSources(anime);
-      if (token !== openToken.current) return;
-      const known = animeSources(anime);
-      const added = animeSources(resolved).filter((source) => !known.some((item) => item.id === source.id));
-      if (added.length === 0) return;
-      setSelectedAnime(resolved);
-      // The player's "episodes" action reopens the playing anime, so it should know the new sources as well.
-      setNowPlaying((playing) => playing && overlaps(playing.anime, resolved) ? { ...playing, anime: { ...playing.anime, sources: animeSources(resolved) } } : playing);
-      const extra = await window.aniDesktop.episodes({ ...resolved, sources: added });
-      if (token !== openToken.current) return;
-      setEpisodeGroups((current) => [...current.filter((group) => !extra.groups.some((item) => item.provider === group.provider)), ...extra.groups]);
-      refreshState();
-    } catch (reason) {
-      if (token === openToken.current) setNotice(`other sources: ${messageFrom(reason)}`);
-    } finally {
-      if (token === openToken.current) setResolving(false);
+  const catalogTasks = useRef(new Set<string>());
+  const cancelSeries = () => {
+    openToken.current += 1;
+    if (playbackRequest.current) {
+      playToken.current += 1;
+      window.aniDesktop.cancelCatalog(playbackRequest.current); playbackRequest.current = undefined;
     }
-  }
+    for (const id of catalogTasks.current) window.aniDesktop.cancelCatalog(id);
+    catalogTasks.current.clear();
+  };
+  useEffect(() => {
+    if (screen !== "series" && screen !== "player") { cancelSeries(); setBusy(undefined); setResolving(false); }
+  }, [screen, sourceScope]);
+  useEffect(() => () => cancelSeries(), []);
 
-  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean; refresh?: boolean } = {}): Promise<boolean> {
+    cancelSeries();
+    const token = openToken.current;
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
+    const preferred = animeProgress?.lastProvider ?? (provider === "auto" ? anime.provider : provider);
     playToken.current += 1;
-    const token = ++openToken.current;
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
     setSelectedAnime(anime);
-    setEpisodeGroups([]); setStatus(undefined); setJump("");
+    if (!options.refresh) { setSelectedEpisodeId(undefined); scrollAnchor.current = undefined; }
+    if (!options.refresh) setEpisodeGroups([]);
+    setStatus(undefined); setJump(""); setSourceErrors({});
     setScreen("series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
-    const missing = PROVIDER_ORDER.some((provider) => !animeSources(anime).some((source) => source.provider === provider));
-    if (missing) void resolveOtherSources(anime, token);
-    let groups: EpisodeGroup[];
-    try { groups = (await window.aniDesktop.episodes(anime)).groups; }
-    catch (reason) {
+    let currentAnime = anime;
+    let groups: EpisodeGroup[] = options.refresh ? episodeGroups : [];
+    let positioned = Boolean(options.refresh && selectedEpisodeId);
+    let played = false;
+    const known = new Set(animeSources(anime).map((source) => source.id));
+    const missing = PROVIDER_ORDER.filter((name) => !animeSources(anime).some((source) => source.provider === name));
+    setPendingSources(missing); setResolving(missing.length > 0);
+    const request = async <T,>(purpose: string, operation: (request: import("../shared/contracts").CatalogRequest) => Promise<T>) => {
+      const id = catalogRequestId(purpose); catalogTasks.current.add(id);
+      try { return await operation({ id, priority: "selected", refresh: options.refresh }); }
+      finally { catalogTasks.current.delete(id); }
+    };
+    const position = (allowFallback = false) => {
+      if (token !== openToken.current) return;
+      const list = episodeRowsOf(groups, animeProgress, episodeFilter, episodeSort);
+      if (!list.length) return;
       setBusy(undefined);
-      if (options.allowRemap) {
-        const alternatives = PROVIDER_ORDER.filter((item) => item !== providerOf(anime.id));
-        let replacement: AnimeResult | undefined;
-        let replacementProvider: ProviderName | undefined;
-        for (const alternative of alternatives) {
-          const candidates = await run(`checking ${alternative} for a replacement`, () => window.aniDesktop.search(anime.title, alternative));
-          if (candidates?.[0]) { replacement = candidates[0]; replacementProvider = alternative; break; }
-        }
-        if (replacement && replacementProvider && window.confirm(`${providerOf(anime.id)} is unavailable. Remap "${anime.title}" to "${replacement.title}" on ${replacementProvider}?`)) {
-          if (await openAnime(replacement, { ...options, allowRemap: false })) {
-            setAppState(await window.aniDesktop.remapEntry(anime.id, replacement));
-            setNotice(`remapped to ${replacement.title} on ${replacementProvider}`);
-            return true;
-          }
-          return false;
-        }
+      const index = nextUpIndex(list, groups, animeProgress, preferred, options.resumeAfter);
+      if (!positioned) { positioned = true; skipReveal.current = true; setSelectedEpisodeId(list[index]?.episode.id); }
+      const preferredReady = groups.some((group) => group.provider === preferred && group.episodes.length);
+      if (options.autoPlay && !played && (preferredReady || allowFallback)) {
+        const target = list[index]?.episode;
+        if (target) { played = true; void playEpisode(target, currentAnime, animeProgress?.progressByProvider?.[target.provider]?.mode ?? options.mode ?? mode, groups); }
       }
-      setError(messageFrom(reason));
-      return false;
-    }
-    finally { if (token === openToken.current) setBusy(undefined); }
-    if (token !== openToken.current) return false;
-    setEpisodeGroups((current) => [...groups, ...current.filter((group) => !groups.some((item) => item.provider === group.provider))]);
-    const list = episodeRowsOf(groups, animeProgress, episodeFilter, episodeSort);
-    const index = nextUpIndex(list, groups, animeProgress, animeProgress?.lastProvider ?? anime.provider, options.resumeAfter);
-    skipReveal.current = true;
-    setCursor(index);
-    const target = list[index]?.episode;
-    if (options.autoPlay && target) void playEpisode(target, anime, animeProgress?.progressByProvider?.[target.provider]?.mode ?? options.mode ?? mode, groups);
-    return true;
+    };
+    const accept = (catalog: EpisodeCatalog) => {
+      if (token !== openToken.current) return;
+      groups = [...groups.filter((group) => !catalog.groups.some((next) => next.provider === group.provider)), ...catalog.groups];
+      setEpisodeGroups(groups); position();
+    };
+    const load = async (target: AnimeResult) => {
+      try { accept(await request("episodes", (req) => window.aniDesktop.episodes(target, req, accept))); }
+      catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+    };
+    const initial = load(anime);
+    const extra: Promise<void>[] = [];
+    let discoveryErrors: Partial<Record<ProviderName, string>> = {};
+    const acceptSources = (progress: CatalogProgress<AnimeResult>) => {
+      if (token !== openToken.current) return;
+      currentAnime = progress.value; discoveryErrors = progress.errors;
+      setSelectedAnime(currentAnime); setPendingSources(progress.pending); setSourceErrors(progress.errors);
+      setNowPlaying((playing) => playing && overlaps(playing.anime, currentAnime) ? { ...playing, anime: currentAnime } : playing);
+      for (const source of animeSources(currentAnime)) {
+        if (known.has(source.id)) continue;
+        known.add(source.id);
+        extra.push(load({ ...currentAnime, sources: [source] }));
+      }
+    };
+    const discovery = missing.length ? (async () => {
+      try {
+        const resolved = await request("sources", (req) => window.aniDesktop.resolveSources(anime, req, acceptSources));
+        if (token === openToken.current) {
+          // The final response also supports browser previews without progress events.
+          acceptSources({ value: resolved, pending: [], errors: discoveryErrors });
+          refreshState();
+        }
+      } catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+      await Promise.all(extra);
+    })() : Promise.resolve();
+    void Promise.all([initial, discovery]).then(() => {
+      if (token !== openToken.current) return;
+      setResolving(false); setPendingSources([]); setBusy(undefined); position(true);
+    });
+    await initial;
+    return token === openToken.current;
   }
 
   /** Episodes on one provider in playing order, for next and previous. */
   const providerList = (groups: EpisodeGroup[], provider: ProviderName) =>
     [...(groups.find((group) => group.provider === provider)?.episodes ?? [])].sort((a, b) => episodeValue(a.number) - episodeValue(b.number));
 
-  async function playEpisode(episode: Episode, anime = selectedAnime, playMode = mode, groups = episodeGroups) {
+  async function playEpisode(episode: Episode, anime = selectedAnime, playMode = mode, groups = episodeGroups, refresh = false) {
     if (!anime) return;
     const token = ++playToken.current;
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
     const rowIndex = episodeRows.findIndex((item) => item.episode.id === episode.id);
-    if (rowIndex >= 0) setCursor(rowIndex);
+    if (rowIndex >= 0) setEpisodeCursor(rowIndex);
     setStatus({ episode, phase: "finding", detail: `${playMode} from ${episode.provider}` });
     try {
-      const streams = await window.aniDesktop.streams(episode.id, playMode);
+      const requestId = catalogRequestId("playback");
+      playbackRequest.current = requestId;
+      const streams = await window.aniDesktop.streams(episode.id, playMode, { id: requestId, priority: "playback", refresh: refresh || (status?.phase === "failed" && status.episode.id === episode.id) });
+      if (playbackRequest.current === requestId) playbackRequest.current = undefined;
       if (token !== playToken.current) return;
       const stream = (quality === "best" ? undefined : streams.find((item) => item.quality === quality)) ?? streams[0];
       if (!stream) throw new Error("no stream was found");
       const best = streams.map((item) => item.quality).sort((a, b) => qualityValue(b) - qualityValue(a))[0];
-      if (best) setQualities((current) => { const next = { ...current, [episode.id]: best }; saveQualityCache(next); return next; });
+      if (best) metadata.record(episode.id, playMode, streams);
       const detail = `${stream.quality} · ${playMode} · ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
       const series = anime.id === selectedAnime?.id ? providerList(groups, episode.provider) : [];
@@ -643,11 +666,11 @@ function App() {
 
   // Changing the order or filter keeps the selection on the same row when it is still shown.
   function reorder(filter: EpisodeFilter, sort: EpisodeSort) {
-    const id = episodeRows[cursor]?.episode.id;
+    const id = episodeRows[seriesCursor]?.episode.id;
     const next = episodeRowsOf(episodeGroups, progress, filter, sort);
     setEpisodeFilter(filter); setEpisodeSort(sort);
     const index = id ? next.findIndex((row) => row.episode.id === id) : -1;
-    setCursor(index >= 0 ? index : 0);
+    setSelectedEpisodeId(next[index >= 0 ? index : 0]?.episode.id);
   }
 
   function jumpTo(value: string) {
@@ -656,7 +679,7 @@ function App() {
     if (!wanted) return;
     const index = episodeRows.findIndex((row) => row.number === wanted) ;
     const loose = index >= 0 ? index : episodeRows.findIndex((row) => row.number.startsWith(wanted));
-    if (loose >= 0) setCursor(loose);
+    if (loose >= 0) setEpisodeCursor(loose);
   }
 
   const moveCursor = (delta: number, length: number) => { if (length) setCursor((current) => Math.min(Math.max(current + delta, 0), length - 1)); };
@@ -710,11 +733,11 @@ function App() {
     }
     if (screen === "series") {
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, episodeRows.length); return;
+        event.preventDefault(); setEpisodeCursor(Math.min(Math.max(seriesCursor + (event.key === "ArrowUp" ? -1 : 1), 0), episodeRows.length - 1)); return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        if (episodeRows[cursor]) void playEpisode(episodeRows[cursor].episode);
+        if (episodeRows[seriesCursor]) void playEpisode(episodeRows[seriesCursor].episode);
         return;
       }
       if (!typing && event.key === "s") void toggleBookmark();
@@ -728,7 +751,7 @@ function App() {
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (screen === "home" && query.trim() && (catalogSearch.pending || (target === fieldRef.current && !catalogSearch.ready))) {
+      if (screen === "home" && query.trim() && (!catalogSearch.ready && (catalogSearch.pending || target === fieldRef.current))) {
         catalogSearch.searchNow(); return;
       }
       if (rows[cursor]) void activate(rows[cursor]);
@@ -750,7 +773,7 @@ function App() {
   const searching = catalogSearch.loading;
   const searchError = catalogSearch.error === undefined ? undefined : messageFrom(catalogSearch.error);
   const displayError = error ?? searchError;
-  const searchNotice = catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
+  const searchNotice = catalogSearch.providerErrors.length ? catalogSearch.providerErrors.join("; ") : catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
   const message = displayError ?? busy ?? searchNotice ?? notice;
   const searchMessage = paletteOpen ? (searchError ?? (busy === undefined ? searchNotice : undefined)) : undefined;
 
@@ -812,18 +835,18 @@ function App() {
     const target = playingIndex >= 0 ? playingList[playingIndex + offset] : undefined;
     return current && target ? () => { void playEpisode(target, current.anime, current.mode); } : undefined;
   };
-  const playerMessage = status && status.episode.id !== playingId
+  const playerMessage = status
     ? status.phase === "failed" ? { text: `episode ${status.episode.number}: ${status.detail}`, error: true }
       : status.phase === "opened" ? undefined : { text: `episode ${status.episode.number}: finding a stream ···` }
     : undefined;
 
-  const nextRow = episodeRows[cursor];
+  const nextRow = episodeRows[seriesCursor];
   // Next up follows progress, not the cursor: the episode after the last one watched on the provider used last.
   const nextUp = useMemo(() => {
     const all = episodeRowsOf(episodeGroups, progress, "all", "oldest");
-    const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? selectedAnime?.provider ?? "aniwave")];
+    const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? (provider === "auto" ? selectedAnime?.provider : provider) ?? "aniwave")];
     return row ? all.find((item) => !item.watched && item.number === row.number) ?? row : undefined;
-  }, [episodeGroups, progress, selectedAnime]);
+  }, [episodeGroups, progress, selectedAnime, provider]);
   const navIcon = (target: Screen, name: "home" | "bookmark" | "clock" | "gear", text: string) => (
     <button type="button" className={screen === target ? "on" : ""} title={text} onClick={() => go(target)}><Icon name={name} /><span className="sr-only">{text}</span></button>
   );
@@ -855,7 +878,7 @@ function App() {
               <div className="found" id="results-heading" aria-live="polite">
                 {catalogSearch.ready || unifiedResults.length ? <>{unifiedResults.length} {unifiedResults.length === 1 ? "result" : "results"} for "{lastQuery}"</> : catalogSearch.pending ? "Searching…" : "Press Enter to search"}
               </div>
-              {searchMessage && <div className={`msg ${searchError ? "err" : ""}`} role={searchError ? "alert" : "status"}>{searchMessage}</div>}
+              {searchMessage && <div className={`msg ${searchError ? "err" : ""}`} role={searchError ? "alert" : "status"}>{searchMessage}{catalogSearch.providerErrors.length > 0 && <button type="button" className="link" onClick={catalogSearch.retrySources}>Retry sources</button>}</div>}
               <div className="section-results" role="listbox" aria-label="Results">
                 {rows.map((row, index) => {
                   const anime = row.anime!;
@@ -910,6 +933,10 @@ function App() {
             autoplayNext={appState.settings.autoplayNext !== false}
             onPrev={playNeighbour(-1)}
             onNext={playNeighbour(1)}
+            onRetry={current ? () => {
+              const episode = current.episodes.find((item) => item.id === current.episodeId);
+              if (episode) void playEpisode(episode, current.anime, current.mode, episodeGroups, true);
+            } : undefined}
             onDock={dockPlayer}
             onEpisodes={showPlayingEpisodes}
             onExpand={expandPlayer}
@@ -955,7 +982,7 @@ function App() {
               <h1>{selectedAnime.title}</h1>
               <div className="meta">
                 {animeSources(selectedAnime).map((source) => <span className="tag" key={source.id}>{source.provider}</span>)}
-                {resolving && <span className="tag quiet" role="status">checking other sources<span className="dots"> ···</span></span>}
+                {resolving && <span className="tag quiet" role="status">checking other sources{pendingSources.length ? `: ${pendingSources.join(", ")}` : ""}<span className="dots"> ···</span></span>}
                 {animeSources(selectedAnime).find((source) => source.title !== selectedAnime.title) && <span>{animeSources(selectedAnime).find((source) => source.title !== selectedAnime.title)!.title}</span>}
               </div>
               <div className="facts">
@@ -964,11 +991,14 @@ function App() {
                 <div><small>Last source</small>{progress ? `${progress.lastProvider ?? providerOf(progress.animeId)} · ${progress.mode}` : "—"}</div>
                 <div><small>Plays in</small>{player}</div>
               </div>
+              {Object.entries(sourceErrors).map(([name, error]) => <div className="notice" key={name}>{name}: {error}</div>)}
+              {episodeGroups.some((group) => group.refreshing) && <div className="notice" role="status">Showing cached episodes · refreshing sources</div>}
               {episodeGroups.filter((group) => group.error).map((group) => (
-                <div className="msg err" role="alert" key={group.provider}><b>{group.provider}</b> {group.error} <button type="button" className="link" onClick={() => void openAnime(selectedAnime)}>retry</button></div>
+                <div className="msg err" role="alert" key={group.provider}><b>{group.provider}</b> {group.error} <button type="button" className="link" onClick={() => void openAnime(selectedAnime, { refresh: true })}>retry</button></div>
               ))}
               <div className="ep-head">
                 <h2>Episodes</h2>
+                <button type="button" className="btn small" onClick={() => { if (selectedAnime) void openAnime(selectedAnime, { refresh: true }); }}>Refresh sources</button>
                 <Chips value={episodeFilter} options={["all", "unwatched", "watched"] as const} onChange={(value) => reorder(value, episodeSort)} names={{ all: "All", unwatched: "Unwatched", watched: "Watched" }} />
                 <label className="jump"><Icon name="search" /><input value={jump} onChange={(event) => jumpTo(event.target.value)} placeholder="Jump to" aria-label="Jump to episode" inputMode="numeric" /></label>
                 <span className="sort" role="radiogroup" aria-label="Sort">
@@ -977,20 +1007,26 @@ function App() {
                 </span>
               </div>
               <div className="eps" ref={listRef} tabIndex={-1} role="group" aria-label="Episodes">
-                {episodeRows.length === 0 && !busy && <div className="empty">{episodeFilter === "all" ? "No episodes found." : `No ${episodeFilter} episodes.`}</div>}
+                {episodeRows.length === 0 && !busy && !resolving && <div className="empty">{episodeFilter === "all" ? "No episodes found." : `No ${episodeFilter} episodes.`}</div>}
                 {episodeRows.map((row, index) => {
-                  const isCursor = index === cursor;
+                  const info = metadata.get(row.episode.id);
+                  const isCursor = index === seriesCursor;
                   const groupCursor = nextRow?.number === row.number;
                   return (
                     <div key={row.episode.id} className={`src-wrap ${row.first ? "first" : ""} ${groupCursor ? "in-cur" : ""}`}>
                       {row.first && <h4 className="grp-head">Ep {row.number}{nextUp?.number === row.number && <span className="up">Next up</span>}</h4>}
                       <div className={`src ${row.watched ? "w" : ""} ${isCursor ? "cur" : ""} ${playingId === row.episode.id ? "playing" : ""}`} data-cursor={isCursor} data-episode={row.episode.id}>
-                        <button type="button" className="src-hit" tabIndex={isCursor ? 0 : -1} onFocus={() => setCursor(index)}
+                        <button type="button" className="src-hit" tabIndex={isCursor ? 0 : -1} onFocus={() => setEpisodeCursor(index)}
                           onClick={() => void playEpisode(row.episode)} aria-label={`play episode ${row.number} from ${row.episode.provider}`}>
                           <span className="t">Episode {row.number}<small>{row.episode.provider}</small>{playingId === row.episode.id && <em>playing</em>}</span>
-                          {qualities[row.episode.id] && <span className="q">{qualities[row.episode.id]}</span>}
+                          {info?.availability && <span className="audio-availability" title="Audio listed by a supported provider server">{[info?.availability?.sub && "sub", info?.availability?.dub && "dub"].filter(Boolean).join(" · ") || "no audio"}</span>}
+                          {info?.quality ? <span className="q">{info?.quality}</span>
+                            : info?.phase === "audio" ? <span className="metadata-status">checking audio</span>
+                            : info?.phase === "quality" ? <span className="metadata-status">checking quality</span>
+                            : info?.availability?.[mode] === false ? <span className="metadata-status">no {mode}</span> : null}
                           <Icon name="play" className="play" />
                         </button>
+                        {info?.phase === "error" && <button type="button" className="metadata-retry" title={info?.error} aria-label={`retry metadata for episode ${row.number} from ${row.episode.provider}`} onClick={() => metadata.retry(row.episode.id)}>Retry info</button>}
                         <button type="button" className="chk" role="checkbox" aria-checked={row.watched} aria-label={`mark watched through episode ${row.number} on ${row.episode.provider}`} title="Mark watched through here" onClick={() => void markWatched(row.episode)}>
                           {row.watched && <Icon name="check" />}
                         </button>
@@ -1029,7 +1065,7 @@ function App() {
             <div className="group"><h3>Defaults</h3><div className="box">
               <div className="r"><span className="k">Quality</span><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div>
               <div className="r"><span className="k">Audio</span><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div>
-              <div className="r"><span className="k">Source<small>Auto combines aniwave, anidb, and hianime</small></span><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
+              <div className="r"><span className="k">Preferred playback source<small>Search always checks every provider. Auto uses the first available source.</small></span><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div>
             </div></div>
             <div className="group"><h3>Appearance</h3><div className="box">
               <div className="r"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="chips" role="radiogroup" aria-label="theme">

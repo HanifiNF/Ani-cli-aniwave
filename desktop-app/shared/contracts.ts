@@ -39,9 +39,15 @@ export interface EpisodeGroup {
   provider: ProviderName;
   episodes: Episode[];
   error?: string;
+  refreshing?: boolean;
 }
 
 export interface EpisodeCatalog { groups: EpisodeGroup[]; }
+
+export interface CatalogRequest { id: string; priority?: "playback" | "selected" | "visible" | "nearby"; refresh?: boolean; }
+export interface CatalogProgress<T> { value: T; pending: ProviderName[]; errors: Partial<Record<ProviderName, string>>; }
+/** Availability advertised by a supported provider server; playback is verified separately. */
+export interface EpisodeAvailability { sub: boolean; dub: boolean; checkedAt: number; }
 
 export interface ProviderProgress {
   lastEpisode: string;
@@ -137,11 +143,13 @@ export type PlayerCommand = "play-pause" | "seek-backward" | "seek-forward" | "v
 
 export interface AniDesktopApi {
   player: AniPlayerApi;
-  search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
-  episodes(anime: AnimeResult): Promise<EpisodeCatalog>;
+  search(query: string, provider?: ProviderPreference, request?: CatalogRequest, onUpdate?: (progress: CatalogProgress<AnimeResult[]>) => void): Promise<AnimeResult[]>;
+  episodes(anime: AnimeResult, request?: CatalogRequest, onUpdate?: (catalog: EpisodeCatalog) => void): Promise<EpisodeCatalog>;
   /** Look the anime up on every provider it is not yet known on, remembering confident matches. */
-  resolveSources(anime: AnimeResult): Promise<AnimeResult>;
-  streams(episodeId: string, mode: TranslationMode): Promise<Stream[]>;
+  resolveSources(anime: AnimeResult, request?: CatalogRequest, onUpdate?: (progress: CatalogProgress<AnimeResult>) => void): Promise<AnimeResult>;
+  streams(episodeId: string, mode: TranslationMode, request?: CatalogRequest): Promise<Stream[]>;
+  availability(episodeId: string, request?: CatalogRequest): Promise<EpisodeAvailability>;
+  cancelCatalog(requestId: string): void;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
   saveSettings(settings: Settings): Promise<PersistedState>;

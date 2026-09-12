@@ -64,3 +64,20 @@ describe("player keyboard diagnostics", () => {
     expect(bridge.invoke).toHaveBeenCalledWith("player:active", false);
   });
 });
+
+it("routes catalog progress by request ID and removes listeners when each request finishes", async () => {
+  let finishFirst!: (value: unknown) => void, finishSecond!: (value: unknown) => void;
+  bridge.invoke.mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+    .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+  const firstUpdate = vi.fn(), secondUpdate = vi.fn();
+  const anime = { id: "aniwave:test-1", title: "Test", provider: "aniwave" as const };
+  const first = bridge.api.episodes(anime, { id: "first" }, firstUpdate);
+  const second = bridge.api.episodes(anime, { id: "second" }, secondUpdate);
+  for (const handler of bridge.handlers.get("catalog:update") ?? []) handler({}, { id: "first", value: { groups: [] } });
+  expect(firstUpdate).toHaveBeenCalledTimes(1); expect(secondUpdate).not.toHaveBeenCalled();
+  bridge.api.cancelCatalog("first"); expect(bridge.send).toHaveBeenCalledWith("catalog:cancel", "first");
+  finishFirst({ groups: [] }); await first;
+  expect(bridge.handlers.get("catalog:update")?.size).toBe(1);
+  finishSecond({ groups: [] }); await second;
+  expect(bridge.handlers.get("catalog:update")?.size).toBe(0);
+});

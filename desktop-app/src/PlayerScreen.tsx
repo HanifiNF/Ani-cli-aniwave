@@ -38,6 +38,8 @@ export interface PlayerScreenProps {
   autoplayNext: boolean;
   onPrev?: () => void;
   onNext?: () => void;
+  /** Resolve a fresh URL after a playback failure. */
+  onRetry?: () => void;
   /** Shrink to the corner and keep playing. Escape reaches this after closing menus and leaving fullscreen. */
   onDock: () => void;
   /** Open the playing episode's series without stopping. */
@@ -119,7 +121,7 @@ function MenuEscapeHandler() {
   return null;
 }
 
-export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
+export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onRetry, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
   const api = window.aniDesktop.player;
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -454,7 +456,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
             <strong>Playback failed</strong>
             <span>{error}</span>
             <div>
-              <button type="button" onClick={() => { setError(undefined); setAttempt((value) => value + 1); }}>Retry</button>
+              <button type="button" disabled={Boolean(onRetry && message && !message.error)} onClick={() => { if (onRetry) onRetry(); else { setError(undefined); setAttempt((value) => value + 1); } }}>{onRetry && message && !message.error ? "Finding stream…" : "Retry"}</button>
               <button type="button" disabled={!session.canOpenExternal || fallbackBusy} onClick={() => void openExternal()}>
                 {fallbackBusy ? "Opening…" : session.canOpenExternal ? "Open in external player" : "External player not configured"}
               </button>

@@ -263,3 +263,13 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
   :root { --cols: 6; }
   .searchbox { width: 340px; }
 }
+
+.src-hit { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+.src { grid-template-columns: minmax(0, 1fr) auto auto; }
+.src .chk { grid-column: 3; }
+.audio-availability, .metadata-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.audio-availability { text-transform: uppercase; }
+.metadata-retry { font-size: 11px; color: var(--text); padding: 4px 6px; border-radius: 4px; }
+.metadata-retry:hover { background: var(--raised2); }
+.src.cur .audio-availability, .src.cur .metadata-status { color: var(--cursor-text); }
+@media (max-width: 650px) { .metadata-status { max-width: 70px; overflow: hidden; text-overflow: ellipsis; } }

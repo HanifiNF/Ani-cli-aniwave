@@ -153,3 +153,22 @@ describe("multi-source scraper", () => {
     await expect(getStreams("hianime:naruto-episode-1-aaa111", "sub", config)).rejects.toThrow("unsupported host unknown.test");
   });
 });
+
+it("shares the server response between audio metadata and playback without extra video-host requests", async () => {
+  const { catalogContext } = await import("../electron/catalog-requests");
+  const { getAvailability } = await import("../electron/scraper");
+  const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/server/list")) return new Response(JSON.stringify({ result: '<div class="type" data-type="sub"><li data-sv-id="4" data-link-id="sub-id"></li></div><div class="type" data-type="dub"><li data-sv-id="4" data-link-id="dub-id"></li></div>' }));
+    if (url.includes("/ajax/sources")) return new Response(JSON.stringify({ result: { url: "https://host.test/embed-1/token" } }));
+    if (url.includes("/getSources")) return new Response(JSON.stringify({ sources: [{ file: "https://cdn.test/master.m3u8" }] }));
+    return new Response("#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\n1080.m3u8");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await catalogContext.run({ signal: new AbortController().signal, priority: 2, scope: "availability-test" }, async () => {
+    const audio = await getAvailability("aniwave:101:1", config);
+    expect(audio).toMatchObject({ sub: true, dub: true }); expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [first, second] = await Promise.all([getStreams("aniwave:101:1", "sub", config), getStreams("aniwave:101:1", "sub", config)]);
+    expect(first).toEqual(second); expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});

@@ -1,13 +1,15 @@
+import { CatalogService, catalogScope } from "./catalog-service";
+import { catalogContext } from "./catalog-requests";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from "electron";
-import type { AnimeResult, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
+import type { AnimeResult, CatalogRequest, LibraryEntry, PlayerSession, PlayRequest, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
 import { assertPlayerSender, registerPlayerFullscreenEvents, setPlayerFullscreen } from "./player-window";
 import { isPlaybackRequest, validatePlayRequest, withMediaCors, withPlaybackReferrer } from "./playback-security";
-import { getEpisodes, getStreams, resolveSources, searchAnime } from "./scraper";
+import { getAvailability, getEpisodes, getStreams, searchAnime } from "./scraper";
 import { animeSources, expandWithLinks } from "../shared/catalog";
 import { StateStore } from "./state";
 import { installApplicationMenu } from "./menu";
@@ -28,6 +30,33 @@ let diagnostics: PlayerDiagnostics;
 let refreshMenu: () => void = () => undefined;
 // In-memory partition: stream segments never reach the disk cache, and the renderer gets no permissions.
 const APP_PARTITION = "ani-desktop";
+
+const catalogService = new CatalogService();
+const catalogConsumers = new Map<string, AbortController>();
+const catalogSenders = new WeakSet<Electron.WebContents>();
+function catalogCall<T>(event: Electron.IpcMainInvokeEvent, request: CatalogRequest | undefined, operation: (update: (value: unknown) => void) => Promise<T>): Promise<T> {
+  assertPlayerSender(mainWindow, event);
+  if (request && (typeof request.id !== "string" || request.id.length > 200)) throw new Error("Invalid catalog request");
+  const key = `${event.sender.id}:${request?.id ?? randomUUID()}`;
+  catalogConsumers.get(key)?.abort();
+  const controller = new AbortController();
+  catalogConsumers.set(key, controller);
+  if (!catalogSenders.has(event.sender)) {
+    catalogSenders.add(event.sender);
+    const senderId = event.sender.id;
+    event.sender.once("destroyed", () => { for (const [id, consumer] of catalogConsumers) if (id.startsWith(`${senderId}:`)) consumer.abort(); });
+  }
+  const priority = request?.priority === "playback" ? 0 : request?.priority === "selected" ? 1 : request?.priority === "nearby" ? 3 : 2;
+  return catalogContext.run({ signal: controller.signal, priority, refresh: request?.refresh, scope: catalogScope(store.snapshot().settings) }, async () => {
+    try {
+      return await operation((value) => {
+        if (request && !controller.signal.aborted && !event.sender.isDestroyed()) event.sender.send("catalog:update", { id: request.id, value });
+      });
+    } finally {
+      if (catalogConsumers.get(key) === controller) catalogConsumers.delete(key);
+    }
+  });
+}
 
 function playerPayload(): PlayerSession {
   if (!activePlayback) throw new Error("No stream has been assigned to the player");
@@ -173,21 +202,24 @@ function registerIpc(): void {
     if (process.platform === "darwin") app.dock?.setIcon(icon);
     else mainWindow.setIcon(icon);
   });
-  ipcMain.handle("catalog:search", (_event, query: string, provider?: ProviderPreference) => {
-    const state = store.snapshot();
-    return searchAnime(query, state.settings, provider, state.providerLinks);
+  ipcMain.on("catalog:cancel", (event, id: string) => {
+    assertPlayerSender(mainWindow, event);
+    catalogConsumers.get(`${event.sender.id}:${id}`)?.abort();
   });
-  ipcMain.handle("catalog:episodes", (_event, anime: AnimeResult) => getEpisodes(anime, store.snapshot().settings));
-  ipcMain.handle("catalog:resolve", async (_event, anime: AnimeResult) => {
+  ipcMain.handle("catalog:search", (event, query: string, provider?: ProviderPreference, request?: CatalogRequest) => catalogCall(event, request, (update) => {
     const state = store.snapshot();
-    // Records already tied to this anime by a remembered link need no lookup.
+    return catalogService.search(query, state.settings, provider ?? "auto", state.providerLinks, update);
+  }));
+  ipcMain.handle("catalog:episodes", (event, anime: AnimeResult, request?: CatalogRequest) => catalogCall(event, request, (update) => catalogService.episodes(anime, store.snapshot().settings, update)));
+  ipcMain.handle("catalog:resolve", (event, anime: AnimeResult, request?: CatalogRequest) => catalogCall(event, request, async (update) => {
+    const state = store.snapshot();
     const linked = expandWithLinks(anime, state.providerLinks ?? []);
-    const { anime: resolved, confirmed } = await resolveSources(linked, state.settings);
-    // Remember alias-confirmed matches so searches and the library treat these records as one anime from now on.
+    const { anime: resolved, confirmed } = await catalogService.resolve(linked, state.settings, update);
     if (confirmed.length) await store.linkSources([...animeSources(linked).map((source) => source.id), ...confirmed], resolved.sources ?? []);
     return resolved;
-  });
-  ipcMain.handle("catalog:streams", (_event, episodeId: string, mode: TranslationMode) => getStreams(episodeId, mode, store.snapshot().settings));
+  }));
+  ipcMain.handle("catalog:streams", (event, episodeId: string, mode: TranslationMode, request?: CatalogRequest) => catalogCall(event, request, () => getStreams(episodeId, mode, store.snapshot().settings)));
+  ipcMain.handle("catalog:availability", (event, episodeId: string, request?: CatalogRequest) => catalogCall(event, request, () => getAvailability(episodeId, store.snapshot().settings)));
   ipcMain.handle("state:get", () => store.snapshot());
   ipcMain.handle("state:settings", async (_event, settings: Settings) => {
     const state = await store.saveSettings(settings);

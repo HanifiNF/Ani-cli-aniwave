@@ -25,8 +25,10 @@ npm start
 
 Type at least two characters to search automatically after a short pause, or press Enter to search immediately. Results, saved titles, and recent titles support mouse and keyboard navigation.
 
-- Auto search combines exact matching aliases from AniWave, AniDB, and HiAnime while keeping provider-native episode lists.
-- Open a series, select a provider tab, and choose an episode to resolve and play its stream.
+- Catalog search checks AniWave, AniDB, and HiAnime concurrently and displays results as each provider responds. The preferred source setting controls playback selection.
+- Open a series to see episodes grouped by number, with provider sources underneath. Known and newly discovered sources populate independently, preserving the selected episode and scroll position.
+- Supported sub/dub availability loads before full stream resolution. Audio labels describe provider-listed availability; playback verifies the host. Quality checks prioritize the selected episode and nearby visible rows. Failed checks offer **Retry info**.
+- **Refresh sources** bypasses cached responses and provider cooldowns. Cached episode lists remain visible if a refresh fails, alongside the provider error.
 - The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and native fullscreen controls. Video keeps its aspect ratio with black bars filling the remaining window area.
 - Volume, mute, playback speed, caption visibility/language, and episode resume positions are saved locally. Positions use provider episode IDs and audio mode, so refreshed stream URLs resume correctly.
 - Built-in episodes are recorded as started on opening and completed when playback reaches the end. Continue resumes an unfinished episode; completed episodes advance to the next one. Existing history retains its previous completed interpretation. External-player completion remains untracked and uses the existing launch-based history behavior.
@@ -61,7 +63,7 @@ For troubleshooting, turn **Settings → player diagnostics → on**, then save.
 
 Logs live in the app's user-data `logs` folder. The single `media-player.jsonl` file retains the latest **five minutes** of events, with cleanup once per second while the app is open, including when diagnostics are turned off. Startup and **Open logs** also trim expired entries. Time-based retention replaces the size limit and backup rotation; any existing backup is merged into the five-minute window and removed. Files left while the app is closed are trimmed at the next launch. Log writing runs asynchronously with a bounded queue; a `dropped` count identifies records omitted under heavy load. Text-field/composition input, stream URLs, titles, and arbitrary error messages are excluded. Nothing is uploaded. To report an issue, enable diagnostics, reproduce it, then promptly copy the log file before those events expire.
 
-If the built-in player reports a fatal error, use **Retry**. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
+If the built-in player reports a fatal error, use **Retry** to resolve a fresh stream URL for the episode. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
 
 ## Optional external players
 
@@ -78,6 +80,14 @@ The app supplies the HLS format, referrer, media title, and fullscreen options r
 ## Themes and icons
 
 Theme presets and custom colours control the interface and running app icon. Builds generate a graphite PNG, multi-size Windows ICO, and Retina-ready macOS ICNS from `../app-icon.svg`.
+
+## Catalog loading
+
+The Electron main process shares in-flight HTTP requests and caches their response bodies in memory (up to 1,000 entries and 32 MB). Search and server availability responses remain fresh for 60 seconds, episode-list responses for 30 seconds, and source/playlist responses for 20 seconds. Parsed episode catalogs can be shown during refresh for up to 30 minutes, with a limit of 200 provider catalogs. These caches reset when the app exits.
+
+Background traffic is limited to five active requests overall and two per host. Playback can use a reserved sixth slot and a third request to a host. Queued playback requests take priority. Cancellation releases an individual consumer; shared upstream work stops only when its last consumer leaves. Rate limits, server failures, and network failures trigger a 10-second host cooldown after the request fails. Explicit retries bypass it.
+
+Renderer metadata is keyed by source configuration, provider episode ID, and audio mode. It expires after 60 seconds (10 seconds for failures), is bounded to 1,000 completed entries, and stops loading when the associated rows leave the active view. Raw playable URLs stay in the short-lived main-process response cache rather than the UI metadata cache.
 
 ## Checks
 
