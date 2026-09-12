@@ -285,6 +285,26 @@ describe("live catalog search", () => {
     }) }) }));
   });
 
+  it("marks next up from progress regardless of the cursor, sort, or filter", async () => {
+    const state = await api.getState();
+    state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "7", mode: "sub", updatedAt: "", completed: false,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "7", mode: "sub", updatedAt: "", completed: false } } }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: Array.from({ length: 9 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1), provider: "aniwave" as const })) }] });
+    await act(async () => { root.render(<StrictMode><App key="progress" /></StrictMode>); });
+    await type("frieren"); await advance(); await press("Enter");
+    const nextUp = () => container.querySelector(".grp-head .up")?.parentElement?.textContent;
+    const cursorRow = () => container.querySelector('.eps [data-cursor="true"] .src-hit')?.textContent;
+    const playButton = () => [...container.querySelectorAll<HTMLButtonElement>(".series .side .btn")][0].textContent;
+    expect(nextUp()).toBe("Ep 7Next up"); expect(cursorRow()).toBe("Episode 7aniwave"); expect(playButton()).toBe("Play Ep 7");
+    await press("ArrowUp"); expect(cursorRow()).toBe("Episode 8aniwave");
+    expect(nextUp()).toBe("Ep 7Next up"); expect(playButton()).toBe("Play Ep 7");
+    await act(async () => { container.querySelector<HTMLButtonElement>('[title="Oldest first"]')!.click(); });
+    expect(cursorRow()).toBe("Episode 8aniwave"); expect(nextUp()).toBe("Ep 7Next up");
+    await act(async () => { [...container.querySelectorAll("button")].find((node) => node.textContent === "Watched")!.click(); });
+    expect(nextUp()).toBeUndefined(); expect(playButton()).toBe("Play Ep 7");
+    expect([...container.querySelectorAll(".eps .src-hit")].map((node) => node.textContent)).toEqual(["Episode 1aniwave", "Episode 2aniwave", "Episode 3aniwave", "Episode 4aniwave", "Episode 5aniwave", "Episode 6aniwave"]);
+  });
+
   it("looks the series up on the other providers and merges their episodes into the grouped list", async () => {
     const pending = deferred<AnimeResult>();
     vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise);

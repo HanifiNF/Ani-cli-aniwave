@@ -633,6 +633,15 @@ function App() {
     }
   }
 
+  // Changing the order or filter keeps the selection on the same row when it is still shown.
+  function reorder(filter: EpisodeFilter, sort: EpisodeSort) {
+    const id = episodeRows[cursor]?.episode.id;
+    const next = episodeRowsOf(episodeGroups, progress, filter, sort);
+    setEpisodeFilter(filter); setEpisodeSort(sort);
+    const index = id ? next.findIndex((row) => row.episode.id === id) : -1;
+    setCursor(index >= 0 ? index : 0);
+  }
+
   function jumpTo(value: string) {
     setJump(value);
     const wanted = value.trim();
@@ -799,7 +808,12 @@ function App() {
     : undefined;
 
   const nextRow = episodeRows[cursor];
-  const nextUp = episodeRows.find((row) => !row.watched && (nextRow ? row.number === nextRow.number : true)) ?? nextRow;
+  // Next up follows progress, not the cursor: the episode after the last one watched on the provider used last.
+  const nextUp = useMemo(() => {
+    const all = episodeRowsOf(episodeGroups, progress, "all", "oldest");
+    const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? selectedAnime?.provider ?? "aniwave")];
+    return row ? all.find((item) => !item.watched && item.number === row.number) ?? row : undefined;
+  }, [episodeGroups, progress, selectedAnime]);
   const navIcon = (target: Screen, name: "home" | "bookmark" | "clock" | "gear", text: string) => (
     <button type="button" className={screen === target ? "on" : ""} title={text} onClick={() => go(target)}><Icon name={name} /><span className="sr-only">{text}</span></button>
   );
@@ -946,11 +960,11 @@ function App() {
               ))}
               <div className="ep-head">
                 <h2>Episodes</h2>
-                <Chips value={episodeFilter} options={["all", "unwatched", "watched"] as const} onChange={(value) => { setEpisodeFilter(value); setCursor(0); }} names={{ all: "All", unwatched: "Unwatched", watched: "Watched" }} />
+                <Chips value={episodeFilter} options={["all", "unwatched", "watched"] as const} onChange={(value) => reorder(value, episodeSort)} names={{ all: "All", unwatched: "Unwatched", watched: "Watched" }} />
                 <label className="jump"><Icon name="search" /><input value={jump} onChange={(event) => jumpTo(event.target.value)} placeholder="Jump to" aria-label="Jump to episode" inputMode="numeric" /></label>
                 <span className="sort" role="radiogroup" aria-label="Sort">
-                  <button type="button" role="radio" aria-checked={episodeSort === "oldest"} className={episodeSort === "oldest" ? "on" : ""} title="Oldest first" onClick={() => { setEpisodeSort("oldest"); setCursor(0); }}><Icon name="up" /></button>
-                  <button type="button" role="radio" aria-checked={episodeSort === "newest"} className={episodeSort === "newest" ? "on" : ""} title="Newest first" onClick={() => { setEpisodeSort("newest"); setCursor(0); }}><Icon name="down" /></button>
+                  <button type="button" role="radio" aria-checked={episodeSort === "oldest"} className={episodeSort === "oldest" ? "on" : ""} title="Oldest first" onClick={() => reorder(episodeFilter, "oldest")}><Icon name="up" /></button>
+                  <button type="button" role="radio" aria-checked={episodeSort === "newest"} className={episodeSort === "newest" ? "on" : ""} title="Newest first" onClick={() => reorder(episodeFilter, "newest")}><Icon name="down" /></button>
                 </span>
               </div>
               <div className="eps" ref={listRef} tabIndex={-1} role="group" aria-label="Episodes">

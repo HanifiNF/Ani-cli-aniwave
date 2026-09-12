@@ -173,8 +173,9 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .series .side .poster { width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius); box-shadow: 0 10px 30px rgb(0 0 0 / 30%); }
 .series .side .stack { display: grid; gap: 6px; margin-top: 12px; }
 .series .side .stack .btn { width: 100%; justify-content: space-between; height: 40px; }
-.series .side .prefs { display: grid; gap: 10px; margin-top: 14px; }
-.series .side .prefs .chips-row { justify-content: space-between; }
+.series .side .prefs { display: grid; gap: 12px; margin-top: 16px; }
+.series .side .prefs .chips-row { display: grid; gap: 6px; justify-items: start; }
+.series .side .prefs .chips { flex-wrap: wrap; max-width: 100%; }
 .series .main { min-width: 0; }
 .series .crumb { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 4px; }
 .series .crumb:hover { color: var(--text); }
