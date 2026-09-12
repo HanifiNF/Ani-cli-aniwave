@@ -299,6 +299,8 @@ function App() {
   useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, results, filter]);
   // Opening a series shows its header first; the list follows the cursor only once it moves.
   const skipReveal = useRef(false);
+  // Reveal follows the selected row itself, so a state refresh (saving, window focus) does not scroll the list back.
+  const cursorKey = screen === "series" ? episodeRows[cursor]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
   useEffect(() => {
     if (skipReveal.current) { skipReveal.current = false; return; }
     const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
@@ -315,7 +317,7 @@ function App() {
     const observer = new ResizeObserver(reveal);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [cursor, screen, rows, episodeRows]);
+  }, [cursor, cursorKey, screen]);
   useEffect(() => {
     if (screen === "series") listRef.current?.focus();
     else if (screen !== "settings" && screen !== "player") fieldRef.current?.focus();
@@ -556,9 +558,14 @@ function App() {
 
   function cancelPlay() { playToken.current += 1; setStatus(undefined); }
 
+  // Saving records the anime with its real progress, never the row the cursor happens to be on.
   async function toggleBookmark() {
     if (!selectedAnime) return;
-    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(libraryEntry(selectedAnime, episodeRows[cursor]?.episode, mode)));
+    const first = episodeRowsOf(episodeGroups, undefined, "all", "oldest")[0]?.episode;
+    const entry: LibraryEntry = progress
+      ? { ...progress, title: selectedAnime.title, poster: selectedAnime.poster ?? progress.poster, sources: animeSources(selectedAnime) }
+      : { ...libraryEntry(selectedAnime, first, mode), completed: false };
+    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(entry));
     if (state) setAppState(state);
   }
 

@@ -329,6 +329,34 @@ describe("live catalog search", () => {
     expect(api.play).toHaveBeenCalledWith(expect.objectContaining({ episode: expect.objectContaining({ entry: expect.objectContaining({ lastProvider: "anidb", sources: expect.arrayContaining([expect.objectContaining({ id: "anidb:frieren-9" })]) }) }) }));
   });
 
+  it("saves a series with its real progress and keeps the selected row where it is", async () => {
+    const state = await api.getState();
+    state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "7", mode: "sub", updatedAt: "", completed: false,
+      lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "7", mode: "sub", updatedAt: "", completed: false } } }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: Array.from({ length: 9 }, (_, index) => ({ id: `ep-${index + 1}`, number: String(index + 1), provider: "aniwave" as const })) }] });
+    let saved = false;
+    vi.mocked(api.toggleBookmark).mockImplementation(async (entry) => { saved = !saved; return { ...state, bookmarks: saved ? [entry] : [] }; });
+    await act(async () => { root.render(<StrictMode><App key="save" /></StrictMode>); });
+    await type("frieren"); await advance(); await press("Enter");
+    const cursorRow = () => container.querySelector('.eps [data-cursor="true"] .src-hit')?.textContent;
+    await press("ArrowUp"); await press("ArrowUp"); expect(cursorRow()).toBe("Episode 9aniwave");
+    const scrolls = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length;
+    await press("s");
+    expect(api.toggleBookmark).toHaveBeenLastCalledWith(expect.objectContaining({ lastEpisode: "7", completed: false, lastProvider: "aniwave" }));
+    expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe("Saved");
+    await press("s");
+    expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
+    expect(cursorRow()).toBe("Episode 9aniwave");
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.length).toBe(scrolls);
+    // Without any progress, saving records the first episode as not started.
+    state.history = [];
+    vi.mocked(api.getState).mockResolvedValue(state);
+    await act(async () => { root.render(<StrictMode><App key="fresh" /></StrictMode>); });
+    await type("frieren"); await advance(); await press("Enter");
+    await press("s");
+    expect(api.toggleBookmark).toHaveBeenLastCalledWith(expect.objectContaining({ lastEpisode: "1", completed: false }));
+  });
+
   it("resolves the other providers when a series is continued from the home page", async () => {
     const state = await api.getState();
     state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "1", mode: "sub", updatedAt: "2026-09-09T00:00:00Z", lastProvider: "aniwave",
