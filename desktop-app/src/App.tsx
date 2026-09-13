@@ -4,7 +4,7 @@ import SeriesScreen from "./SeriesScreen";
 import type { PlayStatus, NowPlaying } from "./playback";
 import SettingsScreen from "./SettingsScreen";
 import LibrarySection from "./LibrarySection";
-import { asAnime, libraryEntry, type Row, type LibraryKind } from "./library";
+import { asAnime, libraryEntry, libraryEntryAllWatched, type Row, type LibraryKind } from "./library";
 import { episodeValue, episodeRowsOf, nextUpIndex, providerList, type EpisodeFilter, type EpisodeSort } from "./episodes";
 import { applyTheme } from "./theme";
 import { bestQuality } from "../shared/episode-metadata";
@@ -496,6 +496,15 @@ function App() {
     if (state) setAppState(state);
   }
 
+  // The sidebar button records the last episode on every source at once.
+  async function markAllWatched() {
+    if (!selectedAnime) return;
+    const entry = libraryEntryAllWatched(selectedAnime, episodeGroups, mode, progress?.lastProvider);
+    if (!entry) return;
+    const state = await run("updating progress", () => window.aniDesktop.recordHistory(entry));
+    if (state) setAppState(state);
+  }
+
   function mergeCandidate(anime: AnimeResult): AnimeResult | undefined {
     return unifiedResults.find((candidate) => candidate.id !== anime.id && likelyDuplicate(anime, candidate));
   }
@@ -828,7 +837,7 @@ function App() {
               void metadata.refresh(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.id))).catch((error) => setError(messageFrom(error)));
               void openAnime(selectedAnime, { refresh: true });
             }} onJump={jumpTo} onCursor={setEpisodeCursor} onWatched={(episode) => void markWatched(episode)}
-            onDismissStatus={cancelPlay} reorder={reorder} />
+            onWatchedAll={() => void markAllWatched()} onDismissStatus={cancelPlay} reorder={reorder} />
         )}
 
         {screen === "settings" && (

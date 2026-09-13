@@ -308,6 +308,33 @@ describe("live catalog search", () => {
     expect([...container.querySelectorAll(".eps .src-hit")].map((node) => node.textContent)).toEqual(["Episode 1aniwave", "Episode 2aniwave", "Episode 3aniwave", "Episode 4aniwave", "Episode 5aniwave", "Episode 6aniwave"]);
   });
 
+  it("marks every episode on every source watched from the sidebar button", async () => {
+    search.mockResolvedValue([{
+      id: "aniwave:re-zero-101", title: "Re:ZERO Season 4", provider: "aniwave",
+      sources: [
+        { id: "aniwave:re-zero-101", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"], provider: "aniwave" },
+        { id: "anidb:re-zero-202", title: "Re:ZERO Season 4", aliases: ["Re:ZERO Season 4"], provider: "anidb" }
+      ]
+    }]);
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [
+      { provider: "aniwave", episodes: [{ id: "aniwave:ep-2", number: "2", provider: "aniwave" }, { id: "aniwave:ep-1", number: "1", provider: "aniwave" }] },
+      { provider: "anidb", episodes: [{ id: "anidb:ep-1", number: "1", provider: "anidb" }] }
+    ] });
+    vi.mocked(api.recordHistory).mockImplementation(async (entry) => { const next = await api.getState(); next.history = [entry]; vi.mocked(api.getState).mockResolvedValue(next); return next; });
+
+    await type("re zero"); await advance(); await press("Enter");
+    const button = () => [...container.querySelectorAll<HTMLButtonElement>(".series .side .stack .btn")].find((node) => node.textContent?.includes("watched"))!;
+    expect(button().textContent).toBe("Mark all watched"); expect(button().disabled).toBe(false);
+    expect(container.querySelectorAll('.eps .chk[aria-checked="true"]')).toHaveLength(0);
+    await act(async () => { button().click(); });
+    expect(api.recordHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      animeId: "aniwave:re-zero-101", lastProvider: "aniwave", lastEpisode: "2", completed: true,
+      progressByProvider: { aniwave: expect.objectContaining({ lastEpisode: "2", lastEpisodeId: "aniwave:ep-2", completed: true }), anidb: expect.objectContaining({ lastEpisode: "1", lastEpisodeId: "anidb:ep-1", completed: true }) }
+    }));
+    expect(container.querySelectorAll('.eps .chk[aria-checked="true"]')).toHaveLength(3);
+    expect(button().textContent).toBe("All watched"); expect(button().disabled).toBe(true);
+  });
+
   it("looks the series up on the other providers and merges their episodes into the grouped list", async () => {
     const pending = deferred<AnimeResult>();
     vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise);

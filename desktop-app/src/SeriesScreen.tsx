@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 import type { AnimeResult, Episode, EpisodeGroup, LibraryEntry, ProviderName, TranslationMode } from "../shared/contracts";
 import { animeSources, providerFromId } from "../shared/catalog";
 import { PLAYBACK_QUALITIES as QUALITIES } from "../shared/settings";
-import type { EpisodeRow, EpisodeFilter, EpisodeSort } from "./episodes";
+import { episodeRowsOf, type EpisodeRow, type EpisodeFilter, type EpisodeSort } from "./episodes";
 import type { PlayStatus } from "./playback";
 import type { useEpisodeMetadata } from "./useEpisodeMetadata";
 import Art from "./Art";
@@ -22,22 +22,25 @@ interface Props {
   onPlay: (episode: Episode) => void; onBookmark: () => void; onBack: () => void;
   onMode: (mode: TranslationMode) => void; onQuality: (quality: string) => void;
   onCheckSources: () => void; onRefreshSources: () => void; onJump: (value: string) => void;
-  onCursor: (index: number) => void; onWatched: (episode: Episode) => void; onDismissStatus: () => void;
+  onCursor: (index: number) => void; onWatched: (episode: Episode) => void; onWatchedAll: () => void; onDismissStatus: () => void;
   reorder: (filter: EpisodeFilter, sort: EpisodeSort) => void;
 }
 
 export default function SeriesScreen({ anime, progress, isSaved, player, mode, quality, lastQuery, busy, resolving,
   pendingSources, sourceErrors, episodeGroups, episodeRows, episodeCount, seriesCursor, nextUp, episodeFilter, episodeSort,
   jump, playingId, status, metadata, listRef, onPlay, onBookmark, onBack, onMode, onQuality, onCheckSources, onRefreshSources,
-  onJump, onCursor, onWatched, onDismissStatus, reorder }: Props) {
+  onJump, onCursor, onWatched, onWatchedAll, onDismissStatus, reorder }: Props) {
   const nextRow = episodeRows[seriesCursor];
+  const hasEpisodes = episodeGroups.some((group) => group.episodes.length);
+  const allWatched = hasEpisodes && episodeRowsOf(episodeGroups, progress, "unwatched", "oldest").length === 0;
   return (
     <div className="series">
       <aside className="side">
         <Art src={anime.poster} className="poster" />
         <div className="stack">
           <button type="button" className="btn primary" disabled={!nextUp} onClick={() => nextUp && onPlay(nextUp.episode)}>Play Ep {nextUp?.number ?? "…"}<Icon name="play" /></button>
-          <button type="button" className={`btn ${isSaved ? "on" : ""}`} onClick={() => onBookmark()} aria-pressed={isSaved}>{isSaved ? "Saved" : "Save"}<Icon name="bookmark" /></button>
+          <button type="button" className="btn" onClick={() => onBookmark()} aria-pressed={isSaved}>{isSaved ? "Saved" : "Save"}<Icon name="bookmark" className={isSaved ? "fill" : undefined} /></button>
+          <button type="button" className="btn" disabled={!hasEpisodes || allWatched} onClick={() => onWatchedAll()} title="Record every episode on every source as watched">{allWatched ? "All watched" : "Mark all watched"}<Icon name="check" /></button>
         </div>
         <div className="prefs">
           <Chips label="Audio" value={mode} options={["sub", "dub"] as const} onChange={onMode} />
