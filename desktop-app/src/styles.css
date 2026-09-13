@@ -15,6 +15,7 @@
   /* The bar and the page share one centred column, like a fixed-width site. */
   --container: 1120px;
   --gutter: max(40px, calc((100% - var(--container)) / 2));
+  --page-pad-bottom: 40px;
   --cols: 8;
   color-scheme: dark;
 }
@@ -51,7 +52,7 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 
 .app { display: flex; flex-direction: column; height: 100%; position: relative; }
 .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.page { flex: 1; min-height: 0; overflow: auto; padding: 8px var(--gutter) 40px; scrollbar-gutter: stable; }
+.page { flex: 1; min-height: 0; overflow: auto; padding: 8px var(--gutter) var(--page-pad-bottom); scrollbar-gutter: stable; }
 
 /* ---- top bar ---------------------------------------------------------- */
 .bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 68px; padding: 0 var(--gutter); flex: none; position: relative; z-index: 30; }
@@ -300,8 +301,9 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .swatch input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 5px; }
 .swatch input:not([type="color"]) { width: 72px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
 .acts-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-/* The form is taller than the window, so the actions stay in view while it scrolls. */
-.settings .acts-row { position: sticky; bottom: 0; margin: 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--rule); }
+/* The form is taller than the window, so the actions stay in view while it scrolls. Sticky boxes stop at the
+   scroller's content edge, so the bar pulls itself down through the page's bottom padding to sit flush with the window. */
+.settings .acts-row { position: sticky; bottom: calc(-1 * var(--page-pad-bottom)); margin: 0 0 calc(-1 * var(--page-pad-bottom)); padding: 12px 0 16px; background: var(--bg); border-top: 1px solid var(--rule); }
 
 /* ---- key hints -------------------------------------------------------- */
 .hints { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40; display: flex; gap: 18px; padding: 8px 14px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 12px; box-shadow: 0 0 0 1px var(--rule), 0 6px 20px rgb(0 0 0 / 25%); white-space: nowrap; }
