@@ -1,33 +1,10 @@
+import { DEFAULT_STATE } from "../shared/settings";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { MINI_PLAYER_CORNERS, MINI_PLAYER_WIDTH, clampMiniPlayerWidth, type AnimeResult, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type Settings, type PlayRequest } from "../shared/contracts";
+import { MINI_PLAYER_CORNERS, clampMiniPlayerWidth, type AnimeSource, type CustomTheme, type LibraryEntry, type MiniPlayerCorner, type PersistedState, type ProviderName, type Settings, type PlayRequest } from "../shared/contracts";
 import { playbackKey, validateStorageUpdate } from "../shared/playback";
-import { animeSources, mergeKey, overlaps, sourceIds } from "../shared/catalog";
-import { THEME_PRESETS, isHexColor, isThemePreset } from "../shared/theme";
-
-const defaults: PersistedState = {
-  bookmarks: [],
-  history: [],
-  providerLinks: [],
-  dismissedMergeKeys: [],
-  settings: {
-    playerPath: "",
-    playbackTarget: "builtin",
-    startPlayerFullscreen: true,
-    autoplayNext: true,
-    miniPlayerCorner: "bottom-right",
-    miniPlayerWidth: MINI_PLAYER_WIDTH.default,
-    playerDiagnostics: false,
-    preferredQuality: "best",
-    preferredMode: "sub",
-    preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru",
-    anidbBaseUrl: "https://anidb.app",
-    hianimeBaseUrl: "https://hianimes.se",
-    theme: "graphite",
-    customTheme: { ...THEME_PRESETS.graphite }
-  }
-};
+import { PROVIDER_NAMES, providerFromId, animeSources, isProviderName, mergeKey, overlaps, sourceIds } from "../shared/catalog";
+import { isHexColor, isThemePreset } from "../shared/theme";
 
 function normalizePoster(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 2048) return undefined;
@@ -39,13 +16,13 @@ function normalizePoster(value: unknown): string | undefined {
   }
 }
 
+const normalizeDisabledSources = (value: unknown): ProviderName[] => Array.isArray(value) ? PROVIDER_NAMES.filter((provider) => value.includes(provider)) : [];
 const normalizeCorner = (value: unknown): MiniPlayerCorner => (MINI_PLAYER_CORNERS as readonly unknown[]).includes(value) ? value as MiniPlayerCorner : "bottom-right";
 
 const HIANIME_SLUG = "[\\p{L}\\p{N}:!'().,_+~-]+(?:-[\\p{L}\\p{N}:!'().,_+~-]+)*";
 const isProviderId = (id: unknown): id is string => typeof id === "string" && (
   id.length <= 512 && (/^(?:aniwave|anidb):[a-z0-9-]+-\d+$/i.test(id) || new RegExp(`^hianime:${HIANIME_SLUG}$`, "u").test(id))
 );
-const providerForId = (id: string) => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
 
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!isProviderId(entry.animeId) && !/^[a-z0-9-]+-\d+$/i.test(entry.animeId)) throw new Error("Invalid anime identifier");
@@ -53,7 +30,7 @@ export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
   if (!/^\d+(?:\.\d+)?$/.test(entry.lastEpisode)) throw new Error("Invalid episode number");
   const poster = normalizePoster(entry.poster);
   const sources = animeSources(entry).map((source) => {
-    if (!isProviderId(source.id) || source.provider !== providerForId(source.id)) throw new Error("Invalid source identifier");
+    if (!isProviderId(source.id) || source.provider !== providerFromId(source.id)) throw new Error("Invalid source identifier");
     return { ...source, aliases: [...new Set([source.title, ...(source.aliases ?? [])])], poster: normalizePoster(source.poster) };
   });
   const lastProvider = entry.lastProvider && sources.some((source) => source.provider === entry.lastProvider) ? entry.lastProvider : sources[0].provider;
@@ -64,6 +41,12 @@ export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
     ...(progressByProvider[lastProvider] ?? { lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt }),
     ...(entry.completed !== undefined ? { completed } : {})
   };
+  for (const [name, raw] of Object.entries(progressByProvider)) {
+    if (!raw) continue;
+    const progress = { ...raw };
+    if (typeof progress.lastEpisodeId !== "string" || progress.lastEpisodeId.length > 512 || !progress.lastEpisodeId.startsWith(`${name}:`)) delete progress.lastEpisodeId;
+    progressByProvider[name as ProviderName] = progress;
+  }
   return { animeId: entry.animeId, title: entry.title.trim(), lastEpisode: entry.lastEpisode, mode: entry.mode === "dub" ? "dub" : "sub", updatedAt, sources, lastProvider, progressByProvider, completed, ...(poster ? { poster } : {}) };
 }
 
@@ -94,7 +77,7 @@ function combineEntries(left: LibraryEntry, right: LibraryEntry): LibraryEntry {
 
 function normalizeTheme(value: unknown): CustomTheme {
   const record = (value && typeof value === "object" ? value : {}) as Partial<CustomTheme>;
-  const fallback = defaults.settings.customTheme;
+  const fallback = DEFAULT_STATE.settings.customTheme;
   return {
     background: isHexColor(record.background) ? record.background : fallback.background,
     text: isHexColor(record.text) ? record.text : fallback.text,
@@ -103,7 +86,7 @@ function normalizeTheme(value: unknown): CustomTheme {
 }
 
 export class StateStore {
-  private state: PersistedState = structuredClone(defaults);
+  private state: PersistedState = structuredClone(DEFAULT_STATE);
   private writeQueue = Promise.resolve();
 
   constructor(private readonly filePath: string) {}
@@ -111,7 +94,7 @@ export class StateStore {
   async load(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<PersistedState>;
-      const settings = { ...defaults.settings, ...(parsed.settings ?? {}) };
+      const settings = { ...DEFAULT_STATE.settings, ...(parsed.settings ?? {}) };
       this.state = {
         bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks.map(migrateEntry) : [],
         history: Array.isArray(parsed.history) ? parsed.history.map(migrateEntry) : [],
@@ -127,6 +110,7 @@ export class StateStore {
           miniPlayerCorner: normalizeCorner(settings.miniPlayerCorner),
           miniPlayerWidth: clampMiniPlayerWidth(settings.miniPlayerWidth),
           playerDiagnostics: settings.playerDiagnostics === true,
+          disabledSources: normalizeDisabledSources(settings.disabledSources),
           theme: isThemePreset(settings.theme) ? settings.theme : "graphite",
           customTheme: normalizeTheme(settings.customTheme)
         }
@@ -170,6 +154,8 @@ export class StateStore {
     if (settings.playbackTarget === "external" && !settings.playerPath.trim()) throw new Error("External player path cannot be empty");
     if (!isThemePreset(settings.theme)) throw new Error("Unknown theme");
     if (!["auto", "aniwave", "anidb", "hianime"].includes(settings.preferredProvider)) throw new Error("Unknown source provider");
+    const disabledSources = normalizeDisabledSources(settings.disabledSources);
+    if (disabledSources.length >= PROVIDER_NAMES.length) throw new Error("At least one source must stay on");
     const custom = settings.customTheme ?? {};
     for (const key of ["background", "text", "highlight"] as const) {
       if (!isHexColor(custom[key])) throw new Error(`Custom ${key} colour must be a hex value like #1F2023`);
@@ -184,7 +170,9 @@ export class StateStore {
       playerDiagnostics: settings.playerDiagnostics === true,
       preferredQuality: settings.preferredQuality.trim() || "best",
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",
-      preferredProvider: settings.preferredProvider,
+      // A preferred source that is switched off would search nothing, so it falls back to auto.
+      preferredProvider: isProviderName(settings.preferredProvider) && disabledSources.includes(settings.preferredProvider) ? "auto" : settings.preferredProvider,
+      disabledSources,
       aniwaveBaseUrl: normalizeSource(settings.aniwaveBaseUrl, "AniWave"),
       anidbBaseUrl: normalizeSource(settings.anidbBaseUrl, "AniDB"),
       hianimeBaseUrl: normalizeSource(settings.hianimeBaseUrl, "HiAnime"),
@@ -219,7 +207,9 @@ export class StateStore {
     const historyEntry = this.state.history.find((item) => overlaps(item, entry));
     const known = entry.poster ?? historyEntry?.poster ?? this.state.bookmarks[bookmarkIndex]?.poster;
     let merged = known ? { ...entry, poster: known } : entry;
+    // Combining keeps sources gathered earlier, whether the anime sits in history or only among bookmarks.
     if (historyEntry) merged = combineEntries(historyEntry, merged);
+    else if (bookmarkIndex >= 0) merged = combineEntries(this.state.bookmarks[bookmarkIndex], merged);
     this.state.history = [merged, ...this.state.history.filter((item) => !overlaps(item, entry))].slice(0, 100);
     if (bookmarkIndex >= 0) this.state.bookmarks[bookmarkIndex] = merged;
     await this.persist();
@@ -243,26 +233,33 @@ export class StateStore {
     return this.snapshot();
   }
 
-  async remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState> {
-    if (!isProviderId(replacement.id)) throw new Error("Invalid replacement identifier");
-    if (!replacement.title.trim() || replacement.title.length > 240) throw new Error("Invalid replacement title");
-    const poster = normalizePoster(replacement.poster);
-    const remap = (entry: LibraryEntry): LibraryEntry => entry.animeId === oldAnimeId
-      ? { ...entry, animeId: replacement.id, title: replacement.title, updatedAt: new Date().toISOString(), ...(poster ? { poster } : {}) }
-      : entry;
-    this.state.bookmarks = this.state.bookmarks.map(remap);
-    this.state.history = this.state.history.map(remap);
+  async clearSourceLinks(): Promise<PersistedState> {
+    this.state.providerLinks = [];
     await this.persist();
     return this.snapshot();
   }
 
-  async linkSources(ids: string[]): Promise<PersistedState> {
+  async linkSources(ids: string[], sources: AnimeSource[] = []): Promise<PersistedState> {
     const unique = [...new Set(ids.filter(isProviderId))];
     if (unique.length < 2) return this.snapshot();
     const links = this.state.providerLinks ?? [];
     const touching = links.filter((group) => group.some((id) => unique.includes(id)));
     const combined = [...new Set([...unique, ...touching.flat()])];
     this.state.providerLinks = [...links.filter((group) => !touching.includes(group)), combined];
+    // Library entries for this anime learn the linked records too, so opening them later starts with every source.
+    const attach = (entry: LibraryEntry): LibraryEntry => {
+      const known = animeSources(entry);
+      if (!known.some((source) => combined.includes(source.id))) return entry;
+      const merged = [...known];
+      for (const id of combined) {
+        if (merged.some((source) => source.id === id)) continue;
+        const source = sources.find((item) => item.id === id) ?? { id, provider: providerFromId(id), title: entry.title, aliases: [entry.title] };
+        if (!merged.some((item) => item.provider === source.provider)) merged.push(source);
+      }
+      return merged.length > known.length ? { ...entry, sources: merged } : entry;
+    };
+    this.state.bookmarks = this.state.bookmarks.map(attach);
+    this.state.history = this.state.history.map(attach);
     await this.persist();
     return this.snapshot();
   }

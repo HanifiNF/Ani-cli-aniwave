@@ -1,3 +1,4 @@
+import type { PlayerDiagnosticRecord } from "../shared/player-diagnostics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MediaPlayer,
@@ -15,6 +16,7 @@ import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
 import { DesktopMediaStorage } from "./player-storage";
+import { shortcut } from "./keys";
 import { observePlayerDiagnostics } from "./player-diagnostics";
 import { clampMiniPlayerWidth, type MiniPlayerCorner, type PlayerCommand, type PlayerSession } from "../shared/contracts";
 
@@ -38,6 +40,8 @@ export interface PlayerScreenProps {
   autoplayNext: boolean;
   onPrev?: () => void;
   onNext?: () => void;
+  /** Resolve a fresh URL after a playback failure. */
+  onRetry?: () => void;
   /** Shrink to the corner and keep playing. Escape reaches this after closing menus and leaving fullscreen. */
   onDock: () => void;
   /** Open the playing episode's series without stopping. */
@@ -119,7 +123,7 @@ function MenuEscapeHandler() {
   return null;
 }
 
-export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
+export default function PlayerScreen({ session, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onRetry, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
   const api = window.aniDesktop.player;
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -148,7 +152,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
   const storage = useMemo(() => new DesktopMediaStorage(session, api,
     (reason) => setNotice(`Could not save playback preferences: ${errorMessage(reason)}`)), [session, api]);
 
-  const logDiagnostic = useCallback((record: Record<string, unknown>) => {
+  const logDiagnostic = useCallback((record: PlayerDiagnosticRecord) => {
     if (diagnostics) api.logDiagnostic(session.id, record);
   }, [api, diagnostics, session.id]);
   useEffect(() => api.onDiagnosticsChange(setDiagnostics), [api]);
@@ -454,7 +458,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
             <strong>Playback failed</strong>
             <span>{error}</span>
             <div>
-              <button type="button" onClick={() => { setError(undefined); setAttempt((value) => value + 1); }}>Retry</button>
+              <button type="button" disabled={Boolean(onRetry && message && !message.error)} onClick={() => { if (onRetry) onRetry(); else { setError(undefined); setAttempt((value) => value + 1); } }}>{onRetry && message && !message.error ? "Finding stream…" : "Retry"}</button>
               <button type="button" disabled={!session.canOpenExternal || fallbackBusy} onClick={() => void openExternal()}>
                 {fallbackBusy ? "Opening…" : session.canOpenExternal ? "Open in external player" : "External player not configured"}
               </button>
@@ -471,7 +475,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
         </div>
       )}
       {docked && (
-        <div className="mini-resize" role="separator" aria-label="Resize player" aria-orientation="vertical" aria-valuenow={shownWidth} title="Drag to resize (⌘+ / ⌘−)"
+        <div className="mini-resize" role="separator" aria-label="Resize player" aria-orientation="vertical" aria-valuenow={shownWidth} title={`Drag to resize (${shortcut("+")} / ${shortcut("−")})`}
           onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />
       )}
       <dialog ref={shortcutsDialog} className="player-shortcuts" aria-labelledby="shortcuts-title" onCancel={() => setShowShortcuts(false)} onClose={() => setShowShortcuts(false)}>
@@ -490,7 +494,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           <dt>F / double-click</dt><dd>Toggle fullscreen</dd>
           <dt>Escape</dt><dd>Close menu, leave fullscreen, then shrink to the corner</dd>
           <dt>`</dt><dd>Return from the corner to the full player</dd>
-          <dt>⌘ + / ⌘ −</dt><dd>Grow or shrink the corner player</dd>
+          <dt>{shortcut("+")} / {shortcut("−")}</dt><dd>Grow or shrink the corner player</dd>
           <dt>Tab / Shift + Tab</dt><dd>Move between controls</dd>
           <dt>?</dt><dd>Show shortcuts</dd>
         </dl>

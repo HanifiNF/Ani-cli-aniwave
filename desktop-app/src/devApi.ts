@@ -1,8 +1,8 @@
 // Dev-only stand-in for the preload API so the renderer can run in a plain browser (npx vite) for UI work.
 // Never bundled into production: main.tsx only imports it under import.meta.env.DEV when window.aniDesktop is absent.
-import type { AniDesktopApi, AniPlayerApi, AnimeResult, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
-import { animeSources, mergeKey } from "../shared/catalog";
-import { THEME_PRESETS } from "../shared/theme";
+import type { AniDesktopApi, AniPlayerApi, AnimeResult, AnimeSource, Episode, LibraryEntry, PersistedState, PlayerSession } from "../shared/contracts";
+import { animeSources, expandWithLinks, mergeKey, unifyAnimeResults, enabledProviders, providerFromId } from "../shared/catalog";
+import { DEFAULT_STATE } from "../shared/settings";
 
 const svg = (bg: string, shapes: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="${bg}"/>${shapes}</svg>`)}`;
 const posters = {
@@ -26,17 +26,21 @@ const state: PersistedState = {
     { animeId: "aniwave:apothecary-5", title: "The Apothecary Diaries", lastEpisode: "7", mode: "sub", updatedAt: days(7), poster: posters.apothecary },
     { animeId: "anidb:vinland-2", title: "Vinland Saga Season 2", lastEpisode: "19", mode: "sub", updatedAt: days(12), poster: posters.vinland }
   ],
-  settings: {
-    playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli", playbackTarget: "builtin", startPlayerFullscreen: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
-  }, providerLinks: [], dismissedMergeKeys: []
+  settings: { ...structuredClone(DEFAULT_STATE.settings), playerPath: "/Applications/IINA.app/Contents/MacOS/iina-cli" },
+  providerLinks: [], dismissedMergeKeys: []
 };
 
 const results: AnimeResult[] = [
-  { id: "aniwave:frieren-1", title: "Frieren: Beyond Journey's End", provider: "aniwave", poster: posters.frieren },
+  { id: "aniwave:frieren-1", title: "Frieren: Beyond Journey's End", provider: "aniwave", poster: posters.frieren,
+    sources: [{ id: "aniwave:frieren-1", provider: "aniwave", title: "Frieren: Beyond Journey's End", aliases: ["Frieren: Beyond Journey's End", "Sousou no Frieren"], poster: posters.frieren }] },
   { id: "anidb:sousou-no-frieren-9", title: "Sousou no Frieren", provider: "anidb", poster: posters.frieren },
   { id: "anidb:frieren-mahou-10", title: "Sousou no Frieren: ●● no Mahou", provider: "anidb" }
 ];
+// What the other providers would return when a series is resolved across sources.
+const elsewhere: Record<string, AnimeSource[]> = {
+  "aniwave:frieren-1": [{ id: "hianime:sousou-no-frieren-xyz", provider: "hianime", title: "Sousou no Frieren", aliases: ["Sousou no Frieren", "Frieren: Beyond Journey's End"] }],
+  "anidb:dandadan-3": [{ id: "aniwave:dandadan-7", provider: "aniwave", title: "Dandadan", aliases: ["Dandadan"] }, { id: "hianime:dandadan-abc", provider: "hianime", title: "Dandadan", aliases: ["Dandadan"] }]
+};
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const snapshot = () => structuredClone(state);
@@ -73,13 +77,38 @@ const player: AniPlayerApi = {
 export function installDevApi(): void {
   const api: AniDesktopApi = {
     player,
-    async search(query) { await wait(400); return query.toLowerCase().includes("nothing") ? [] : results; },
+    async search(query) {
+      await wait(400);
+      const enabled = enabledProviders(state.settings);
+      return query.toLowerCase().includes("nothing") ? [] : unifyAnimeResults(results.filter((hit) => enabled.includes(hit.provider)), state.providerLinks ?? []);
+    },
+    async resolveSources(raw) {
+      await wait(900);
+      const anime = expandWithLinks(raw, state.providerLinks ?? []);
+      const known = animeSources(anime);
+      const enabled = enabledProviders(state.settings);
+      const extra = known.flatMap((source) => elsewhere[source.id] ?? []).filter((source) => enabled.includes(source.provider) && !known.some((item) => item.provider === source.provider));
+      if (extra.length === 0) return anime;
+      const sources = [...known, ...extra];
+      state.providerLinks = [...(state.providerLinks ?? []), sources.map((source) => source.id)];
+      return { ...anime, sources };
+    },
     async episodes(anime) {
       await wait(300);
-      return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => source.id.includes("mahou")
+      const enabled = enabledProviders(state.settings);
+      return { groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).filter((source) => enabled.includes(source.provider)).map((source) => source.id.includes("mahou")
         ? { provider: source.provider, episodes: [], error: "AniDB episode lookup failed (503)" }
         : { provider: source.provider, episodes: Array.from({ length: source.provider === "aniwave" ? 28 : 24 }, (_, index): Episode => ({ id: `${source.id}:${index + 1}`, number: String(index + 1), provider: source.provider })) }) };
     },
+    async episodeMetadata() { return undefined; },
+    async clearEpisodeMetadata() {},
+    async fetchBookmarkMetadata() { throw new Error("Bookmark metadata fetching is available in the desktop app"); },
+    async bookmarkMetadataStatus() { return undefined; },
+    async cancelBookmarkMetadata() { return undefined; },
+    async sourceStatus() { return (["aniwave", "anidb", "hianime"] as const).map((provider) => ({ provider, origin: `https://${provider}.example`, state: "unknown" as const, canRetry: true })); },
+    async checkSource() { await wait(300); },
+    cancelCatalog() {},
+    async availability() { await wait(150); return { sub: true, dub: true, checkedAt: Date.now() }; },
     async streams(episodeId, mode) {
       await wait(700);
       if (episodeId.endsWith(":7")) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} Vidplay server is available`);
@@ -107,11 +136,7 @@ export function installDevApi(): void {
     async recordHistory(entry) { upsert(entry); return snapshot(); },
     async removeHistory(animeId) { state.history = state.history.filter((item) => item.animeId !== animeId); return snapshot(); },
     async clearHistory() { state.history = []; return snapshot(); },
-    async remapEntry(oldId, replacement) {
-      const remap = (item: LibraryEntry) => item.animeId === oldId ? { ...item, animeId: replacement.id, title: replacement.title, poster: replacement.poster } : item;
-      state.bookmarks = state.bookmarks.map(remap); state.history = state.history.map(remap);
-      return snapshot();
-    },
+    async clearSourceLinks() { state.providerLinks = []; return snapshot(); },
     async linkSources(ids) { state.providerLinks = [...(state.providerLinks ?? []), [...new Set(ids)]]; return snapshot(); },
     async mergeEntries(firstId, secondId) {
       const all = [...state.bookmarks, ...state.history];
@@ -120,7 +145,7 @@ export function installDevApi(): void {
       const sources = [...animeSources(first), ...animeSources(second)].filter((source, index, list) => list.findIndex((item) => item.id === source.id) === index);
       const latest = new Date(first.updatedAt) > new Date(second.updatedAt) ? first : second;
       const progressByProvider = { ...(first.progressByProvider ?? {}), ...(second.progressByProvider ?? {}) };
-      const lastProvider = latest.lastProvider ?? (latest.animeId.startsWith("aniwave:") ? "aniwave" : latest.animeId.startsWith("hianime:") ? "hianime" : "anidb");
+      const lastProvider = latest.lastProvider ?? providerFromId(latest.animeId);
       const progress = progressByProvider[lastProvider] ?? { lastEpisode: latest.lastEpisode, mode: latest.mode, updatedAt: latest.updatedAt };
       const primary = sources.find((source) => source.provider === "aniwave") ?? sources[0];
       const merged: LibraryEntry = { ...latest, animeId: primary.id, sources, lastProvider, progressByProvider, lastEpisode: progress.lastEpisode, mode: progress.mode, poster: primary.poster ?? first.poster ?? second.poster };

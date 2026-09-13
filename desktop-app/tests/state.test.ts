@@ -20,6 +20,42 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 describe("StateStore", () => {
+  it("preserves exact episode IDs across history writes and restarts", async () => {
+    const progress = { lastEpisode: "12", lastEpisodeId: "aniwave:1:12", mode: "dub" as const, updatedAt: "", completed: false };
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1", lastProvider: "aniwave", completed: false, progressByProvider: { aniwave: progress } }));
+    await store.load();
+    expect(store.snapshot().history[0].progressByProvider?.aniwave?.lastEpisodeId).toBe("aniwave:1:12");
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1", lastProvider: "aniwave", progressByProvider: { aniwave: { ...progress, lastEpisodeId: "anidb:999" } } }));
+    expect(store.snapshot().history[0].progressByProvider?.aniwave?.lastEpisodeId).toBeUndefined();
+  });
+  it("attaches linked records to library entries so they reopen with every source", async () => {
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1" }));
+    await store.toggleBookmark(entry({ animeId: "aniwave:frieren-1" }));
+    const anidb = { id: "anidb:frieren-2", provider: "anidb" as const, title: "Sousou no Frieren", aliases: ["Sousou no Frieren"] };
+    await store.linkSources(["aniwave:frieren-1", "anidb:frieren-2", "hianime:frieren-3"], [anidb]);
+    for (const list of [store.snapshot().history, store.snapshot().bookmarks]) {
+      expect(list[0].sources?.map((source) => source.id)).toEqual(["aniwave:frieren-1", "anidb:frieren-2", "hianime:frieren-3"]);
+      expect(list[0].sources?.[1]).toMatchObject({ title: "Sousou no Frieren", aliases: ["Sousou no Frieren"] });
+      // A record known only by id borrows the entry's title until a lookup fills it in.
+      expect(list[0].sources?.[2]).toMatchObject({ provider: "hianime", title: "Frieren", aliases: ["Frieren"] });
+    }
+    // Recording progress from a single-source play request keeps the sources the entry already had.
+    await store.recordHistory(entry({ animeId: "aniwave:frieren-1", lastEpisode: "13" }));
+    expect(store.snapshot().history[0].sources).toHaveLength(3);
+    expect(store.snapshot().history[0].lastEpisode).toBe("13");
+  });
+
+  it("keeps a bookmark's sources when history is first recorded from one of them", async () => {
+    await store.toggleBookmark(entry({ sources: [
+      { id: "aniwave:frieren-1", provider: "aniwave", title: "Frieren", aliases: ["Frieren"] },
+      { id: "anidb:frieren-2", provider: "anidb", title: "Sousou no Frieren", aliases: ["Sousou no Frieren"] }
+    ] }));
+    await store.recordHistory(entry({ animeId: "anidb:frieren-2", lastProvider: "anidb", lastEpisode: "3" }));
+    expect(store.snapshot().history[0].sources?.map((source) => source.provider)).toEqual(["aniwave", "anidb"]);
+    expect(store.snapshot().bookmarks[0].sources).toHaveLength(2);
+    expect(store.snapshot().history[0].progressByProvider?.anidb?.lastEpisode).toBe("3");
+  });
+
   it("keeps player diagnostics opt-in and persists the setting", async () => {
     expect(store.snapshot().settings.playerDiagnostics).toBe(false);
     await store.saveSettings({ ...store.snapshot().settings, playerDiagnostics: true });
@@ -64,6 +100,16 @@ describe("StateStore", () => {
     expect(store.snapshot().bookmarks).toHaveLength(0);
     await store.clearHistory();
     expect(store.snapshot().history).toHaveLength(0);
+  });
+
+  it("keeps at least one source on and drops unknown or preferred-but-off sources", async () => {
+    const settings = store.snapshot().settings;
+    await expect(store.saveSettings({ ...settings, disabledSources: ["aniwave", "anidb", "hianime"] })).rejects.toThrow(/at least one source/i);
+    const saved = await store.saveSettings({ ...settings, preferredProvider: "anidb", disabledSources: ["anidb", "bogus" as never] });
+    expect(saved.settings.disabledSources).toEqual(["anidb"]);
+    expect(saved.settings.preferredProvider).toBe("auto");
+    const reloaded = new StateStore(join(directory, "state.json")); await reloaded.load();
+    expect(reloaded.snapshot().settings.disabledSources).toEqual(["anidb"]);
   });
 
   it("validates themes when saving settings", async () => {

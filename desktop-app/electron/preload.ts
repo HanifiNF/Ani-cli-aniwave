@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AniDesktopApi, AniPlayerApi, LibraryEntry, PlayRequest, PlayerCommand, PlayerSession, ProviderPreference, Settings, TranslationMode } from "../shared/contracts";
+import type { AniDesktopApi, AniPlayerApi, LibraryEntry, PlayRequest, PlayerCommand, PlayerSession, Settings } from "../shared/contracts";
 
 let diagnostics = false;
 let sessionId = "";
@@ -55,11 +55,29 @@ const player: AniPlayerApi = {
   }
 };
 
+async function catalogInvoke<T, P = T>(channel: string, args: unknown[], request?: import("../shared/contracts").CatalogRequest, onUpdate?: (value: P) => void): Promise<T> {
+  const unsubscribe = request && onUpdate ? subscribe<{ id: string; value: P }>("catalog:update", (event) => {
+    if (event.id === request.id) onUpdate(event.value);
+  }) : () => {};
+  try { return await ipcRenderer.invoke(channel, ...args, request); }
+  finally { unsubscribe(); }
+}
+
 const api: AniDesktopApi = {
   player,
-  search: (query, provider?: ProviderPreference) => ipcRenderer.invoke("catalog:search", query, provider),
-  episodes: (anime) => ipcRenderer.invoke("catalog:episodes", anime),
-  streams: (episodeId: string, mode: TranslationMode) => ipcRenderer.invoke("catalog:streams", episodeId, mode),
+  search: (query, provider, request, update) => catalogInvoke("catalog:search", [query, provider], request, update),
+  resolveSources: (anime, request, update) => catalogInvoke("catalog:resolve", [anime], request, update),
+  episodes: (anime, request, update) => catalogInvoke("catalog:episodes", [anime], request, update),
+  streams: (episodeId, mode, request) => catalogInvoke("catalog:streams", [episodeId, mode], request),
+  availability: (episodeId, request) => catalogInvoke("catalog:availability", [episodeId], request),
+  episodeMetadata: (id) => ipcRenderer.invoke("catalog:metadata", id),
+  clearEpisodeMetadata: (ids) => ipcRenderer.invoke("catalog:metadata-clear", ids),
+  fetchBookmarkMetadata: () => ipcRenderer.invoke("catalog:bookmark-metadata"),
+  bookmarkMetadataStatus: () => ipcRenderer.invoke("catalog:bookmark-metadata-status"),
+  cancelBookmarkMetadata: () => ipcRenderer.invoke("catalog:bookmark-metadata-cancel"),
+  sourceStatus: () => ipcRenderer.invoke("catalog:source-status"),
+  checkSource: (provider, request) => catalogInvoke("catalog:source-check", [provider], request),
+  cancelCatalog: (id) => ipcRenderer.send("catalog:cancel", id),
   play: (request: PlayRequest) => ipcRenderer.invoke("player:play", request),
   getState: () => ipcRenderer.invoke("state:get"),
   saveSettings: (settings: Settings) => ipcRenderer.invoke("state:settings", settings),
@@ -70,7 +88,7 @@ const api: AniDesktopApi = {
   recordHistory: (entry: LibraryEntry) => ipcRenderer.invoke("state:history", entry),
   removeHistory: (animeId: string) => ipcRenderer.invoke("state:history-remove", animeId),
   clearHistory: () => ipcRenderer.invoke("state:history-clear"),
-  remapEntry: (oldAnimeId, replacement) => ipcRenderer.invoke("state:remap", oldAnimeId, replacement),
+  clearSourceLinks: () => ipcRenderer.invoke("state:clear-links"),
   linkSources: (sourceIds) => ipcRenderer.invoke("state:link-sources", sourceIds),
   mergeEntries: (firstAnimeId, secondAnimeId) => ipcRenderer.invoke("state:merge-entries", firstAnimeId, secondAnimeId),
   dismissMerge: (firstAnimeId, secondAnimeId) => ipcRenderer.invoke("state:dismiss-merge", firstAnimeId, secondAnimeId)

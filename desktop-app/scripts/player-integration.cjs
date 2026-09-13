@@ -58,7 +58,7 @@ async function load(path, episode = 'one') {
   await store.recordHistory({ ...current.episode.entry, completed:false });
   if (id === 1) {
     await win.loadFile(resolve('dist/index.html'));
-    await waitFor("!!document.querySelector('.app .field')", 'app shell');
+    await waitFor("!!document.querySelector('.app input[aria-label=\"Search anime\"]')", 'app shell');
     assert.equal(await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"), false, 'autoplay test motion preference');
   }
   win.webContents.send('player:load', payload());
@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('state:get',()=>store.snapshot());
   ipcMain.handle('state:settings',(_event,settings)=>store.saveSettings(settings));
   ipcMain.handle('app:icon',()=>undefined);
-  ipcMain.handle('player:ready',event=>{assertPlayerSender(win,event);return current ? payload() : undefined;});
+  ipcMain.handle('player:ready',event=>{assertPlayerSender(win,event);return playerActive && current ? payload() : undefined;});
   ipcMain.handle('player:active',(event,active)=>{assertPlayerSender(win,event);playerActive=active===true;refreshMenu();});
   ipcMain.handle('player:storage',async(event,sessionId,update)=>{assertPlayerSender(win,event);await store.savePlayerStorage(contexts.get(sessionId),update);});
   ipcMain.on('player:diagnostic',(event,sessionId,record)=>{
@@ -149,7 +149,7 @@ app.whenReady().then(async () => {
   if(native) {win.show();win.focus();}
   await load('master.m3u8');
   await waitFor("document.querySelector('.now')?.textContent.includes('Player fixture') && document.querySelector('.now')?.textContent.includes('episode 1')", 'episode header');
-  assert.equal(await evaluate("!!document.querySelector('.app .field')"), false, 'search field hidden while playing');
+  assert.equal(await evaluate("!!document.querySelector('.app input[aria-label=\"Search anime\"]')"), false, 'search field hidden while playing');
   if (process.env.ANI_PLAYER_CAPTURE_DIR) {
     mkdirSync(process.env.ANI_PLAYER_CAPTURE_DIR,{recursive:true});
     await evaluate("document.querySelector('[data-media-player]').dispatchEvent(new PointerEvent('pointermove',{bubbles:true}))");
@@ -313,7 +313,7 @@ app.whenReady().then(async () => {
   await evaluate("document.querySelector('video').play()");
   await waitFor("!document.querySelector('video').paused", 'playing before docking');
   await key('Escape');
-  await waitFor("!!document.querySelector('.player-shell.is-docked.corner-bottom-right') && !!document.querySelector('.app .field')", 'Escape docks the player and shows the app');
+  await waitFor("!!document.querySelector('.player-shell.is-docked.corner-bottom-right') && !!document.querySelector('.app input[aria-label=\"Search anime\"]')", 'Escape docks the player and shows the app');
   assert.equal(await evaluate("document.querySelector('video').paused"), false, 'playback continues while docked');
   assert.equal(playerActive, true, 'player still active while docked');
   assert.ok(playbackMenu().enabled, 'playback menu stays live while docked');
@@ -347,11 +347,11 @@ app.whenReady().then(async () => {
   await delay(400);
   assert.equal(store.snapshot().settings.miniPlayerWidth, Math.round(startWidth + 100), 'width persisted');
   await key('`');
-  await waitFor("!!document.querySelector('.player-shell.is-expanded') && !document.querySelector('.app .field')", 'backtick expands the player');
+  await waitFor("!!document.querySelector('.player-shell.is-expanded') && !document.querySelector('.app input[aria-label=\"Search anime\"]')", 'backtick expands the player');
   await key('Escape');
   await waitFor("!!document.querySelector('.player-shell.is-docked.corner-top-left')", 'docks again into the remembered corner');
   await evaluate("document.querySelector('.mini-bar [aria-label=\"Stop playback\"]').click()");
-  await waitFor("!document.querySelector('.player-surface') && !!document.querySelector('.app .field')", 'close removes the player');
+  await waitFor("!document.querySelector('.player-surface') && !!document.querySelector('.app input[aria-label=\"Search anime\"]')", 'close removes the player');
   await waitFor(`document.title === 'Ani Desktop'`, 'window title restored');
   assert.equal(playerActive, false, 'player reported inactive');
   assert.ok(!playbackMenu().enabled, 'playback menu disabled without a session');

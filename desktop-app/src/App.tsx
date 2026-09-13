@@ -1,141 +1,86 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { usePlayerSession } from "./usePlayerSession";
+import SearchPalette from "./SearchPalette";
+import SeriesScreen from "./SeriesScreen";
+import type { PlayStatus, NowPlaying } from "./playback";
+import SettingsScreen from "./SettingsScreen";
+import LibrarySection from "./LibrarySection";
+import { asAnime, libraryEntry, libraryEntryAllWatched, type Row, type LibraryKind } from "./library";
+import { shortcut } from "./keys";
+import { episodeValue, episodeRowsOf, nextUpIndex, providerList, type EpisodeFilter, type EpisodeSort } from "./episodes";
+import { applyTheme } from "./theme";
+import { bestQuality } from "../shared/episode-metadata";
+import { messageFrom } from "./errors";
+import { DEFAULT_STATE, catalogScope } from "../shared/settings";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   AnimeResult,
-  CustomTheme,
   Episode,
   EpisodeGroup,
+  EpisodeCatalog,
+  CatalogProgress,
   LibraryEntry,
   MiniPlayerCorner,
   PersistedState,
-  PlayerSession,
   ProviderName,
   ProviderPreference,
   Settings,
-  ThemePreset,
   TranslationMode
 } from "../shared/contracts";
+import { catalogRequestId } from "./catalog-request";
+import { useEpisodeMetadata } from "./useEpisodeMetadata";
 import { useAnimeSearch } from "./useAnimeSearch";
-import { THEME_NAMES, THEME_PRESETS, resolveTheme, videoBrand } from "../shared/theme";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
-import { applyAppIcon } from "./appIcon";
-import { animeSources, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
+import { animeSources, enabledProviders, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
+import { Icon } from "./icons";
+import { withTransition } from "./transition";
 
-type Screen = "home" | "series" | "saved" | "recent" | "settings" | "player";
+type Screen = "home" | "series" | "opening" | "saved" | "recent" | "settings" | "player";
 // Vidstack and hls.js load with the first playback, not at startup.
 const loadPlayerScreen = () => import("./PlayerScreen");
 const PlayerScreen = lazy(loadPlayerScreen);
-type RowKind = "results" | "continue" | "saved" | "recent";
-interface Row { kind: RowKind; anime?: AnimeResult; entry?: LibraryEntry; }
-interface PlayStatus { episode: Episode; phase: "finding" | "opening" | "opened" | "failed"; detail: string; }
-/** What the player is showing, captured when playback starts so browsing elsewhere does not change it. */
-interface NowPlaying { episodeId: string; detail: string; mode: TranslationMode; anime: AnimeResult; episodes: Episode[]; }
+const HOME_CARDS = 8; // maximum titles shown in each home section
 
-const QUALITIES = ["best", "1080p", "720p", "480p", "360p"];
-const PROVIDERS: ProviderPreference[] = ["auto", "aniwave", "anidb", "hianime"];
-const EPISODE_CELL = 62; // 56px cell plus 6px gap, used for arrow-key movement in the grid
-
-const emptyState: PersistedState = {
-  bookmarks: [],
-  history: [],
-  settings: {
-    playerPath: "", playbackTarget: "builtin", startPlayerFullscreen: true, autoplayNext: true, preferredQuality: "best", preferredMode: "sub", preferredProvider: "auto",
-    aniwaveBaseUrl: "https://aniwaves.ru", anidbBaseUrl: "https://anidb.app", hianimeBaseUrl: "https://hianimes.se", theme: "graphite", customTheme: { ...THEME_PRESETS.graphite }
-  }, providerLinks: [], dismissedMergeKeys: []
-};
-
-const providerOf = (id: string): ProviderName => id.startsWith("aniwave:") ? "aniwave" : id.startsWith("hianime:") ? "hianime" : "anidb";
-const asAnime = (entry: LibraryEntry): AnimeResult => ({ id: entry.animeId, title: entry.title, poster: entry.poster, provider: entry.lastProvider ?? providerOf(entry.animeId), sources: animeSources(entry) });
 const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") || "player";
-
-function messageFrom(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/^Error invoking remote method '[^']+': Error: /, "");
-}
-
-function libraryEntry(anime: AnimeResult, episode: Episode | undefined, mode: TranslationMode): LibraryEntry {
-  const lastProvider = episode?.provider ?? anime.provider;
-  const updatedAt = new Date().toISOString();
-  const lastEpisode = episode?.number ?? "1";
-  return { animeId: anime.id, title: anime.title, lastEpisode, mode, updatedAt, poster: anime.poster, sources: animeSources(anime), lastProvider, progressByProvider: { [lastProvider]: { lastEpisode, mode, updatedAt } } };
-}
-
-function when(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  const day = 86_400_000;
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (date.getTime() >= today) return `today ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  if (date.getTime() >= today - day) return "yesterday";
-  if (date.getTime() >= today - 6 * day) return date.toLocaleDateString([], { weekday: "short" });
-  return date.toLocaleDateString([], { day: "numeric", month: "short" });
-}
-
-function applyTheme(theme: ThemePreset, custom: CustomTheme): () => void {
-  const colours = resolveTheme(theme, custom);
-  const root = document.documentElement.style;
-  root.setProperty("--theme-bg", colours.background);
-  root.setProperty("--theme-text", colours.text);
-  root.setProperty("--theme-cursor", colours.highlight);
-  const brand = videoBrand(colours);
-  root.setProperty("--theme-video-brand", brand.colour);
-  root.setProperty("--theme-video-brand-text", brand.text);
-  return applyAppIcon(colours);
-}
-
-function Art({ src, large }: { src?: string; large?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  return (
-    <span className={`art ${large ? "large" : ""}`}>
-      {src && !failed && <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />}
-    </span>
-  );
-}
-
-function Chips<T extends string>({ label, value, options, onChange }: { label?: string; value: T; options: readonly T[]; onChange: (value: T) => void }) {
-  return (
-    <div className="chips" role="radiogroup" aria-label={label}>
-      {label && <span className="lab">{label}</span>}
-      {options.map((option) => (
-        <button type="button" key={option} role="radio" aria-checked={option === value} className={option === value ? "on" : ""} onClick={() => onChange(option)}>{option}</button>
-      ))}
-    </div>
-  );
-}
-
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [appState, setAppState] = useState<PersistedState>(emptyState);
+  const [appState, setAppState] = useState<PersistedState>(DEFAULT_STATE);
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
   const [episodeGroups, setEpisodeGroups] = useState<EpisodeGroup[]>([]);
-  const [activeEpisodeProvider, setActiveEpisodeProvider] = useState<ProviderName>("aniwave");
+  const [episodeFilter, setEpisodeFilter] = useState<EpisodeFilter>("all");
+  const [episodeSort, setEpisodeSort] = useState<EpisodeSort>("newest");
+  const [jump, setJump] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>();
   const [mode, setMode] = useState<TranslationMode>("sub");
-  const [provider, setProvider] = useState<ProviderPreference>("auto");
+  const [provider, setProvider] = useState<ProviderPreference>("auto"); // preferred playback source
   const [quality, setQuality] = useState("best");
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
-  const [session, setSession] = useState<PlayerSession>();
-  const [playerFullscreen, setPlayerFullscreen] = useState(false);
+  const { session, setSession, fullscreen: playerFullscreen, setFullscreen: setPlayerFullscreen } = usePlayerSession(() => {
+    setScreen("player"); setStatus(undefined); setError(undefined); setNotice(undefined);
+  });
   const [nowPlaying, setNowPlaying] = useState<NowPlaying>();
-  const [settingsDraft, setSettingsDraft] = useState<Settings>(emptyState.settings);
+  const [settingsDraft, setSettingsDraft] = useState<Settings>(DEFAULT_STATE.settings);
   const [stateLoaded, setStateLoaded] = useState(false);
+  const [showHints, setShowHints] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [sourceErrors, setSourceErrors] = useState<Partial<Record<ProviderName, string>>>({});
+  const [pendingSources, setPendingSources] = useState<ProviderName[]>([]);
 
-  const catalogSearch = useAnimeSearch(query, provider,
-    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl], screen === "home" && !composing);
+  const catalogSearch = useAnimeSearch(query, "auto",
+    [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl, enabledProviders(appState.settings).join(",")], screen === "home" && !composing);
   const { results, lastQuery } = catalogSearch;
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
-  const activeEpisodeGroup = episodeGroups.find((group) => group.provider === activeEpisodeProvider);
-  const episodes = activeEpisodeGroup?.episodes ?? [];
 
   const fieldRef = useRef<HTMLInputElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
+  const playbackRequest = useRef<string | undefined>(undefined);
+  useEffect(() => () => { if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current); }, []);
   const mergePromptActive = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
@@ -156,19 +101,6 @@ function App() {
     return () => window.removeEventListener("focus", refresh);
   }, []);
 
-  // The main process loads streams into this window. A load replaces the current session and shows the player screen.
-  useEffect(() => {
-    const player = window.aniDesktop.player;
-    const show = (next: PlayerSession | undefined) => {
-      if (!next) return;
-      setSession(next); setPlayerFullscreen(next.fullscreen);
-      setScreen("player"); setStatus(undefined); setError(undefined); setNotice(undefined);
-    };
-    const unsubscribe = player.onLoad(show);
-    const unsubscribeFullscreen = player.onFullscreenChange(setPlayerFullscreen);
-    player.ready().then(show, () => undefined);
-    return () => { unsubscribe(); unsubscribeFullscreen(); };
-  }, []);
   useEffect(() => { if (stateLoaded && appState.settings.playbackTarget === "builtin") void loadPlayerScreen(); }, [stateLoaded, appState.settings.playbackTarget]);
 
   useEffect(() => {
@@ -189,57 +121,91 @@ function App() {
     void operation.then(setAppState, (reason) => setError(messageFrom(reason))).finally(() => { mergePromptActive.current = false; });
   }, [stateLoaded, appState.history, appState.bookmarks, appState.dismissedMergeKeys]);
 
+  const settingsDirty = JSON.stringify(settingsDraft) !== JSON.stringify(appState.settings);
   const themeSource = screen === "settings" ? settingsDraft : appState.settings;
   useEffect(() => applyTheme(themeSource.theme, themeSource.customTheme), [themeSource.theme, themeSource.customTheme]);
 
   const filter = query.trim().toLowerCase();
   const matches = (entry: LibraryEntry) => !filter || entry.title.toLowerCase().includes(filter);
+  // The search palette covers the home page while a query or its results exist.
+  const paletteOpen = screen === "home" && (Boolean(query.trim()) || unifiedResults.length > 0);
+  // The home sections stay on the page behind the palette; the keyboard cursor moves to the results while it is open.
+  const libraryRows = useMemo<Row[]>(() => [
+    ...appState.history.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "continue", entry })),
+    ...appState.bookmarks.slice(0, HOME_CARDS).map((entry): Row => ({ kind: "saved", entry }))
+  ], [appState.history, appState.bookmarks]);
   const rows = useMemo<Row[]>(() => {
-    if (screen === "home") {
-      return [
-        ...unifiedResults.map((anime): Row => ({ kind: "results", anime })),
-        ...appState.history.slice(0, 3).map((entry): Row => ({ kind: "continue", entry })),
-        ...appState.bookmarks.slice(0, 3).map((entry): Row => ({ kind: "saved", entry }))
-      ];
-    }
+    if (screen === "home") return paletteOpen ? unifiedResults.map((anime): Row => ({ kind: "results", anime })) : libraryRows;
     if (screen === "saved") return appState.bookmarks.filter(matches).map((entry): Row => ({ kind: "saved", entry }));
     if (screen === "recent") return appState.history.filter(matches).map((entry): Row => ({ kind: "recent", entry }));
     return [];
-  }, [screen, unifiedResults, appState.history, appState.bookmarks, filter]);
+  }, [screen, paletteOpen, unifiedResults, libraryRows, appState.history, appState.bookmarks, filter]);
 
-  useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, results, filter]);
+  const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => overlaps(entry, selectedAnime)));
+  const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
+  const player = appState.settings.playbackTarget === "builtin" ? "built-in player" : playerName(appState.settings.playerPath);
+  const episodeRows = useMemo(() => episodeRowsOf(episodeGroups, progress, episodeFilter, episodeSort), [episodeGroups, progress, episodeFilter, episodeSort]);
+  const episodeCount = new Set(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.number))).size;
+  const selectedEpisodeIndex = Math.max(0, episodeRows.findIndex((row) => row.episode.id === selectedEpisodeId));
+  const selectEpisodeAt = (index: number) => setSelectedEpisodeId(episodeRows[index]?.episode.id);
+  const sourceScope = catalogScope(appState.settings);
+  const metadata = useEpisodeMetadata(listRef, screen === "series", episodeRows.map((row) => row.episode.id), episodeRows[selectedEpisodeIndex]?.episode.id, mode, sourceScope);
+
+  // Anchor the first visible source row while asynchronous provider updates insert rows above it.
+  const scrollAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const page = listRef.current?.closest<HTMLElement>(".page");
+    const anchor = scrollAnchor.current;
+    if (page && anchor) {
+      const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((item) => item.dataset.episode === anchor.id);
+      if (row) page.scrollTop += row.getBoundingClientRect().top - anchor.top;
+    }
+    const capture = () => {
+      if (!page) return;
+      const top = page.getBoundingClientRect().top;
+      const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((item) => item.getBoundingClientRect().bottom > top);
+      scrollAnchor.current = row ? { id: row.dataset.episode!, top: row.getBoundingClientRect().top } : undefined;
+    };
+    capture(); page?.addEventListener("scroll", capture, { passive: true });
+    return () => { page?.removeEventListener("scroll", capture); };
+  }, [episodeRows, screen]);
+
+  const previousResults = useRef(results);
+  useLayoutEffect(() => {
+    const previous = previousResults.current[cursor];
+    if (screen === "home" && previous && results !== previousResults.current) {
+      const index = results.findIndex((anime) => overlaps(previous, anime));
+      setCursor(Math.max(0, index));
+    }
+    previousResults.current = results;
+  }, [results]);
+  useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, filter]);
+  // Opening a series shows its header first; later jumps and playback reveal the relevant episode.
+  const skipReveal = useRef(false);
+  // Reveal follows the selected row itself, so a state refresh (saving, window focus) does not scroll the list back.
+  const cursorKey = screen === "series" ? episodeRows[selectedEpisodeIndex]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
   useEffect(() => {
-    const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
-    const list = selected?.closest<HTMLElement>(".section-scroll");
+    if (skipReveal.current) { skipReveal.current = false; return; }
+    const selected = screen === "series"
+      ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((row) => row.dataset.episode === cursorKey)
+      : document.querySelector<HTMLElement>('[data-cursor="true"]');
     if (!selected) return;
+    const list = selected.closest<HTMLElement>(".page, .palette");
     if (!list) { selected.scrollIntoView({ block: "nearest" }); return; }
-    // Move only the selected list so keyboard navigation keeps the other sections in place.
     const reveal = () => {
       const rowBounds = selected.getBoundingClientRect();
       const listBounds = list.getBoundingClientRect();
-      if (rowBounds.top < listBounds.top) list.scrollTop += rowBounds.top - listBounds.top;
-      else if (rowBounds.bottom > listBounds.bottom) list.scrollTop += rowBounds.bottom - listBounds.bottom;
+      if (rowBounds.top < listBounds.top + 8) list.scrollTop += rowBounds.top - listBounds.top - 8;
+      else if (rowBounds.bottom > listBounds.bottom - 8) list.scrollTop += rowBounds.bottom - listBounds.bottom + 8;
     };
     reveal();
     const observer = new ResizeObserver(reveal);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [cursor, screen, rows]);
+  }, [cursorKey, screen]);
   useEffect(() => {
-    if (screen === "series") gridRef.current?.focus();
-    else if (screen !== "settings" && screen !== "player") fieldRef.current?.focus();
+    if (screen !== "series" && screen !== "settings" && screen !== "player") fieldRef.current?.focus();
   }, [screen]);
-  useEffect(() => {
-    const grid = gridRef.current;
-    // Follow episode selection while navigating the grid, preserving focus if the user leaves it.
-    if (screen === "series" && grid?.contains(document.activeElement)) {
-      grid.querySelector<HTMLButtonElement>('[data-cursor="true"]')?.focus({ preventScroll: true });
-    }
-  }, [screen, cursor, episodes]);
-
-  const isSaved = Boolean(selectedAnime && appState.bookmarks.some((entry) => overlaps(entry, selectedAnime)));
-  const progress = selectedAnime ? appState.history.find((entry) => overlaps(entry, selectedAnime)) : undefined;
-  const player = appState.settings.playbackTarget === "builtin" ? "built-in player" : playerName(appState.settings.playerPath);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError(undefined); setNotice(undefined);
@@ -258,22 +224,24 @@ function App() {
   // Watched marks and resume points change while the player has the store.
   const refreshState = () => { void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason))); };
 
-  // Returning to the grid puts the cursor on the playing episode when it belongs to the open series.
+  // Returning to the list reveals the playing episode when it belongs to the open series.
   function focusPlayingEpisode() {
     const id = session?.request.episode?.id;
-    const index = id && nowPlaying?.anime.id === selectedAnime?.id ? episodes.findIndex((episode) => episode.id === id) : -1;
-    if (index >= 0) setCursor(index);
+    const index = id && nowPlaying?.anime.id === selectedAnime?.id ? episodeRows.findIndex((row) => row.episode.id === id) : -1;
+    if (index >= 0) selectEpisodeAt(index);
   }
 
   function dockPlayer() {
-    setStatus(undefined); setError(undefined); setNotice(undefined);
-    setScreen(selectedAnime ? "series" : "home");
-    focusPlayingEpisode();
+    withTransition(() => {
+      setStatus(undefined); setError(undefined); setNotice(undefined);
+      setScreen(selectedAnime ? "series" : "home");
+      focusPlayingEpisode();
+    });
     refreshState();
   }
 
   function expandPlayer() {
-    if (session) { setScreen("player"); setError(undefined); setNotice(undefined); }
+    if (session) withTransition(() => { setScreen("player"); setError(undefined); setNotice(undefined); });
   }
 
   function closePlayer() {
@@ -283,7 +251,9 @@ function App() {
   }
 
   function showPlayingEpisodes() {
-    if (nowPlaying && selectedAnime?.id !== nowPlaying.anime.id) { void openAnime(nowPlaying.anime); refreshState(); return; }
+    setEpisodeFilter("all");
+    if (nowPlaying && selectedAnime?.id !== nowPlaying.anime.id) { void openAnime(nowPlaying.anime, { focusEpisodeId: nowPlaying.episodeId }); refreshState(); return; }
+    if (nowPlaying) setSelectedEpisodeId(nowPlaying.episodeId);
     dockPlayer();
   }
 
@@ -329,71 +299,150 @@ function App() {
     }
   }
 
-  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; allowRemap?: boolean } = {}): Promise<boolean> {
+  const openToken = useRef(0);
+  const catalogTasks = useRef(new Set<string>());
+  const cancelSeries = () => {
+    openToken.current += 1;
+    if (playbackRequest.current) {
+      playToken.current += 1;
+      window.aniDesktop.cancelCatalog(playbackRequest.current); playbackRequest.current = undefined;
+    }
+    for (const id of catalogTasks.current) window.aniDesktop.cancelCatalog(id);
+    catalogTasks.current.clear();
+  };
+  useEffect(() => {
+    if (screen !== "series" && screen !== "player" && screen !== "opening") { cancelSeries(); setBusy(undefined); setResolving(false); }
+  }, [screen, sourceScope]);
+  useEffect(() => () => cancelSeries(), []);
+
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; mode?: TranslationMode; autoPlay?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string } = {}): Promise<boolean> {
+    cancelSeries();
+    const token = openToken.current;
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
+    const preferred = animeProgress?.lastProvider ?? (provider === "auto" ? anime.provider : provider);
     playToken.current += 1;
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
     setSelectedAnime(anime);
-    setEpisodeGroups([]); setStatus(undefined);
-    setScreen("series");
+    if (!options.refresh) { setSelectedEpisodeId(options.focusEpisodeId); scrollAnchor.current = undefined; }
+    if (!options.refresh) setEpisodeGroups([]);
+    setStatus(undefined); setJump(""); setSourceErrors({});
+    setScreen(options.autoPlay ? "opening" : "series");
     if (options.mode) setMode(options.mode);
     setBusy("loading episodes"); setError(undefined); setNotice(undefined);
-    let groups: EpisodeGroup[];
-    try { groups = (await window.aniDesktop.episodes(anime)).groups; }
-    catch (reason) {
+    let currentAnime = anime;
+    let groups: EpisodeGroup[] = options.refresh ? episodeGroups : [];
+    let positioned = Boolean(options.focusEpisodeId || (options.refresh && selectedEpisodeId));
+    let played = false;
+    let attempting = false, finished = false;
+    let targetNumber: string | undefined;
+    const attempted = new Set<string>();
+    const savedProgress = animeProgress?.progressByProvider?.[preferred];
+    const resumeEpisode = (savedProgress?.completed ?? animeProgress?.completed) === false && savedProgress?.lastEpisodeId?.startsWith(`${preferred}:`) && enabledProviders(appState.settings).includes(preferred)
+      ? { id: savedProgress.lastEpisodeId, number: savedProgress.lastEpisode, provider: preferred } : undefined;
+    const known = new Set(animeSources(anime).map((source) => source.id));
+    const missing = enabledProviders(appState.settings).filter((name) => !animeSources(anime).some((source) => source.provider === name));
+    setPendingSources(missing); setResolving(missing.length > 0);
+    const request = async <T,>(purpose: string, operation: (request: import("../shared/contracts").CatalogRequest) => Promise<T>) => {
+      const id = catalogRequestId(purpose); catalogTasks.current.add(id);
+      try { return await operation({ id, priority: options.autoPlay && purpose === "episodes" ? "playback" : "selected", refresh: options.refresh, checkNow: options.checkNow }); }
+      finally { catalogTasks.current.delete(id); }
+    };
+    const position = (allowFallback = false) => {
+      if (token !== openToken.current) return;
+      const list = episodeRowsOf(groups, animeProgress, options.autoPlay ? "all" : episodeFilter, episodeSort);
+      if (!list.length) return;
       setBusy(undefined);
-      if (options.allowRemap) {
-        const alternatives = (["aniwave", "anidb", "hianime"] as ProviderName[]).filter((item) => item !== providerOf(anime.id));
-        let replacement: AnimeResult | undefined;
-        let replacementProvider: ProviderName | undefined;
-        for (const alternative of alternatives) {
-          const candidates = await run(`checking ${alternative} for a replacement`, () => window.aniDesktop.search(anime.title, alternative));
-          if (candidates?.[0]) { replacement = candidates[0]; replacementProvider = alternative; break; }
-        }
-        if (replacement && replacementProvider && window.confirm(`${providerOf(anime.id)} is unavailable. Remap "${anime.title}" to "${replacement.title}" on ${replacementProvider}?`)) {
-          if (await openAnime(replacement, { ...options, allowRemap: false })) {
-            setAppState(await window.aniDesktop.remapEntry(anime.id, replacement));
-            setNotice(`remapped to ${replacement.title} on ${replacementProvider}`);
-            return true;
-          }
-          return false;
-        }
+      const index = nextUpIndex(list, groups, animeProgress, preferred, options.resumeAfter);
+      if (!positioned) { positioned = true; skipReveal.current = true; setSelectedEpisodeId(list[index]?.episode.id); }
+      const preferredReady = groups.some((group) => group.provider === preferred && group.episodes.length);
+      const preferredFailed = groups.some((group) => group.provider === preferred && (group.error || (!group.refreshing && !group.episodes.length))) || !enabledProviders(appState.settings).includes(preferred);
+      if (options.autoPlay && !played && !attempting && (preferredReady || preferredFailed || allowFallback || attempted.size)) {
+        const preferredList = list.filter((row) => row.episode.provider === list[index]?.episode.provider).sort((a, b) => episodeValue(a.number) - episodeValue(b.number));
+        const after = savedProgress?.lastEpisode ?? options.resumeAfter ?? animeProgress?.lastEpisode;
+        const completed = (savedProgress?.completed ?? animeProgress?.completed) !== false;
+        const target = targetNumber
+          ? list.find((row) => row.number === targetNumber && !attempted.has(row.episode.id))?.episode
+          : preferredList.find((row) => !after || (completed ? episodeValue(row.number) > episodeValue(after) : episodeValue(row.number) >= episodeValue(after)))?.episode;
+        if (target && !attempted.has(target.id)) void attempt(target);
       }
-      setError(messageFrom(reason));
-      return false;
-    }
-    finally { setBusy(undefined); }
-    setEpisodeGroups(groups);
-    const available = groups.filter((group) => group.episodes.length);
-    const wanted = animeProgress?.lastProvider ?? anime.provider;
-    const active = available.find((group) => group.provider === wanted)?.provider ?? (["aniwave", "anidb", "hianime"] as ProviderName[]).find((item) => available.some((group) => group.provider === item)) ?? available[0]?.provider ?? groups[0]?.provider ?? "aniwave";
-    setActiveEpisodeProvider(active);
-    const list = groups.find((group) => group.provider === active)?.episodes ?? [];
-    let index = 0;
-    const sourceProgress = animeProgress?.progressByProvider?.[active];
-    const resumeAfter = sourceProgress?.lastEpisode ?? options.resumeAfter ?? (animeProgress?.lastProvider === active ? animeProgress.lastEpisode : undefined);
-    if (resumeAfter) {
-      const previous = list.findIndex((episode) => episode.number === resumeAfter);
-      const completed = sourceProgress ? sourceProgress.completed !== false : animeProgress?.completed !== false;
-      index = Math.max(0, Math.min(previous + (completed ? 1 : 0), list.length - 1));
-    }
-    setCursor(Math.max(index, 0));
-    if (options.autoPlay && list[index]) void playEpisode(list[index], anime, sourceProgress?.mode ?? options.mode ?? mode);
-    return true;
+    };
+    const attempt = async (target: Episode) => {
+      if (token !== openToken.current || played || attempting) return;
+      attempting = true; attempted.add(target.id); targetNumber = target.number;
+      positioned = true; setSelectedEpisodeId(target.id);
+      const succeeded = await playEpisode(target, currentAnime, savedProgress?.mode ?? options.mode ?? mode, groups);
+      if (token !== openToken.current) return;
+      attempting = false;
+      if (succeeded) { played = true; return; }
+      if (succeeded === false) position(finished);
+    };
+    const accept = (catalog: EpisodeCatalog) => {
+      if (token !== openToken.current) return;
+      groups = [...groups.filter((group) => !catalog.groups.some((next) => next.provider === group.provider)), ...catalog.groups];
+      setEpisodeGroups(groups); position();
+    };
+    const load = async (target: AnimeResult) => {
+      try { accept(await request("episodes", (req) => window.aniDesktop.episodes(target, req, accept))); }
+      catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+    };
+    if (options.autoPlay && resumeEpisode) void attempt(resumeEpisode);
+    const initial = load(anime);
+    const extra: Promise<void>[] = [];
+    let discoveryErrors: Partial<Record<ProviderName, string>> = {};
+    const acceptSources = (progress: CatalogProgress<AnimeResult>) => {
+      if (token !== openToken.current) return;
+      currentAnime = progress.value; discoveryErrors = progress.errors;
+      setSelectedAnime(currentAnime); setPendingSources(progress.pending); setSourceErrors(progress.errors);
+      setNowPlaying((playing) => playing && overlaps(playing.anime, currentAnime) ? { ...playing, anime: currentAnime } : playing);
+      for (const source of animeSources(currentAnime)) {
+        if (known.has(source.id)) continue;
+        known.add(source.id);
+        extra.push(load({ ...currentAnime, sources: [source] }));
+      }
+    };
+    const discovery = missing.length ? (async () => {
+      try {
+        const resolved = await request("sources", (req) => window.aniDesktop.resolveSources(anime, req, acceptSources));
+        if (token === openToken.current) {
+          // The final response also supports browser previews without progress events.
+          acceptSources({ value: resolved, pending: [], errors: discoveryErrors });
+          refreshState();
+        }
+      } catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+      await Promise.all(extra);
+    })() : Promise.resolve();
+    void Promise.all([initial, discovery]).then(() => {
+      if (token !== openToken.current) return;
+      finished = true;
+      setResolving(false); setPendingSources([]); setBusy(undefined); position(true);
+      if (options.autoPlay && !played && !attempting && !attempted.size) setError("No episode is available to continue. Open Episodes to check the series and its sources.");
+    });
+    await initial;
+    return token === openToken.current;
   }
 
-  async function playEpisode(episode: Episode, anime = selectedAnime, playMode = mode) {
+  async function playEpisode(episode: Episode, anime = selectedAnime, playMode = mode, groups = episodeGroups, refresh = false) {
     if (!anime) return;
     const token = ++playToken.current;
-    setCursor(episodes.findIndex((item) => item.id === episode.id) >= 0 ? episodes.findIndex((item) => item.id === episode.id) : cursor);
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
+    const rowIndex = episodeRows.findIndex((item) => item.episode.id === episode.id);
+    if (rowIndex >= 0) selectEpisodeAt(rowIndex);
     setStatus({ episode, phase: "finding", detail: `${playMode} from ${episode.provider}` });
     try {
-      const streams = await window.aniDesktop.streams(episode.id, playMode);
+      const requestId = catalogRequestId("playback");
+      playbackRequest.current = requestId;
+      const retry = refresh || (status?.phase === "failed" && status.episode.id === episode.id);
+      const streams = await window.aniDesktop.streams(episode.id, playMode, { id: requestId, priority: "playback", refresh: retry, checkNow: retry });
+      if (playbackRequest.current === requestId) playbackRequest.current = undefined;
       if (token !== playToken.current) return;
       const stream = (quality === "best" ? undefined : streams.find((item) => item.quality === quality)) ?? streams[0];
       if (!stream) throw new Error("no stream was found");
-      const detail = `${stream.quality} ${playMode} ${stream.provider}`;
+      const best = bestQuality(streams);
+      if (best) metadata.record(episode.id, playMode, streams);
+      const detail = `${stream.quality} · ${playMode} · ${stream.provider}`;
       setStatus({ episode, phase: "opening", detail });
-      setNowPlaying({ episodeId: episode.id, detail, mode: playMode, anime, episodes: anime.id === selectedAnime?.id && episodes.some((item) => item.id === episode.id) ? episodes : [episode] });
+      const series = providerList(groups, episode.provider);
+      setNowPlaying({ episodeId: episode.id, detail, mode: playMode, anime, episodes: series.some((item) => item.id === episode.id) ? series : [episode] });
       const url = appState.settings.playbackTarget === "builtin" && quality === "best" ? stream.masterUrl ?? stream.url : stream.url;
       await window.aniDesktop.play({ url, title: `${anime.title} — Episode ${episode.number}`, referrer: stream.referrer, textTracks: stream.textTracks, episode: { id: episode.id, entry: libraryEntry(anime, episode, playMode) } });
       if (token !== playToken.current) return;
@@ -401,26 +450,54 @@ function App() {
         ? await window.aniDesktop.getState()
         : await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
       setStatus({ episode, phase: "opened", detail });
+      return true;
     } catch (reason) {
-      if (token === playToken.current) setStatus({ episode, phase: "failed", detail: messageFrom(reason) });
+      if (token === playToken.current) { setStatus({ episode, phase: "failed", detail: messageFrom(reason) }); return false; }
     }
   }
 
-  function cancelPlay() { playToken.current += 1; setStatus(undefined); }
+  function cancelPlay() {
+    playToken.current += 1;
+    if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
+    playbackRequest.current = undefined; setStatus(undefined);
+  }
 
+  // A direct resume starts with one episode; catalog updates fill its playback queue later.
+  useEffect(() => {
+    setNowPlaying((playing) => {
+      if (!playing || !selectedAnime || !overlaps(playing.anime, selectedAnime)) return playing;
+      const episode = playing.episodes.find((item) => item.id === playing.episodeId);
+      if (!episode) return playing;
+      const list = providerList(episodeGroups, episode.provider);
+      return list.some((item) => item.id === playing.episodeId) ? { ...playing, anime: selectedAnime, episodes: list } : playing;
+    });
+  }, [episodeGroups, selectedAnime, nowPlaying?.episodeId]);
+
+  // Saving records the anime with its real progress, never the row the cursor happens to be on.
   async function toggleBookmark() {
     if (!selectedAnime) return;
-    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(libraryEntry(selectedAnime, episodes[cursor], mode)));
+    const first = episodeRowsOf(episodeGroups, undefined, "all", "oldest")[0]?.episode;
+    const entry: LibraryEntry = progress
+      ? { ...progress, title: selectedAnime.title, poster: selectedAnime.poster ?? progress.poster, sources: animeSources(selectedAnime) }
+      : { ...libraryEntry(selectedAnime, first, mode), completed: false };
+    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(entry));
     if (state) setAppState(state);
   }
 
-  function selectEpisodeProvider(next: ProviderName) {
-    setActiveEpisodeProvider(next);
-    const sourceProgress = progress?.progressByProvider?.[next];
-    const list = episodeGroups.find((group) => group.provider === next)?.episodes ?? [];
-    const previous = sourceProgress ? list.findIndex((episode) => episode.number === sourceProgress.lastEpisode) : -1;
-    setCursor(Math.max(0, Math.min(previous + (sourceProgress?.completed === false ? 0 : 1), list.length - 1)));
-    setStatus(undefined);
+  // The checkbox on a row records progress through that episode on its provider.
+  async function markWatched(episode: Episode) {
+    if (!selectedAnime) return;
+    const state = await run("updating progress", () => window.aniDesktop.recordHistory(libraryEntry(selectedAnime, episode, mode)));
+    if (state) setAppState(state);
+  }
+
+  // The sidebar button records the last episode on every source at once.
+  async function markAllWatched() {
+    if (!selectedAnime) return;
+    const entry = libraryEntryAllWatched(selectedAnime, episodeGroups, mode, progress?.lastProvider);
+    if (!entry) return;
+    const state = await run("updating progress", () => window.aniDesktop.recordHistory(entry));
+    if (state) setAppState(state);
   }
 
   function mergeCandidate(anime: AnimeResult): AnimeResult | undefined {
@@ -449,12 +526,12 @@ function App() {
 
   async function activate(row: Row) {
     if (row.anime) { await openAnime(row.anime); return; }
-    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, autoPlay: true, allowRemap: true });
+    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, autoPlay: row.kind !== "saved" });
   }
 
   async function openRow(row: Row) {
     if (row.anime) await openAnime(row.anime);
-    else if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode, allowRemap: true });
+    else if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, mode: row.entry.mode });
   }
 
   async function removeRow(row: Row) {
@@ -470,6 +547,12 @@ function App() {
     if (state) setAppState(state);
   }
 
+  async function clearSourceLinks() {
+    if (!window.confirm("Forget every remembered match between providers? Series will be looked up again when opened.")) return;
+    const state = await run("forgetting source links", () => window.aniDesktop.clearSourceLinks());
+    if (state) { setAppState(state); setNotice("source links forgotten"); }
+  }
+
   async function saveSettings() {
     const state = await run("saving settings", () => window.aniDesktop.saveSettings(settingsDraft));
     if (state) {
@@ -482,53 +565,93 @@ function App() {
     }
   }
 
-  const columns = () => {
-    const cells = Array.from(gridRef.current?.children ?? []) as HTMLElement[];
-    if (cells.length === 0) return 1;
-    const firstRow = cells.filter((cell) => cell.offsetTop === cells[0].offsetTop).length;
-    return Math.max(1, firstRow || Math.floor(((gridRef.current?.clientWidth ?? 0) + 6) / EPISODE_CELL));
-  };
+  // Changing the order or filter keeps the selection on the same row when it is still shown.
+  function reorder(filter: EpisodeFilter, sort: EpisodeSort) {
+    const id = episodeRows[selectedEpisodeIndex]?.episode.id;
+    const next = episodeRowsOf(episodeGroups, progress, filter, sort);
+    setEpisodeFilter(filter); setEpisodeSort(sort);
+    const index = id ? next.findIndex((row) => row.episode.id === id) : -1;
+    setSelectedEpisodeId(next[index >= 0 ? index : 0]?.episode.id);
+  }
+
+  function jumpTo(value: string) {
+    setJump(value);
+    const wanted = value.trim();
+    if (!wanted) return;
+    const index = episodeRows.findIndex((row) => row.number === wanted) ;
+    const loose = index >= 0 ? index : episodeRows.findIndex((row) => row.number.startsWith(wanted));
+    if (loose >= 0) selectEpisodeAt(loose);
+  }
+
   const moveCursor = (delta: number, length: number) => { if (length) setCursor((current) => Math.min(Math.max(current + delta, 0), length - 1)); };
+  // Cards sit in rows: left and right step along a row, up and down move between rows or, on home, between sections.
+  function moveCard(key: string) {
+    if (rows.length === 0) return;
+    const current = rows[cursor];
+    if (!current) { setCursor(0); return; }
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      const delta = key === "ArrowLeft" ? -1 : 1;
+      const next = rows[cursor + delta];
+      if (next && (screen !== "home" || next.kind === current.kind)) setCursor(cursor + delta);
+      return;
+    }
+    const grid = document.querySelector<HTMLElement>(".page .cards");
+    const columns = grid ? Number.parseInt(getComputedStyle(grid).getPropertyValue("--cols"), 10) || HOME_CARDS : HOME_CARDS;
+    if (screen === "home") {
+      const firstInSection = rows.findIndex((row) => row.kind === current.kind);
+      const sectionSize = rows.filter((row) => row.kind === current.kind).length;
+      const sectionOffset = cursor - firstInSection;
+      const targetRow = Math.floor(sectionOffset / columns) + (key === "ArrowDown" ? 1 : -1);
+      if (targetRow >= 0 && targetRow <= Math.floor((sectionSize - 1) / columns)) {
+        setCursor(firstInSection + Math.min(targetRow * columns + sectionOffset % columns, sectionSize - 1));
+        return;
+      }
+      const kinds = [...new Set(rows.map((row) => row.kind))];
+      const at = kinds.indexOf(current.kind);
+      const targetKind = kinds[at + (key === "ArrowDown" ? 1 : -1)];
+      if (!targetKind) return;
+      const first = rows.findIndex((row) => row.kind === targetKind);
+      const size = rows.filter((row) => row.kind === targetKind).length;
+      const targetOffset = (key === "ArrowUp" ? Math.floor((size - 1) / columns) * columns : 0) + sectionOffset % columns;
+      setCursor(first + Math.min(targetOffset, size - 1));
+      return;
+    }
+    moveCursor(key === "ArrowDown" ? columns : -columns, rows.length);
+  }
 
   keyHandler.current = (event) => {
     const target = event.target as HTMLElement | null;
     const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
     if (event.isComposing || composing || event.keyCode === 229) return;
-    if (screen === "player") return; // The player screen owns its keys.
-    // The backtick returns to the docked player from anywhere but the settings form; it is never useful in a title search.
+    if (screen === "player" || screen === "series") return; // Series uses native controls; the player owns its keys.
+    // The backtick expands the docked player while browsing the library or search results.
     if (event.key === "`" && session && screen !== "settings" && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); expandPlayer(); return; }
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
-      // The corner player grows and shrinks from anywhere while docked, even with the search field focused.
+      else if (event.key === "k" && screen !== "settings") { event.preventDefault(); if (screen !== "home") go("home"); fieldRef.current?.focus(); fieldRef.current?.select(); }
+      // Library and settings shortcuts resize the docked player, including while typing.
       else if (session && (event.key === "=" || event.key === "+")) { event.preventDefault(); resizeMiniPlayer(miniWidth + MINI_PLAYER_WIDTH.step); }
       else if (session && (event.key === "-" || event.key === "_")) { event.preventDefault(); resizeMiniPlayer(miniWidth - MINI_PLAYER_WIDTH.step); }
       return;
     }
     if (event.altKey) return;
-    if (event.key === "Enter" && target?.closest("button:not(.hit)") && !target.closest(".grid")) return;
+    if (event.key === "Enter" && target?.closest("button:not(.hit):not(.src-hit)")) return;
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
-    if (event.key === "Escape") { event.preventDefault(); goBack(); return; }
+    if (event.key === "Escape") { event.preventDefault(); if (showHints) { setShowHints(false); return; } goBack(); return; }
+    if (screen === "opening") return;
+    if (!typing && event.key === "?") { event.preventDefault(); setShowHints((value) => !value); return; }
     if (!typing && event.key === "/") {
       event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
     }
-    if (screen === "series") {
-      const moves: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns(), ArrowDown: columns() };
-      if (event.key in moves) {
-        if (typing && (event.key === "ArrowLeft" || event.key === "ArrowRight") && (target as HTMLInputElement).value) return;
-        event.preventDefault(); moveCursor(moves[event.key], episodes.length); return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        if (episodes[cursor]) void playEpisode(episodes[cursor]);
-        return;
-      }
-      if (!typing && event.key === "s") void toggleBookmark();
-      return;
+    if (paletteOpen) {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, rows.length); return; }
+    } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      if (typing && (event.key === "ArrowLeft" || event.key === "ArrowRight") && (target as HTMLInputElement).value) return;
+      event.preventDefault(); moveCard(event.key); return;
     }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, rows.length); return; }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (screen === "home" && query.trim() && (catalogSearch.pending || (target === fieldRef.current && !catalogSearch.ready))) {
+      if (screen === "home" && query.trim() && (!catalogSearch.ready && (catalogSearch.pending || target === fieldRef.current))) {
         catalogSearch.searchNow(); return;
       }
       if (rows[cursor]) void activate(rows[cursor]);
@@ -546,54 +669,23 @@ function App() {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  const placeholder = screen === "saved" ? "filter saved titles" : screen === "recent" ? "filter recent titles" : screen === "series" ? "search another title" : "search a title";
+  const placeholder = screen === "saved" ? "Filter saved titles" : screen === "recent" ? "Filter recent titles" : "Search anime";
   const searching = catalogSearch.loading;
   const searchError = catalogSearch.error === undefined ? undefined : messageFrom(catalogSearch.error);
   const displayError = error ?? searchError;
-  const searchNotice = catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
+  const searchNotice = catalogSearch.providerErrors.length ? "Some results may be missing. Try searching again." : catalogSearch.ready && unifiedResults.length === 0 ? `nothing found for "${lastQuery}"` : undefined;
   const message = displayError ?? busy ?? searchNotice ?? notice;
+  const searchMessage = paletteOpen ? (searchError ?? (busy === undefined ? searchNotice : undefined)) : undefined;
 
-  const renderRow = (row: Row, index: number) => {
-    const current = index === cursor;
-    const title = row.anime?.title ?? row.entry?.title ?? "";
-    const poster = row.anime?.poster ?? row.entry?.poster;
-    let sub = "", action = "", side = "";
-    if (row.anime) { action = current ? "open series" : ""; side = animeSources(row.anime).map((source) => source.provider).join(" + "); }
-    if (row.entry) {
-      const progressText = Object.entries(row.entry.progressByProvider ?? {}).map(([name, value]) => `${name} ${value?.lastEpisode}`).join(" · ");
-      sub = row.kind === "recent" ? `${progressText || `ep ${row.entry.lastEpisode}`}, ${when(row.entry.updatedAt)}` : `${row.entry.completed === false ? "started" : "watched through"} ${progressText || row.entry.lastEpisode}${screen === "home" ? `, ${row.entry.mode}` : ""}`;
-      action = row.entry.completed === false ? "resume" : "play next"; side = row.entry.mode;
-    }
-    const canMerge = row.anime ? Boolean(mergeCandidate(row.anime)) : row.entry ? Boolean(libraryMergeCandidate(row.entry)) : false;
-    return (
-      <div key={`${row.kind}:${row.anime?.id ?? row.entry?.animeId}`} className={`item ${row.entry ? "lib" : ""} ${canMerge ? "has-merge" : ""} ${current ? "cur" : ""}`} data-cursor={current}>
-        <button type="button" className="hit" onClick={() => void activate(row)} onFocus={() => setCursor(index)} aria-label={`${row.anime ? "open" : row.entry?.completed === false ? "resume" : "play next episode of"} ${title}`} />
-        <Art src={poster} />
-        <span><span className="t">{title}</span>{sub && <span className="s">{sub}</span>}</span>
-        <span className="k">{action}</span>
-        <span className="k2">{side}</span>
-        {row.anime && mergeCandidate(row.anime) && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void manuallyLink(row.anime!); }}>merge</button>}
-        {row.entry && libraryMergeCandidate(row.entry) && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void manuallyMergeEntry(row.entry!); }}>merge</button>}
-        {row.entry && <button type="button" className="rm" onClick={(event) => { event.stopPropagation(); void removeRow(row); }}>remove</button>}
-      </div>
-    );
+  const cardSection = (kind: LibraryKind, heading: string, more?: Screen) => {
+    const source = screen === "home" && paletteOpen ? libraryRows : rows;
+    const items = source.flatMap((row, index) => row.kind === kind ? [{ row, index: source === rows ? index : -1 }] : []);
+    return <LibrarySection key={kind} kind={kind} heading={heading} items={items} cursor={cursor}
+      onMore={more ? () => go(more) : undefined}
+      onClearHistory={kind === "recent" && appState.history.length ? () => void clearHistory() : undefined}
+      onActivate={(row) => void activate(row)} onRemove={(row) => void removeRow(row)} onFocus={setCursor}
+      canMerge={(entry) => Boolean(libraryMergeCandidate(entry))} onMerge={(entry) => void manuallyMergeEntry(entry)} />;
   };
-
-  const section = (kind: RowKind, heading: string) => {
-    const items = rows.map((row, index) => ({ row, index })).filter((item) => item.row.kind === kind);
-    if (items.length === 0) return null;
-    return (
-      <section key={kind} className={`list-section section-${kind}`} aria-labelledby={`${kind}-heading`}>
-        <h2 id={`${kind}-heading`}>{kind === "results" ? <span className="search-heading" title={heading}>{heading}</span> : heading}{kind === "results" && <span>{items.length} {items.length === 1 ? "title" : "titles"}</span>}</h2>
-        <div className="section-scroll" role="region" aria-labelledby={`${kind}-heading`} tabIndex={0}
-          onFocus={(event) => { if (event.target === event.currentTarget) setCursor(items[0].index); }}>
-          <div className="list">{items.map(({ row, index }) => renderRow(row, index))}</div>
-        </div>
-      </section>
-    );
-  };
-
-  const backButton = <button type="button" onClick={goBack} aria-label="Back" aria-keyshortcuts="Escape"><b>esc</b> back</button>;
 
   const playingId = session?.request.episode?.id;
   const current = nowPlaying && nowPlaying.episodeId === playingId ? nowPlaying : undefined;
@@ -603,24 +695,60 @@ function App() {
     const target = playingIndex >= 0 ? playingList[playingIndex + offset] : undefined;
     return current && target ? () => { void playEpisode(target, current.anime, current.mode); } : undefined;
   };
-  const playerMessage = status && status.episode.id !== playingId
+  const playerMessage = status
     ? status.phase === "failed" ? { text: `episode ${status.episode.number}: ${status.detail}`, error: true }
       : status.phase === "opened" ? undefined : { text: `episode ${status.episode.number}: finding a stream ···` }
     : undefined;
 
-  const footLinks = (
-    <span className="right">
-      {session && screen !== "player" && <button type="button" className="now-link" onClick={expandPlayer} aria-keyshortcuts="`" title="Expand the corner player (`). Resize with ⌘+ and ⌘−"><b>`</b>now playing</button>}
-      {screen !== "home" && <button type="button" onClick={() => go("home")}>search</button>}
-      {screen !== "saved" && <button type="button" onClick={() => go("saved")}>saved</button>}
-      {screen !== "recent" && <button type="button" onClick={() => go("recent")}>recent</button>}
-      {screen !== "settings" && <button type="button" onClick={() => go("settings")}>settings</button>}
-      <span>{player}</span>
-    </span>
+  // Next up follows progress, not the cursor: the episode after the last one watched on the provider used last.
+  const nextUp = useMemo(() => {
+    const all = episodeRowsOf(episodeGroups, progress, "all", "oldest");
+    const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? (provider === "auto" ? selectedAnime?.provider : provider) ?? "aniwave")];
+    return row ? all.find((item) => !item.watched && item.number === row.number) ?? row : undefined;
+  }, [episodeGroups, progress, selectedAnime, provider]);
+  const navIcon = (target: Screen, name: "home" | "bookmark" | "clock" | "gear", text: string) => (
+    <button type="button" className={screen === target ? "on" : ""} title={text} onClick={() => go(target)}><Icon name={name} /><span className="sr-only">{text}</span></button>
   );
 
   return (
     <div className={`app ${screen === "player" && playerFullscreen ? "is-fullscreen" : ""}`}>
+      <header className="bar">
+        <div className="brand">
+          <button type="button" className="logo" onClick={() => { go("home"); setQuery(""); catalogSearch.clear(); }} aria-label="Home">ANI<em>desktop</em></button>
+        </div>
+        <div className={`searchbox ${paletteOpen ? "open" : ""}`}>
+          {screen === "settings" || screen === "player"
+            ? <button type="button" className="search as-button" onClick={() => { go("home"); }}><Icon name="search" /><span>Search anime</span><kbd>{shortcut("K")}</kbd></button>
+            : <label className="search">
+                <Icon name="search" />
+                <input ref={fieldRef} value={query} onChange={(event) => changeQuery(event.target.value)}
+                  onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
+                  maxLength={120} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
+                <span className="search-throbber" aria-hidden="true">
+                  {catalogSearch.pending && <><span>·</span><span>·</span><span>·</span></>}
+                </span>
+                <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${unifiedResults.length} ${unifiedResults.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
+                {paletteOpen || query
+                  ? <button type="button" className="clear" aria-label="Clear search" onClick={() => { setQuery(""); catalogSearch.clear(); fieldRef.current?.focus(); }}><Icon name="x" /></button>
+                  : screen !== "series" && <kbd>{shortcut("K")}</kbd>}
+              </label>}
+          {paletteOpen && (
+            <SearchPalette results={unifiedResults} query={query} lastQuery={lastQuery} cursor={cursor}
+              ready={catalogSearch.ready} pending={catalogSearch.pending} providerErrors={catalogSearch.providerErrors}
+              message={searchMessage} error={searchError} onRetry={catalogSearch.retrySources}
+              onOpen={(anime) => void openAnime(anime)} onFocus={setCursor}
+              canMerge={(anime) => Boolean(mergeCandidate(anime))} onMerge={(anime) => void manuallyLink(anime)} />
+          )}
+        </div>
+        <nav className="icons" aria-label="Sections">
+          {navIcon("home", "home", "home")}
+          {navIcon("saved", "bookmark", "saved")}
+          {navIcon("recent", "clock", "recent")}
+          {navIcon("settings", "gear", "settings")}
+        </nav>
+      </header>
+      {paletteOpen && <div className="dim" onClick={() => { setQuery(""); catalogSearch.clear(); }} />}
+
       <div className="body">
       {session && (
         <Suspense fallback={<div className="player-message">loading player ···</div>}>
@@ -639,6 +767,10 @@ function App() {
             autoplayNext={appState.settings.autoplayNext !== false}
             onPrev={playNeighbour(-1)}
             onNext={playNeighbour(1)}
+            onRetry={current ? () => {
+              const episode = current.episodes.find((item) => item.id === current.episodeId);
+              if (episode) void playEpisode(episode, current.anime, current.mode, episodeGroups, true);
+            } : undefined}
             onDock={dockPlayer}
             onEpisodes={showPlayingEpisodes}
             onExpand={expandPlayer}
@@ -646,163 +778,68 @@ function App() {
           />
         </Suspense>
       )}
-      {screen !== "player" && <div className={`page ${screen === "home" || screen === "saved" || screen === "recent" ? "page-lists" : ""}`}>
-        <div className="field">
-          {screen === "settings"
-            ? <span className="crumb big">settings</span>
-            : <div className="search-field">
-                <input ref={fieldRef} value={query} onChange={(event) => changeQuery(event.target.value)}
-                  onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
-                  maxLength={120} placeholder={placeholder} aria-label={placeholder} spellCheck={false} />
-                <span className="search-throbber" aria-hidden="true">
-                  {catalogSearch.pending && <><span>·</span><span>·</span><span>·</span></>}
-                </span>
-                <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${unifiedResults.length} ${unifiedResults.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
-              </div>}
-          {(screen === "home" || screen === "series") && (
-            <div className="groups">
-              <Chips label="audio" value={mode} options={["sub", "dub"] as const} onChange={setMode} />
-              <Chips label="quality" value={QUALITIES.includes(quality) ? quality : "best"} options={QUALITIES.slice(0, 4)} onChange={setQuality} />
-              <Chips label="source" value={provider} options={PROVIDERS} onChange={setProvider} />
-            </div>
-          )}
-          {(screen === "saved" || screen === "recent") && <span className="crumb">{screen}</span>}
-        </div>
-        {message && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+      {screen !== "player" && <div key={screen} className={`page page-${screen}`}>
+        {message && !paletteOpen && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
+        {screen === "opening" && selectedAnime && <div className="empty" role="status">
+          <b>{selectedAnime.title}</b>
+          <span>{status?.phase === "failed" ? `Episode ${status.episode.number}: ${status.detail}`
+            : status?.phase === "opened" ? `Opened in ${player}`
+            : status ? `Opening episode ${status.episode.number} · ${status.detail}` : "Finding your next episode…"}</span>
+          <div className="acts-row">
+            <button type="button" className="btn" onClick={() => { cancelSeries(); go("home"); }}>Cancel</button>
+            <button type="button" className="btn" onClick={() => void openAnime(selectedAnime, { focusEpisodeId: status?.episode.id })}>Episodes</button>
+          </div>
+        </div>}
 
         {screen === "home" && (
-          rows.length === 0 && !message && !catalogSearch.pending
-            ? <div className="empty"><b>Type a title to search</b>Results, titles you are watching, and saved titles appear here.</div>
-            : <div className="home-sections" aria-busy={catalogSearch.pending}>
-                {section("results", `results for "${lastQuery}"`)}
-                {rows.some((row) => row.kind === "continue" || row.kind === "saved") && (
-                  <div className="home-library">{section("continue", "continue")}{section("saved", "saved")}</div>
-                )}
-              </div>
+          libraryRows.length === 0
+            ? !paletteOpen && <div className="empty"><b>Nothing here yet</b>Search for a title with <kbd>{shortcut("K")}</kbd>. Titles you watch and save appear here.</div>
+            : <>
+                {cardSection("continue", "Continue watching", "recent")}
+                {cardSection("saved", "Saved", "saved")}
+              </>
         )}
 
-        {screen === "saved" && (
-          <section className="list-section library-section" aria-labelledby="saved-heading">
-            <h2 id="saved-heading">saved <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span></h2>
-            <div className="section-scroll" role="region" aria-labelledby="saved-heading" tabIndex={0}>
-            {rows.length === 0
-              ? <div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Saved titles keep their place, so play always picks up at the next episode."}</div>
-              : <div className="list">{rows.map(renderRow)}</div>}
-            </div>
-          </section>
-        )}
+        {screen === "saved" && (rows.length === 0
+          ? <div className="section"><div className="section-head"><h2 id="saved-heading">Saved</h2></div><div className="empty"><b>{filter ? "No saved titles match" : "Nothing saved yet"}</b>{filter ? "Try a shorter filter." : "Open a series and choose save. Select a saved title to browse its episodes."}</div></div>
+          : cardSection("saved", "Saved"))}
 
-        {screen === "recent" && (
-          <section className="list-section library-section" aria-labelledby="recent-heading">
-            <h2 id="recent-heading">recent <span>{rows.length} {rows.length === 1 ? "title" : "titles"}</span>{appState.history.length > 0 && <button type="button" className="act" onClick={() => void clearHistory()}>clear history</button>}</h2>
-            <div className="section-scroll" role="region" aria-labelledby="recent-heading" tabIndex={0}>
-            {rows.length === 0
-              ? <div className="empty"><b>{filter ? "No recent titles match" : "Nothing watched yet"}</b>{filter ? "Try a shorter filter." : `Every episode you open in ${player} is listed here.`}</div>
-              : <div className="list">{rows.map(renderRow)}</div>}
-            </div>
-          </section>
-        )}
+        {screen === "recent" && (rows.length === 0
+          ? <div className="section"><div className="section-head"><h2 id="recent-heading">Recent</h2></div><div className="empty"><b>{filter ? "No recent titles match" : "Nothing watched yet"}</b>{filter ? "Try a shorter filter." : `Every episode you open in ${player} is listed here.`}</div></div>
+          : cardSection("recent", "Recent"))}
 
         {screen === "series" && selectedAnime && (
-          <>
-            <div className="head">
-              <Art src={selectedAnime.poster} large />
-              <div>
-                <div className="crumb">{lastQuery || "search"}  /  series</div>
-                <h1>{selectedAnime.title}</h1>
-                <div className="sub">
-                  <span>{episodes.length ? `${episodes.length} episodes` : busy ? "loading episodes" : "no episodes"}</span>
-                  <span>{animeSources(selectedAnime).map((source) => source.provider).join(" + ")}</span>
-                  {progress && <span>{progress.completed === false ? "started" : "watched through"} {progress.lastEpisode}</span>}
-                </div>
-              </div>
-              <div className="acts">
-                <button type="button" className="btn quiet" onClick={goBack}>back</button>
-                <button type="button" className={`btn ${isSaved ? "on" : ""}`} onClick={() => void toggleBookmark()}>{isSaved ? "saved" : "save"}</button>
-              </div>
-            </div>
-            <div className="bar">
-              <span className="crumb">click an episode to play it in {player}</span>
-              <div className="chips" role="tablist" aria-label="Episode source">
-                {episodeGroups.map((group) => <button type="button" role="tab" aria-selected={group.provider === activeEpisodeProvider} className={group.provider === activeEpisodeProvider ? "on" : ""} key={group.provider} onClick={() => selectEpisodeProvider(group.provider)}>{group.provider}{group.error ? " unavailable" : ` ${group.episodes.length}`}</button>)}
-              </div>
-            </div>
-            {activeEpisodeGroup?.error && <div className="line err" role="alert"><b>{activeEpisodeProvider}</b><span>{activeEpisodeGroup.error}</span><button type="button" className="act" onClick={() => void openAnime(selectedAnime)}>retry</button></div>}
-            <div className="grid" ref={gridRef} tabIndex={-1} role="group" aria-label="Episodes">
-              {episodes.map((episode, index) => {
-                const watched = progress ? (Number(episode.number) < Number(progress.lastEpisode) || (episode.number === progress.lastEpisode && progress.completed !== false)) : false;
-                return (
-                  <button type="button" key={episode.id} className={`${watched ? "w" : ""} ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}
-                    tabIndex={index === cursor ? 0 : -1} onFocus={() => setCursor(index)}
-                    onClick={() => void playEpisode(episode)} aria-label={`play episode ${episode.number}`}>{episode.number}</button>
-                );
-              })}
-            </div>
-            {status && (
-              <div className={`line ${status.phase === "failed" ? "err" : ""}`} role="status">
-                <b>episode {status.episode.number}</b>
-                <span>
-                  {status.phase === "finding" && <>finding a stream<span className="dots"> ···</span></>}
-                  {status.phase === "opening" && <>opening {player}<span className="dots"> ···</span></>}
-                  {status.phase === "opened" && `opened in ${player}`}
-                  {status.phase === "failed" && status.detail}
-                </span>
-                {status.phase !== "failed" && <span>{status.detail}</span>}
-                <button type="button" className="btn quiet" onClick={cancelPlay}>{status.phase === "finding" || status.phase === "opening" ? "cancel" : "dismiss"}</button>
-              </div>
-            )}
-          </>
+          <SeriesScreen anime={selectedAnime} progress={progress} isSaved={isSaved} player={player}
+            mode={mode} quality={quality} lastQuery={lastQuery} busy={busy} resolving={resolving}
+            pendingSources={pendingSources} sourceErrors={sourceErrors} episodeGroups={episodeGroups} episodeRows={episodeRows}
+            episodeCount={episodeCount} nextUp={nextUp} episodeFilter={episodeFilter}
+            episodeSort={episodeSort} jump={jump} playingId={playingId} status={status} metadata={metadata} listRef={listRef}
+            onPlay={(episode) => void playEpisode(episode)} onBookmark={() => void toggleBookmark()} onBack={goBack}
+            onMode={setMode} onQuality={setQuality} onCheckSources={() => void openAnime(selectedAnime, { refresh: true, checkNow: true })}
+            onRefreshSources={() => {
+              void metadata.refresh(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.id))).catch((error) => setError(messageFrom(error)));
+              void openAnime(selectedAnime, { refresh: true });
+            }} onJump={jumpTo} onWatched={(episode) => void markWatched(episode)}
+            onWatchedAll={() => void markAllWatched()} onDismissStatus={cancelPlay} reorder={reorder} />
         )}
 
         {screen === "settings" && (
-          <form className="kv" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
-            <div className="r"><span className="k">playback<small>built-in works without installing another player</small></span><div className="v"><Chips value={settingsDraft.playbackTarget} options={["builtin", "external"] as const} onChange={(playbackTarget) => setSettingsDraft({ ...settingsDraft, playbackTarget })} /></div></div>
-            <div className="r"><span className="k">start playback<small>go fullscreen as soon as an episode starts</small></span><div className="v"><Chips value={settingsDraft.startPlayerFullscreen ? "fullscreen" : "windowed"} options={["fullscreen", "windowed"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, startPlayerFullscreen: value === "fullscreen" })} /></div></div>
-            <div className="r"><span className="k">next episode<small>built-in player only. autoplay waits five seconds and can be cancelled</small></span><div className="v"><Chips value={settingsDraft.autoplayNext !== false ? "autoplay" : "manual"} options={["autoplay", "manual"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, autoplayNext: value === "autoplay" })} /></div></div>
-            <div className="r"><span className="k">player diagnostics<small>local keyboard and playback logs for troubleshooting</small></span><div className="v diagnostics-controls"><Chips label="logging" value={settingsDraft.playerDiagnostics ? "on" : "off"} options={["off", "on"] as const} onChange={(value) => setSettingsDraft({ ...settingsDraft, playerDiagnostics: value === "on" })} /><button type="button" className="btn quiet" onClick={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }}>open logs</button></div></div>
-            <div className="r"><label htmlFor="player">external fallback<small>optional for built-in playback. on macOS use IINA's iina-cli</small></label><div className="v"><input id="player" value={settingsDraft.playerPath} placeholder={settingsDraft.playbackTarget === "external" ? "required" : "optional"} onChange={(event) => setSettingsDraft({ ...settingsDraft, playerPath: event.target.value })} /></div></div>
-            <div className="r"><span className="k">quality</span><div className="v"><Chips value={settingsDraft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setSettingsDraft({ ...settingsDraft, preferredQuality })} /></div></div>
-            <div className="r"><span className="k">audio</span><div className="v"><Chips value={settingsDraft.preferredMode} options={["sub", "dub"] as const} onChange={(preferredMode) => setSettingsDraft({ ...settingsDraft, preferredMode })} /></div></div>
-            <div className="r"><span className="k">theme<small>presets match common terminal schemes</small></span><div className="v"><div className="chips" role="radiogroup" aria-label="theme">
-              {THEME_NAMES.map((name) => {
-                const colours = resolveTheme(name, settingsDraft.customTheme);
-                return (
-                  <button type="button" key={name} role="radio" aria-checked={settingsDraft.theme === name} className={settingsDraft.theme === name ? "on" : ""}
-                    onClick={() => setSettingsDraft({ ...settingsDraft, theme: name, customTheme: name === "custom" && settingsDraft.theme !== "custom" ? { ...resolveTheme(settingsDraft.theme, settingsDraft.customTheme) } : settingsDraft.customTheme })}>
-                    <i className="sw" style={{ "--sw-bg": colours.background, "--sw-cur": colours.highlight } as React.CSSProperties} />{name.replace("-", " ")}
-                  </button>
-                );
-              })}
-            </div></div></div>
-            {settingsDraft.theme === "custom" && (
-              <div className="r"><span className="k">custom colours<small>the rest is mixed from these. highlight marks the cursor row and selected chips</small></span><div className="v">
-                {(["background", "text", "highlight"] as const).map((key) => (
-                  <div className="colour" key={key}>
-                    <span>{key}</span>
-                    <input type="color" value={settingsDraft.customTheme[key]} aria-label={`${key} colour`} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
-                    <input value={settingsDraft.customTheme[key]} aria-label={`${key} hex`} maxLength={7} spellCheck={false} onChange={(event) => setSettingsDraft({ ...settingsDraft, customTheme: { ...settingsDraft.customTheme, [key]: event.target.value } })} />
-                  </div>
-                ))}
-              </div></div>
-            )}
-            <div className="r"><span className="k">source<small>auto combines aniwave, anidb, and hianime</small></span><div className="v"><Chips value={settingsDraft.preferredProvider} options={PROVIDERS} onChange={(preferredProvider) => setSettingsDraft({ ...settingsDraft, preferredProvider })} /></div></div>
-            <div className="r"><label htmlFor="aniwave">aniwave address</label><div className="v"><input id="aniwave" value={settingsDraft.aniwaveBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, aniwaveBaseUrl: event.target.value })} /></div></div>
-            <div className="r"><label htmlFor="anidb">anidb address</label><div className="v"><input id="anidb" value={settingsDraft.anidbBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, anidbBaseUrl: event.target.value })} /></div></div>
-            <div className="r"><label htmlFor="hianime">hianime address</label><div className="v"><input id="hianime" value={settingsDraft.hianimeBaseUrl} onChange={(event) => setSettingsDraft({ ...settingsDraft, hianimeBaseUrl: event.target.value })} /></div></div>
-            <div className="acts-row"><button type="button" className="btn quiet" onClick={goBack}>cancel</button><button type="submit" className="btn primary">save changes</button></div>
-          </form>
+          <SettingsScreen draft={settingsDraft} setDraft={setSettingsDraft} saved={appState.settings}
+            bookmarkCount={appState.bookmarks.length} linkCount={(appState.providerLinks ?? []).length} dirty={settingsDirty}
+            onSave={() => void saveSettings()} onCancel={goBack} onClearLinks={() => void clearSourceLinks()}
+            onOpenLogs={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }} />
         )}
       </div>}
       </div>
 
-      <div className="foot">
-        {screen === "settings" ? <><span><b>⌘s</b> save</span>{backButton}</>
-          : screen === "player" ? <><span><b>space</b> play</span><span><b>←→</b> 10s</span><span><b>n</b> next</span><span><b>f</b> fullscreen</span>{backButton}</>
-          : screen === "series" ? <><span><b>↑↓←→</b> move</span><span><b>↵</b> play</span><span><b>/</b> search</span>{backButton}</>
-          : <><span><b>↑↓</b> move</span><span><b>↵</b> {screen === "home" ? (query.trim() && !catalogSearch.ready ? "search now" : "open") : "play"}</span>{screen !== "home" && backButton}</>}
-        {session && screen !== "player" && screen !== "settings" && <span><b>⌘+ ⌘−</b> size</span>}
-        {footLinks}
-      </div>
+      {showHints && screen !== "player" && screen !== "series" && (
+        <div className="hints" role="note">
+          {screen === "settings" ? <><span><b>{shortcut("S")}</b> save</span><span><b>esc</b> back</span></>
+            : <><span><b>←→↑↓</b> move</span><span><b>↵</b> {paletteOpen ? "open" : "play"}</span><span><b>o</b> open</span><span><b>x</b> remove</span><span><b>{shortcut("K")}</b> search</span></>}
+          {session && <span><b>`</b> player</span>}
+          <span><b>?</b> hide</span>
+        </div>
+      )}
     </div>
   );
 }

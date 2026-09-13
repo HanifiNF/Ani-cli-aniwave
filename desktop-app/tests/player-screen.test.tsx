@@ -240,6 +240,14 @@ describe("built-in player screen", () => {
     expect(container.querySelector('[data-testid="media"]')?.getAttribute("data-src")).toBe("https://cdn.test/second.m3u8");
   });
 
+  it("requests fresh source resolution when retrying a failed episode", async () => {
+    const retry = vi.fn();
+    await render({ session: session("https://cdn.test/expired.m3u8"), onRetry: retry });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="fail-media"]')!.click());
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Retry")!.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("shows retry and waits for an explicit external fallback click", async () => {
     await act(async () => { container.querySelector<HTMLButtonElement>("[data-testid=fail-media]")!.click(); });
     expect(container.textContent).toContain("fatal HLS error");

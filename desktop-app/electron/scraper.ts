@@ -1,11 +1,15 @@
-import type { AnimeResult, Episode, EpisodeCatalog, ProviderName, ProviderPreference, Settings, Stream, TranslationMode } from "../shared/contracts";
-import { animeSources, unifyAnimeResults } from "../shared/catalog";
+import { catalogContext, catalogRequests, CatalogNetworkError } from "./catalog-requests";
+import type { AnimeResult, Episode, EpisodeAvailability, ProviderName, Settings, Stream, TranslationMode } from "../shared/contracts";
+import { animeSources, sourceMatch } from "../shared/catalog";
 import { findEmbedUrl, hiAnimeEmbedUrls, parseAniwaveEpisodes, parseAniwaveSearch, parseAniwaveVidplayId, parseEpisodes, parseHiAnimeEmbed, parseHiAnimeEpisodes, parseHiAnimeSearch, parseMasterPlaylist, parseMasterUrl, parseResultUrl, parseSearchPage, parseVidplaySource } from "./parsers";
 
 const RETRY_DELAY_MS = 750;
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl" | "hianimeBaseUrl">;
+export type SourceConfig = Pick<Settings, "preferredProvider" | "aniwaveBaseUrl" | "anidbBaseUrl" | "hianimeBaseUrl" | "disabledSources">;
 const HIANIME_API_BASE = "https://animehot.cc/api";
+export function providerOrigin(provider: ProviderName, config: SourceConfig): string {
+  return new URL(provider === "hianime" ? HIANIME_API_BASE : provider === "aniwave" ? config.aniwaveBaseUrl : config.anidbBaseUrl).origin;
+}
 
 function sourceBase(value: string): string {
   const url = new URL(value);
@@ -17,29 +21,51 @@ function absolute(value: string, relativeTo: string): string {
   if (!/^https?:$/.test(url.protocol)) throw new Error("Unsupported source URL");
   return url.toString();
 }
-async function request(url: string, label: string, accept: string, referrer?: string): Promise<Response> {
-  let response!: Response;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    // Live search can fire several requests in quick succession; give a rate limit a moment before retrying.
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    response = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: accept, ...(referrer ? { Referer: referrer } : {}) }, signal: AbortSignal.timeout(15_000) });
-    if (response.ok) return response;
-    if (response.status !== 429 && response.status < 500) break;
-  }
-  throw new Error(`${label} failed (${response.status})`);
+export function retryAfterDelay(value: string | null, now = Date.now()): number {
+  if (!value?.trim()) return 0;
+  const clean = value.trim();
+  const delay = /^\d+$/.test(clean) ? Number(clean) * 1000 : Date.parse(clean) - now;
+  return Number.isFinite(delay) ? Math.max(0, delay) : 0;
 }
-async function postJson(url: string, body: unknown, label: string, referrer?: string): Promise<unknown> {
-  let response!: Response;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    response = await fetch(url, { method: "POST", headers: { "User-Agent": USER_AGENT, Accept: "application/json", "Content-Type": "application/json", ...(referrer ? { Referer: referrer } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
-    if (response.ok) return response.json() as Promise<unknown>;
-    if (response.status !== 429 && response.status < 500) break;
-  }
-  throw new Error(`${label} failed (${response.status})`);
+
+async function responseBody(url: string, label: string, accept: string, referrer?: string, body?: unknown): Promise<string> {
+  const context = catalogContext.getStore();
+  const execute = async (signal?: AbortSignal, recovery = false) => {
+    const attempts = recovery ? 1 : 2;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      signal?.throwIfAborted();
+      if (attempt > 0) await new Promise<void>((resolve, reject) => {
+        const abort = () => { clearTimeout(timer); reject(signal?.reason); };
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, RETRY_DELAY_MS);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+      try {
+        const response = await fetch(url, {
+          method: body === undefined ? "GET" : "POST",
+          headers: { "User-Agent": USER_AGENT, Accept: accept, ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(referrer ? { Referer: referrer } : {}) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000)
+        });
+        if (response.ok) return await response.text();
+        await response.body?.cancel();
+        if (response.status !== 429 && response.status < 500) throw new Error(`${label} failed (${response.status})`);
+        const retryAfter = retryAfterDelay(response.headers.get("retry-after"));
+        if (response.status === 429 || retryAfter > 0 || attempt === attempts - 1) throw new CatalogNetworkError(`${label} failed (${response.status})`, retryAfter);
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason;
+        if (error instanceof TypeError || (error instanceof Error && error.name === "TimeoutError")) throw new CatalogNetworkError(`${label}: ${error.message}`);
+        throw error;
+      }
+    }
+    throw new Error(`${label} failed`);
+  };
+  if (!context) return execute();
+  const ttl = /search|server lookup|stream lookup/.test(label) ? 60_000 : /episode lookup/.test(label) ? 30_000 : 20_000;
+  return catalogRequests.read(JSON.stringify([url, accept, referrer, body]), new URL(url).origin, ttl, execute, context);
 }
-const fetchText = async (url: string, label: string, referrer?: string) => (await request(url, label, "text/html,application/json;q=0.9,*/*;q=0.8", referrer)).text();
-const fetchJson = async (url: string, label: string, referrer?: string) => (await request(url, label, "application/json", referrer)).json() as Promise<unknown>;
+const fetchText = (url: string, label: string, referrer?: string) => responseBody(url, label, "text/html,application/json;q=0.9,*/*;q=0.8", referrer);
+const fetchJson = async (url: string, label: string, referrer?: string): Promise<unknown> => JSON.parse(await responseBody(url, label, "application/json", referrer));
+const postJson = async (url: string, body: unknown, label: string, referrer?: string): Promise<unknown> => JSON.parse(await responseBody(url, label, "application/json", referrer, body));
 
 function splitId(id: string): { provider: ProviderName; value: string } {
   if (id.startsWith("aniwave:")) return { provider: "aniwave", value: id.slice(8) };
@@ -48,7 +74,7 @@ function splitId(id: string): { provider: ProviderName; value: string } {
   return { provider: "anidb", value: id };
 }
 
-async function searchOne(query: string, provider: ProviderName, config: SourceConfig): Promise<AnimeResult[]> {
+export async function searchOne(query: string, provider: ProviderName, config: SourceConfig): Promise<AnimeResult[]> {
   if (provider === "aniwave") {
     const root = sourceBase(config.aniwaveBaseUrl);
     return parseAniwaveSearch(await fetchText(`${root}/filter?keyword=${encodeURIComponent(query)}`, "AniWave search", `${root}/`));
@@ -61,21 +87,25 @@ async function searchOne(query: string, provider: ProviderName, config: SourceCo
   return parseSearchPage(await fetchText(`${root}/browse?q=${encodeURIComponent(query)}`, "AniDB search", `${root}/`));
 }
 
-export async function searchAnime(query: string, config: SourceConfig, requested?: ProviderPreference, links: string[][] = []): Promise<AnimeResult[]> {
-  const cleaned = query.trim();
-  if (!cleaned) return [];
-  if (cleaned.length > 120) throw new Error("Search query is too long");
-  const preference = requested ?? config.preferredProvider;
-  if (preference !== "auto") return searchOne(cleaned, preference, config);
-  const settled = await Promise.allSettled((["aniwave", "anidb", "hianime"] as const).map((provider) => searchOne(cleaned, provider, config)));
-  const found = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-  if (settled.every((result) => result.status === "rejected")) {
-    throw new Error(`All providers failed: ${settled.map((result) => result.status === "rejected" && (result.reason instanceof Error ? result.reason.message : String(result.reason))).join("; ")}`);
+const RESOLVE_QUERIES = 3;
+
+/** Resolve each provider independently; an outage stops alias attempts for that provider. */
+export async function resolveSource(anime: AnimeResult, provider: ProviderName, config: SourceConfig): Promise<{ hit: AnimeResult; exact: boolean } | undefined> {
+  const known = animeSources(anime);
+  const queries = [...new Set([anime.title, ...known.flatMap((source) => [source.title, ...source.aliases])].map((value) => value.trim()).filter(Boolean))].slice(0, RESOLVE_QUERIES);
+  let likely: AnimeResult | undefined;
+  for (const query of queries) {
+    const hits = await searchOne(query, provider, config);
+    for (const hit of hits) {
+      const match = sourceMatch(anime, hit);
+      if (match === "exact") return { hit, exact: true };
+      if (match === "likely" && !likely) likely = hit;
+    }
   }
-  return unifyAnimeResults(found, links);
+  return likely ? { hit: likely, exact: false } : undefined;
 }
 
-async function getProviderEpisodes(animeId: string, config: SourceConfig): Promise<Episode[]> {
+export async function getProviderEpisodes(animeId: string, config: SourceConfig): Promise<Episode[]> {
   const { provider, value } = splitId(animeId);
   if (provider === "aniwave") {
     if (!/^[a-z0-9-]+-\d+$/i.test(value)) throw new Error("Invalid AniWave anime identifier");
@@ -91,14 +121,29 @@ async function getProviderEpisodes(animeId: string, config: SourceConfig): Promi
   return parseEpisodes(await fetchJson(`${sourceBase(config.anidbBaseUrl)}/api/frontend/anime/${numeric}/episodes`, "AniDB episode lookup"));
 }
 
-export async function getEpisodes(anime: AnimeResult, config: SourceConfig): Promise<EpisodeCatalog> {
-  const sources = animeSources(anime).filter((source, index, all) => all.findIndex((item) => item.provider === source.provider) === index);
-  const settled = await Promise.allSettled(sources.map((source) => getProviderEpisodes(source.id, config)));
-  return {
-    groups: sources.map((source, index) => settled[index].status === "fulfilled"
-      ? { provider: source.provider, episodes: (settled[index] as PromiseFulfilledResult<Episode[]>).value }
-      : { provider: source.provider, episodes: [], error: (settled[index] as PromiseRejectedResult).reason instanceof Error ? (settled[index] as PromiseRejectedResult).reason.message : String((settled[index] as PromiseRejectedResult).reason) })
-  };
+async function getEpisodeServers(episodeId: string, config: SourceConfig): Promise<unknown> {
+  const { provider, value } = splitId(episodeId);
+  if (provider === "aniwave") {
+    const match = value.match(/^(\d+):([0-9.]+)$/);
+    if (!match) throw new Error("Invalid AniWave episode identifier");
+    const root = sourceBase(config.aniwaveBaseUrl);
+    return fetchJson(`${root}/ajax/server/list?servers=${encodeURIComponent(match[1])}&eps=${encodeURIComponent(match[2])}`, "AniWave server lookup", `${root}/`);
+  }
+  if (provider === "hianime") {
+    if (!/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(value)) throw new Error("Invalid HiAnime episode identifier");
+    return fetchJson(`${HIANIME_API_BASE}/episode/${encodeURIComponent(value)}`, "HiAnime stream lookup", `${sourceBase(config.hianimeBaseUrl)}/`);
+  }
+  if (!/^\d+$/.test(value)) throw new Error("Invalid AniDB episode identifier");
+  return fetchJson(`${sourceBase(config.anidbBaseUrl)}/api/frontend/episode/${value}/languages`, "AniDB stream lookup");
+}
+
+export async function getAvailability(episodeId: string, config: SourceConfig): Promise<EpisodeAvailability> {
+  const { provider } = splitId(episodeId);
+  const payload = await getEpisodeServers(episodeId, config);
+  const listed = (mode: TranslationMode) => provider === "aniwave" ? Boolean(parseAniwaveVidplayId(payload, mode))
+    : provider === "hianime" ? hiAnimeEmbedUrls(payload, mode).some((value) => { try { const url = new URL(value); return url.protocol === "https:" && url.hostname === "zokoanime.video"; } catch { return false; } })
+    : Boolean(findEmbedUrl(payload, mode));
+  return { sub: listed("sub"), dub: listed("dub"), checkedAt: Date.now() };
 }
 
 export async function getStreams(episodeId: string, mode: TranslationMode, config: SourceConfig): Promise<Stream[]> {
@@ -107,7 +152,7 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
     const match = value.match(/^(\d+):([0-9.]+)$/);
     if (!match) throw new Error("Invalid AniWave episode identifier");
     const root = sourceBase(config.aniwaveBaseUrl);
-    const servers = await fetchJson(`${root}/ajax/server/list?servers=${encodeURIComponent(match[1])}&eps=${encodeURIComponent(match[2])}`, "AniWave server lookup", `${root}/`);
+    const servers = await getEpisodeServers(episodeId, config);
     const linkId = parseAniwaveVidplayId(servers, mode);
     if (!linkId) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} Vidplay server is available`);
     const source = await fetchJson(`${root}/ajax/sources?id=${encodeURIComponent(linkId)}&asi=0&autoPlay=0`, "AniWave source lookup", `${root}/`);
@@ -120,12 +165,12 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
     const rawMaster = parseVidplaySource(direct);
     if (!rawMaster) throw new Error("Vidplay returned no playable stream");
     const masterUrl = absolute(rawMaster, embed.origin);
-    return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "aniwave", embed.toString()).map((stream) => ({ ...stream, server: "Vidplay" }));
+    return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "aniwave", embed.toString());
   }
   if (provider === "hianime") {
     if (!/^[\p{L}\p{N}:!'().,_+~-]+(?:-[\p{L}\p{N}:!'().,_+~-]+)*$/u.test(value)) throw new Error("Invalid HiAnime episode identifier");
     const root = sourceBase(config.hianimeBaseUrl);
-    const payload = await fetchJson(`${HIANIME_API_BASE}/episode/${encodeURIComponent(value)}`, "HiAnime stream lookup", `${root}/`);
+    const payload = await getEpisodeServers(episodeId, config);
     const candidates = hiAnimeEmbedUrls(payload, mode);
     if (candidates.length === 0) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} HiAnime source is available`);
     const failures: string[] = [];
@@ -138,14 +183,14 @@ export async function getStreams(episodeId: string, mode: TranslationMode, confi
         if (!parsed) { failures.push(`${embed.hostname} response changed`); continue; }
         const masterUrl = absolute(parsed.src, embed.origin);
         return parseMasterPlaylist(await fetchText(masterUrl, "Video playlist", embed.toString()), masterUrl, "hianime", embed.toString())
-          .map((stream) => ({ ...stream, server: "ZokoAnime", textTracks: parsed.subtitles }));
+          .map((stream) => ({ ...stream, textTracks: parsed.subtitles }));
       } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     }
     throw new Error(`No supported HiAnime server could be resolved: ${failures.join("; ")}`);
   }
   if (!/^\d+$/.test(value)) throw new Error("Invalid AniDB episode identifier");
   const root = sourceBase(config.anidbBaseUrl);
-  const payload = await fetchJson(`${root}/api/frontend/episode/${value}/languages`, "AniDB stream lookup");
+  const payload = await getEpisodeServers(episodeId, config);
   const embedUrl = findEmbedUrl(payload, mode);
   if (!embedUrl) throw new Error(`No ${mode === "dub" ? "dubbed" : "subtitled"} source is available`);
   const embedPage = await fetchText(absolute(embedUrl, root), "Video host", root);

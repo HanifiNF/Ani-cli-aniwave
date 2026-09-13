@@ -1,3 +1,4 @@
+import type { PlayerDiagnosticEvent, PlayerDiagnosticRecord } from "../shared/player-diagnostics";
 import type { MediaPlayerInstance } from "@vidstack/react";
 
 const mediaEvents = [
@@ -5,16 +6,16 @@ const mediaEvents = [
   "seeking", "seeked", "ended", "error", "volume-change", "rate-change", "text-track-change", "quality-change",
   "picture-in-picture-change", "media-seek-request", "media-seeking-request",
   "media-enter-fullscreen-request", "media-exit-fullscreen-request"
-];
+] as const satisfies readonly PlayerDiagnosticEvent[];
 
 export function observePlayerDiagnostics(root: HTMLElement, getPlayer: () => MediaPlayerInstance | null,
-  emit: (record: Record<string, unknown>) => void): () => void {
+  emit: (record: PlayerDiagnosticRecord) => void): () => void {
   const record = (event: Event) => {
     const player = getPlayer();
     const state = player?.state;
     const video = root.querySelector("video");
     const detail: unknown = (event as CustomEvent).detail;
-    emit({ event: event.type, time: state?.currentTime, duration: state?.duration, paused: state?.paused,
+    emit({ event: event.type as PlayerDiagnosticEvent, time: state?.currentTime, duration: state?.duration, paused: state?.paused,
       volume: state?.volume, muted: state?.muted, rate: state?.playbackRate,
       videoWidth: video?.videoWidth, videoHeight: video?.videoHeight,
       width: root.clientWidth, height: root.clientHeight,

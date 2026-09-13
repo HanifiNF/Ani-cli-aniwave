@@ -1,3 +1,5 @@
+import type { PlayerDiagnosticRecord } from "./player-diagnostics";
+
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
 export type ProviderName = Exclude<ProviderPreference, "auto">;
@@ -39,12 +41,45 @@ export interface EpisodeGroup {
   provider: ProviderName;
   episodes: Episode[];
   error?: string;
+  refreshing?: boolean;
 }
 
 export interface EpisodeCatalog { groups: EpisodeGroup[]; }
 
+export interface CatalogRequest { id: string; priority?: "playback" | "selected" | "visible" | "nearby"; refresh?: boolean; checkNow?: boolean; }
+export interface SourceHealthStatus {
+  state: "unknown" | "reachable" | "paused" | "checking";
+  checkedAt?: number;
+  retryAt?: number;
+  canRetry: boolean;
+  serverRequested?: boolean;
+}
+export interface ProviderSourceStatus extends SourceHealthStatus { provider: ProviderName; origin: string; }
+export interface CatalogProgress<T> { value: T; pending: ProviderName[]; errors: Partial<Record<ProviderName, string>>; }
+/** Availability advertised by a supported provider server; playback is verified separately. */
+export interface EpisodeAvailability { sub: boolean; dub: boolean; checkedAt: number; }
+export interface EpisodeQuality { quality?: string; checkedAt: number; }
+export interface CachedEpisodeMetadata {
+  availability?: EpisodeAvailability;
+  qualities: Partial<Record<TranslationMode, EpisodeQuality>>;
+}
+
+export interface BookmarkMetadataProgress {
+  state: "running" | "cancelling" | "completed" | "cancelled" | "failed";
+  error?: string;
+  seriesTotal: number;
+  seriesDone: number;
+  currentSeries?: string;
+  episodesDone: number;
+  cachedEpisodes: number;
+  updatedEpisodes: number;
+  failedEpisodes: number;
+  skippedSources: ProviderName[];
+}
+
 export interface ProviderProgress {
   lastEpisode: string;
+  lastEpisodeId?: string;
   mode: TranslationMode;
   updatedAt: string;
   completed?: boolean;
@@ -55,7 +90,6 @@ export interface Stream {
   url: string;
   masterUrl?: string;
   provider: ProviderName;
-  server?: string;
   referrer?: string;
   textTracks?: TextTrackSource[];
 }
@@ -101,6 +135,8 @@ export interface Settings {
   aniwaveBaseUrl: string;
   anidbBaseUrl: string;
   hianimeBaseUrl: string;
+  /** Providers left out of search, lookup, and episode loading. Every provider is on unless listed here. */
+  disabledSources?: ProviderName[];
   theme: ThemePreset;
   customTheme: CustomTheme;
 }
@@ -137,9 +173,21 @@ export type PlayerCommand = "play-pause" | "seek-backward" | "seek-forward" | "v
 
 export interface AniDesktopApi {
   player: AniPlayerApi;
-  search(query: string, provider?: ProviderPreference): Promise<AnimeResult[]>;
-  episodes(anime: AnimeResult): Promise<EpisodeCatalog>;
-  streams(episodeId: string, mode: TranslationMode): Promise<Stream[]>;
+  search(query: string, provider?: ProviderPreference, request?: CatalogRequest, onUpdate?: (progress: CatalogProgress<AnimeResult[]>) => void): Promise<AnimeResult[]>;
+  episodes(anime: AnimeResult, request?: CatalogRequest, onUpdate?: (catalog: EpisodeCatalog) => void): Promise<EpisodeCatalog>;
+  /** Look the anime up on every provider it is not yet known on, remembering confident matches. */
+  resolveSources(anime: AnimeResult, request?: CatalogRequest, onUpdate?: (progress: CatalogProgress<AnimeResult>) => void): Promise<AnimeResult>;
+  streams(episodeId: string, mode: TranslationMode, request?: CatalogRequest): Promise<Stream[]>;
+  availability(episodeId: string, request?: CatalogRequest): Promise<EpisodeAvailability>;
+  episodeMetadata(episodeId: string): Promise<CachedEpisodeMetadata | undefined>;
+  clearEpisodeMetadata(episodeIds: string[]): Promise<void>;
+  /** Starts one app-owned background job, or returns the current job if already running. */
+  fetchBookmarkMetadata(): Promise<BookmarkMetadataProgress>;
+  bookmarkMetadataStatus(): Promise<BookmarkMetadataProgress | undefined>;
+  cancelBookmarkMetadata(): Promise<BookmarkMetadataProgress | undefined>;
+  sourceStatus(): Promise<ProviderSourceStatus[]>;
+  checkSource(provider: ProviderName, request?: CatalogRequest): Promise<void>;
+  cancelCatalog(requestId: string): void;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
   saveSettings(settings: Settings): Promise<PersistedState>;
@@ -150,7 +198,8 @@ export interface AniDesktopApi {
   recordHistory(entry: LibraryEntry): Promise<PersistedState>;
   removeHistory(animeId: string): Promise<PersistedState>;
   clearHistory(): Promise<PersistedState>;
-  remapEntry(oldAnimeId: string, replacement: AnimeResult): Promise<PersistedState>;
+  /** Forget every remembered provider link, automatic and manual. */
+  clearSourceLinks(): Promise<PersistedState>;
   linkSources(sourceIds: string[]): Promise<PersistedState>;
   mergeEntries(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
   dismissMerge(firstAnimeId: string, secondAnimeId: string): Promise<PersistedState>;
@@ -175,7 +224,7 @@ export interface AniPlayerApi {
   onCommand(listener: (command: PlayerCommand) => void): () => void;
   onNotice(listener: (message: string) => void): () => void;
   onDiagnosticsChange(listener: (enabled: boolean) => void): () => void;
-  logDiagnostic(sessionId: string, record: Record<string, unknown>): void;
+  logDiagnostic(sessionId: string, record: PlayerDiagnosticRecord): void;
   saveStorage(sessionId: string, update: PlayerStorageUpdate): Promise<void>;
   setFullscreen(fullscreen: boolean): Promise<boolean>;
   openExternal(): Promise<boolean>;

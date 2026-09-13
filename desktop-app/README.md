@@ -1,6 +1,6 @@
 # Ani Desktop
 
-A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, AniDB, and HiAnime providers. HLS video plays in a built-in Vidstack window on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderers have no direct Node.js access.
+A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, AniDB, and HiAnime providers. HLS video plays in a built-in Vidstack screen on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderer has no direct Node.js access.
 
 ## Requirements
 
@@ -25,13 +25,16 @@ npm start
 
 Type at least two characters to search automatically after a short pause, or press Enter to search immediately. Results, saved titles, and recent titles support mouse and keyboard navigation.
 
-- Auto search combines exact matching aliases from AniWave, AniDB, and HiAnime while keeping provider-native episode lists.
-- Open a series, select a provider tab, and choose an episode to resolve and play its stream.
-- The built-in player opens in a separate reusable window with playback, seeking, volume, captions, quality, picture-in-picture, and native fullscreen controls. Video keeps its aspect ratio with black bars filling the remaining window area.
+- Catalog search checks AniWave, AniDB, and HiAnime concurrently and combines matching titles as each provider responds. Results show posters and full titles, keeping season, part, and special names visible. Provider choices appear under episodes. The preferred source setting controls playback selection.
+- Open a series to see episodes grouped by number, with provider sources underneath. Click an episode to play, use the sidebar to save or mark watched, and use **Jump to** to find an episode. This page uses mouse controls with standard Tab focus, without custom keyboard shortcuts or a selection highlight. Known and newly discovered sources populate independently, preserving scroll position.
+- Supported sub/dub availability loads before full stream resolution. Audio labels describe provider-listed availability; playback verifies the host. Quality checks prioritize the selected episode and nearby visible rows. Failed checks offer **Retry info**.
+- **Refresh sources** refreshes cached data while respecting paused services. Cached episode lists remain visible if a refresh fails, alongside the provider error. **Check now**, **Retry search**, and **Retry info** permit a controlled recovery check.
+- The built-in player occupies the main window, with playback, seeking, volume, captions, quality, picture-in-picture, and native fullscreen controls. Escape docks it into a resizable corner player while you browse; click it to expand it again, or use backtick while browsing the library or search results. Video keeps its aspect ratio with black bars filling the remaining player area.
 - Volume, mute, playback speed, caption visibility/language, and episode resume positions are saved locally. Positions use provider episode IDs and audio mode, so refreshed stream URLs resume correctly.
 - Built-in episodes are recorded as started on opening and completed when playback reaches the end. Continue resumes an unfinished episode; completed episodes advance to the next one. Existing history retains its previous completed interpretation. External-player completion remains untracked and uses the existing launch-based history behavior.
 - Clearing history also clears resume positions. Bookmarks, source links, preferred quality, audio mode, and theme are stored locally.
 - Settings control the playback target, instant fullscreen, external fallback path, provider addresses, and theme.
+- Each source in Settings has a switch. A source that is off is left out of search, cross-provider lookup, and episode loading; at least one must stay on, and a preferred source that is switched off falls back to auto. Settings also shows each source's recent reachability, last check time, and retry delay. **Check now** or **Retry** checks that source through the existing outage protection. Opening Settings only reads local status; checks stop when you leave. Save address edits before checking them. HiAnime status follows its catalog API, and playback hosts retain separate outage tracking.
 
 The player listens for shortcuts immediately after opening. Text fields, sliders, and menus keep their own keyboard navigation. **?** or **Help → Keyboard Shortcuts** opens the shortcut reference; **Playback** contains native menu commands. On Linux, Alt reveals the hidden menu bar.
 
@@ -51,7 +54,7 @@ The player listens for shortcuts immediately after opening. Text fields, sliders
 | Escape | Close an open menu first, then leave fullscreen |
 | Tab / Shift+Tab | Move between controls |
 
-The startup fullscreen preference applies when creating the player window. Selecting another episode preserves the current window mode. Fullscreen follows confirmed window-manager events and ignores repeated toggles during a transition. A failed transition displays a dismissible notice while playback continues.
+The startup fullscreen preference applies when starting a fresh built-in playback session in the main window. Selecting another episode preserves the current window mode. Fullscreen follows confirmed window-manager events and ignores repeated toggles during a transition. A failed transition displays a dismissible notice while playback continues.
 
 On Windows, the app disables Chromium's DirectComposition surface and video-overlay paths at startup to prevent audio-only black frames when moving between the mini player, expanded player, and fullscreen. Other GPU acceleration and hardware decoding remain enabled. The mitigation takes effect after restarting the app and does not change macOS or Linux behavior.
 
@@ -61,7 +64,7 @@ For troubleshooting, turn **Settings → player diagnostics → on**, then save.
 
 Logs live in the app's user-data `logs` folder. The single `media-player.jsonl` file retains the latest **five minutes** of events, with cleanup once per second while the app is open, including when diagnostics are turned off. Startup and **Open logs** also trim expired entries. Time-based retention replaces the size limit and backup rotation; any existing backup is merged into the five-minute window and removed. Files left while the app is closed are trimmed at the next launch. Log writing runs asynchronously with a bounded queue; a `dropped` count identifies records omitted under heavy load. Text-field/composition input, stream URLs, titles, and arbitrary error messages are excluded. Nothing is uploaded. To report an issue, enable diagnostics, reproduce it, then promptly copy the log file before those events expire.
 
-If the built-in player reports a fatal error, use **Retry**. **Open in external player** appears when an external-player path is configured and is never triggered automatically.
+If the built-in player reports a fatal error, use **Retry** to resolve a fresh stream URL for the episode. **Open in external player** is enabled when an external-player path is configured and is never triggered automatically.
 
 ## Optional external players
 
@@ -78,6 +81,22 @@ The app supplies the HLS format, referrer, media title, and fullscreen options r
 ## Themes and icons
 
 Theme presets and custom colours control the interface and running app icon. Builds generate a graphite PNG, multi-size Windows ICO, and Retina-ready macOS ICNS from `../app-icon.svg`.
+
+## Catalog loading
+
+The Electron main process shares in-flight HTTP requests and caches their response bodies in memory (up to 1,000 entries and 32 MB). Search and server availability responses remain fresh for 60 seconds, episode-list responses for 30 seconds, and source/playlist responses for 20 seconds. Response-body caches reset when the app exits. Parsed episode catalogs persist in `episode-lists.json` for up to seven days and remain visible while providers refresh. That cache holds at most 200 provider catalogs and 20,000 episodes; invalid or expired saved entries are discarded on load.
+
+Background traffic is limited to five active requests overall and two per service origin. Playback can use a reserved sixth slot and a third request to a service. Queued playback requests take priority. Cancellation releases an individual consumer; shared upstream work stops only when its last consumer leaves.
+
+Network errors, timeouts, HTTP 429, and HTTP 5xx failures pause the affected service. Repeated failed recovery checks increase the pause from 30 seconds to 2 minutes, 5 minutes, then 15 minutes. After the pause, the next needed request acts as the sole recovery probe; other requests to that service fail promptly or use fresh cached responses. Probes make one HTTP attempt. Healthy services remain available, and a failing video host is tracked independently from its catalog provider. Missing records, unavailable audio, and user cancellations do not count as service outages. Concurrent results from before a pause cannot clear it or repeatedly increase its backoff.
+
+Explicit retry actions may request one early check per service, shared by downstream lookups. Bulk refresh preserves outage protection. A server's `Retry-After` delay takes precedence, including for manual checks. Successful recovery resets the backoff. There is no idle polling: recovery checks run when data is next needed.
+
+Outage counters and next-check times are saved atomically to `source-health.json` in Electron's user-data directory, with a limit of 100 service origins. They survive restarts and expire after 24 hours without a failure once the cooldown has elapsed. Cache refreshes and unrelated source-setting changes preserve this history; a different service address has separate health. Damaged health files are rebuilt automatically.
+
+Episode audio availability and best resolution are saved to `episode-metadata.json` in Electron's user-data directory, keyed by source configuration and provider episode ID, with separate sub/dub resolutions. Successful resolutions and complete audio availability remain fresh for 24 hours. Missing audio or resolution is checked again after 15 minutes, so newly added versions can appear sooner. Fresh metadata restores without provider requests; expired metadata remains visible during viewport-driven refresh, including when a provider fails. Entries expire entirely after seven days, with a limit of 5,000 episodes. Writes are batched and atomic, and a damaged cache is rebuilt automatically.
+
+The renderer holds up to 1,000 completed metadata entries and pauses failed lookups for 10 seconds. Work stops when rows leave the active view. **Refresh sources** clears metadata for the current series across both audio modes and forces new requests; **Retry info** forces another lookup for that row. Playback resolutions also update the metadata cache. Playable URLs continue using the short-lived memory cache and are resolved separately when playback starts.
 
 ## Checks
 
@@ -137,4 +156,14 @@ Vidstack loads the bundled hls.js module directly, so the player requires no CDN
 
 ## Security boundary
 
-Both renderers use `contextIsolation`, disable Node integration, and communicate through narrow preload APIs. The video window uses a separate nonpersistent session for HLS requests, referrer handling, and scoped CORS response headers. Navigation, popups, and permission requests are blocked. Source requests and process launching remain in the main process; remote streaming pages are never loaded as application UI.
+The main window uses `contextIsolation`, disables Node integration, and communicates through a narrow preload API. Browsing and built-in playback share the `ani-desktop` nonpersistent Electron session. Referrer and CORS header adjustments apply to media/XHR traffic; poster and page requests retain their headers. Navigation, popups, and permission requests are blocked. Source requests and process launching remain in the main process; remote streaming pages are never loaded as application UI.
+
+## Code layout
+
+- `src/App.tsx` coordinates navigation, library state, series loading, and playback requests. `SettingsScreen`, `SeriesScreen`, `SearchPalette`, and `LibrarySection` render their respective views. `usePlayerSession` owns the native session subscription; `useAnimeSearch` and `useEpisodeMetadata` own their request lifecycles.
+- `src/episodes.ts` and `src/library.ts` contain episode ordering, progress selection, and library models. `src/theme.ts` applies the active theme; `src/errors.ts` normalizes renderer-facing errors.
+- `shared/settings.ts` defines defaults, playback quality choices, and catalog/source configuration keys. `shared/catalog.ts` defines provider identity and title matching. `shared/player-diagnostics.ts` defines accepted diagnostic events.
+- `electron/catalog-service.ts` is the catalog orchestration entry point for the app and smoke checks. `electron/scraper.ts` handles individual provider requests and stream resolution.
+- Both TypeScript configurations reject unused locals and parameters. Unit tests cover the renderer and services; the player integration scripts exercise actual HLS playback in an isolated profile.
+
+Current UI decisions and instructions for capturing the live renderer are in [design/README.md](design/README.md). Generated design screenshots are ignored by Git and excluded from application packages.
