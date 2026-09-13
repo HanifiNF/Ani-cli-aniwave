@@ -163,7 +163,6 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .link:hover { color: var(--text); }
 .dots { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
-@media (prefers-reduced-motion: reduce) { .dots, .search-throbber > span { animation: none; } }
 
 /* ---- chips and buttons ------------------------------------------------ */
 .chips-row { display: inline-flex; align-items: center; gap: 8px; }
@@ -302,3 +301,31 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .metadata-retry:hover { background: var(--raised2); }
 .src.cur .audio-availability, .src.cur .metadata-status { color: var(--cursor-text); }
 @media (max-width: 650px) { .metadata-status { max-width: 70px; overflow: hidden; text-overflow: ellipsis; } }
+
+/* ---- motion ------------------------------------------------------------ */
+/* One entrance for everything that arrives asynchronously: a short rise with a stagger capped by --i so long lists never wait. */
+:root { --enter: .28s cubic-bezier(.2, .7, .2, 1); --stagger: 18ms; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pop { from { opacity: 0; transform: scale(.98); } }
+@keyframes shimmer { 50% { opacity: .4; } }
+.src-wrap, .hit-row, .card { animation: rise var(--enter) both; animation-delay: calc(var(--i, 0) * var(--stagger)); }
+.status, .notice, .msg, .hints, .empty { animation: rise var(--enter) both; }
+.page { animation: fade .12s ease-out both; }
+.palette { animation: pop .16s ease-out both; transform-origin: top center; }
+.dim { animation: fade .16s ease-out both; }
+.src .q, .src .audio-availability, .src .metadata-status, .src .t em { animation: fade .2s ease-out both; }
+.art img { opacity: 0; transition: opacity .2s ease-out; }
+.art img.in { opacity: 1; }
+/* Placeholder rows hold the list's shape until the first source answers. */
+.src-wrap.skel .src-hit { pointer-events: none; }
+.src-wrap.skel .t { display: block; height: 12px; width: 38%; border-radius: 4px; background: var(--raised2); animation: shimmer 1.2s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 80ms); }
+/* Docking and expanding the player animate the box between its two layouts. */
+.player-shell { view-transition-name: player; }
+::view-transition-group(player) { animation-duration: .24s; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
+@media (prefers-reduced-motion: reduce) {
+  .dots, .search-throbber > span, .src-wrap, .hit-row, .card, .status, .notice, .msg, .hints, .empty, .page, .palette, .dim, .src .q, .src .audio-availability, .src .metadata-status, .src .t em, .src-wrap.skel .t { animation: none; }
+  .art img { transition: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none; }
+}

@@ -8,6 +8,9 @@ import type { useEpisodeMetadata } from "./useEpisodeMetadata";
 import Art from "./Art";
 import Chips from "./Chips";
 import { Icon } from "./icons";
+import { stagger } from "./transition";
+
+const SKELETON_ROWS = 6;
 
 interface Props {
   anime: AnimeResult; progress?: LibraryEntry; isSaved: boolean; player: string;
@@ -72,12 +75,18 @@ export default function SeriesScreen({ anime, progress, isSaved, player, mode, q
         </div>
         <div className="eps" ref={listRef} tabIndex={-1} role="group" aria-label="Episodes">
           {episodeRows.length === 0 && !busy && !resolving && <div className="empty">{episodeFilter === "all" ? "No episodes found." : `No ${episodeFilter} episodes.`}</div>}
+          {episodeRows.length === 0 && busy && Array.from({ length: SKELETON_ROWS }, (_, index) => (
+            <div key={index} className={`src-wrap skel ${index === 0 ? "first" : ""}`} style={stagger(index, SKELETON_ROWS)} aria-hidden="true">
+              {index === 0 && <h4 className="grp-head">Loading</h4>}
+              <div className="src"><span className="src-hit"><span className="t" /></span></div>
+            </div>
+          ))}
           {episodeRows.map((row, index) => {
             const info = metadata.get(row.episode.id);
             const isCursor = index === seriesCursor;
             const groupCursor = nextRow?.number === row.number;
             return (
-              <div key={row.episode.id} className={`src-wrap ${row.first ? "first" : ""} ${groupCursor ? "in-cur" : ""}`}>
+              <div key={row.episode.id} className={`src-wrap ${row.first ? "first" : ""} ${groupCursor ? "in-cur" : ""}`} style={stagger(index, 14)}>
                 {row.first && <h4 className="grp-head">Ep {row.number}{nextUp?.number === row.number && <span className="up">Next up</span>}</h4>}
                 <div className={`src ${row.watched ? "w" : ""} ${isCursor ? "cur" : ""} ${playingId === row.episode.id ? "playing" : ""}`} data-cursor={isCursor} data-episode={row.episode.id}>
                   <button type="button" className="src-hit" tabIndex={isCursor ? 0 : -1} onFocus={() => onCursor(index)}

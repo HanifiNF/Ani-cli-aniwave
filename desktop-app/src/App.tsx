@@ -31,6 +31,7 @@ import { useAnimeSearch } from "./useAnimeSearch";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
 import { animeSources, enabledProviders, likelyDuplicate, mergeKey, overlaps, sourceIds, unifyAnimeResults } from "../shared/catalog";
 import { Icon } from "./icons";
+import { withTransition } from "./transition";
 
 type Screen = "home" | "series" | "opening" | "saved" | "recent" | "settings" | "player";
 // Vidstack and hls.js load with the first playback, not at startup.
@@ -236,14 +237,16 @@ function App() {
   }
 
   function dockPlayer() {
-    setStatus(undefined); setError(undefined); setNotice(undefined);
-    setScreen(selectedAnime ? "series" : "home");
-    focusPlayingEpisode();
+    withTransition(() => {
+      setStatus(undefined); setError(undefined); setNotice(undefined);
+      setScreen(selectedAnime ? "series" : "home");
+      focusPlayingEpisode();
+    });
     refreshState();
   }
 
   function expandPlayer() {
-    if (session) { setScreen("player"); setError(undefined); setNotice(undefined); }
+    if (session) withTransition(() => { setScreen("player"); setError(undefined); setNotice(undefined); });
   }
 
   function closePlayer() {
@@ -783,7 +786,7 @@ function App() {
           />
         </Suspense>
       )}
-      {screen !== "player" && <div className={`page page-${screen}`}>
+      {screen !== "player" && <div key={screen} className={`page page-${screen}`}>
         {message && !paletteOpen && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
         {screen === "opening" && selectedAnime && <div className="empty" role="status">
           <b>{selectedAnime.title}</b>

@@ -2,6 +2,7 @@ import type { AnimeResult } from "../shared/contracts";
 import { animeSources } from "../shared/catalog";
 import Art from "./Art";
 import { Icon } from "./icons";
+import { stagger } from "./transition";
 
 interface Props {
   results: AnimeResult[]; query: string; lastQuery: string; cursor: number;
@@ -24,7 +25,7 @@ export default function SearchPalette({ results, query, lastQuery, cursor, ready
           const alias = others.find((source) => source.title !== anime.title)?.title;
           const merge = canMerge(anime);
           return (
-            <div key={anime.id} className={`hit-row ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor}>
+            <div key={anime.id} className={`hit-row ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor} style={stagger(index, 8)}>
               <button type="button" className="hit" role="option" aria-selected={index === cursor} onClick={() => onOpen(anime)} onFocus={() => onFocus(index)}>
                 <span className="thumb"><Art src={anime.poster} /></span>
                 <span className="text">

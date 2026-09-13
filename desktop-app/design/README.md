@@ -50,3 +50,6 @@ env -u ELECTRON_RUN_AS_NODE npx electron design/capture-app.cjs
 
 The capture tool uses the in-memory development API. Generated screenshots go to `design/shots/`, which is ignored by Git.
 Use `SHOT_WIDTH`, `SHOT_HEIGHT`, and `SHOT_SUFFIX` for other window sizes, or pass the development server URL as the first argument.
+
+`design/capture-motion.cjs` works the same way but saves frame bursts (`design/shots/motion/`) around the moments that animate:
+the home grid, the search palette, opening a series, the playback status, and docking or expanding the player.
