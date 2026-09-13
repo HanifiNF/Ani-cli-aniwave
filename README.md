@@ -49,7 +49,7 @@ A CLI to browse and watch anime (alone and with friends). This custom v5 build s
 
 ## Desktop application
 
-This repository includes **Ani Desktop**, an Electron application with search,
+This repository includes **ANIdesktop**, an Electron application with search,
 provider selection, bookmarks, history, and a built-in player. Episodes play
 inside the app window: the video takes the page, one line above it shows the
 title, episode, and stream details with previous and next, and the footer keeps

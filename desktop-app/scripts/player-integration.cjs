@@ -40,7 +40,7 @@ async function waitFor(expression, label, timeout = 10000) {
     if (await evaluate(expression)) return;
     await delay(50);
   }
-  throw new Error(`Timed out: ${label}\n${JSON.stringify(await evaluate("(() => { const v=document.querySelector('video'); return {html:document.body.innerText, error:v?.error?.message, paused:v?.paused, time:v?.currentTime, width:v?.videoWidth, src:v?.currentSrc, menu:document.querySelector('.vds-menu-items[data-open]')?.className, active:document.activeElement?.className, buffered:v && [...Array(v.buffered.length)].map((_,i)=>[v.buffered.start(i),v.buffered.end(i)]), frames:v?.getVideoPlaybackQuality?.().totalVideoFrames, qualities:[...document.querySelectorAll('.vds-quality-radio')].map(e=>e.textContent+(e.getAttribute('aria-checked')==='true'?'*':''))}; })()"))}`);
+  throw new Error(`Timed out: ${label}\n${JSON.stringify(await evaluate("(() => { const v=document.querySelector('video'); return {html:document.body.innerText, error:v?.error?.message, paused:v?.paused, time:v?.currentTime, duration:v?.duration, seekable:v && [...Array(v.seekable.length)].map((_,i)=>[v.seekable.start(i),v.seekable.end(i)]), displayedTimes:[...document.querySelectorAll('.vds-time')].map(e=>({type:e.getAttribute('data-type'),text:e.textContent})), width:v?.videoWidth, src:v?.currentSrc, menu:document.querySelector('.vds-menu-items[data-open]')?.className, active:document.activeElement?.className, buffered:v && [...Array(v.buffered.length)].map((_,i)=>[v.buffered.start(i),v.buffered.end(i)]), frames:v?.getVideoPlaybackQuality?.().totalVideoFrames, qualities:[...document.querySelectorAll('.vds-quality-radio')].map(e=>e.textContent+(e.getAttribute('aria-checked')==='true'?'*':''))}; })()"))}`);
 }
 const key = async (value, extra = {}) => evaluate(`(() => {
   const target = document.activeElement || document.body;
@@ -158,12 +158,14 @@ app.whenReady().then(async () => {
   }
   console.log('PASS: bundled HLS startup with production CSP inside the app window');
   await waitFor("!document.querySelector('video').paused", 'autoplay');
+  // HLS can report a partial duration during startup; percentage shortcuts use the player duration.
+  await waitFor("document.querySelector('.vds-time[data-type=duration]')?.textContent.trim() === '0:32'", 'full fixture duration');
   await key('k'); await waitFor("document.querySelector('video').paused", 'K before click');
   await key(' '); await waitFor("!document.querySelector('video').paused", 'Space before click');
   await key('k'); await waitFor("document.querySelector('video').paused", 'pause');
   const before=(await info()).time;
-  await key('ArrowRight'); await waitFor(`document.querySelector('video').currentTime >= ${before+9}`, 'seek forward');
-  await key('ArrowLeft'); await waitFor(`document.querySelector('video').currentTime < ${before+2}`, 'seek backward');
+  await key('ArrowRight'); await waitFor(`document.querySelector('video').currentTime >= ${before+9} && !document.querySelector('video').seeking`, 'seek forward');
+  await key('ArrowLeft'); await waitFor(`document.querySelector('video').currentTime < ${before+2} && !document.querySelector('video').seeking`, 'seek backward');
   await key('m'); assert.equal((await info()).muted,true);
   await key('m'); assert.equal((await info()).muted,false);
   await key('ArrowDown'); await waitFor("document.querySelector('video').volume < 1", 'volume shortcut');
@@ -352,7 +354,7 @@ app.whenReady().then(async () => {
   await waitFor("!!document.querySelector('.player-shell.is-docked.corner-top-left')", 'docks again into the remembered corner');
   await evaluate("document.querySelector('.mini-bar [aria-label=\"Stop playback\"]').click()");
   await waitFor("!document.querySelector('.player-surface') && !!document.querySelector('.app input[aria-label=\"Search anime\"]')", 'close removes the player');
-  await waitFor(`document.title === 'Ani Desktop'`, 'window title restored');
+  await waitFor(`document.title === 'ANIdesktop'`, 'window title restored');
   assert.equal(playerActive, false, 'player reported inactive');
   assert.ok(!playbackMenu().enabled, 'playback menu disabled without a session');
   console.log('PASS: Escape docks, the mini bar controls, drags and resizes, backtick expands, close ends the session');

@@ -1,4 +1,4 @@
-# Ani Desktop design notes
+# ANIdesktop design notes
 
 ## Current design: atsu style (September 2026)
 

@@ -175,7 +175,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
 
   useEffect(() => {
     document.title = session.request.title;
-    return () => { document.title = "Ani Desktop"; };
+    return () => { document.title = "ANIdesktop"; };
   }, [session.request.title]);
 
   // Tell the main process the player screen is showing so menus and diagnostics follow it.
@@ -384,7 +384,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           key={`${session.id}:${attempt}`}
           className={`media-player ${fullscreen ? "is-native-fullscreen" : "is-windowed"}`}
           title={session.request.title}
-          artist="Ani Desktop"
+          artist="ANIdesktop"
           artwork={episode?.poster ? [{ src: episode.poster }] : []}
           src={{ src: session.request.url, type: "application/vnd.apple.mpegurl" }}
           autoPlay
