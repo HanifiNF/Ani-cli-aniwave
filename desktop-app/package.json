@@ -41,7 +41,7 @@
   "packageManager": "npm@10.9.8",
   "build": {
     "appId": "dev.hanifi.anidesktop",
-    "productName": "Ani Desktop",
+    "productName": "ANIdesktop",
     "asar": true,
     "directories": {
       "output": "release"

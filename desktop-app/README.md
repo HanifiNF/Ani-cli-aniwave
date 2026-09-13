@@ -1,4 +1,4 @@
-# Ani Desktop
+# ANIdesktop
 
 A private Electron desktop client built from the ani-cli v5 workflow. It supports Auto, AniWave/Vidplay, AniDB, and HiAnime providers. HLS video plays in a built-in Vidstack screen on Windows, macOS, and Linux; mpv, VLC, and IINA remain optional external fallbacks. The React renderer has no direct Node.js access.
 

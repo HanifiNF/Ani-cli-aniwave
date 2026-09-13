@@ -17,7 +17,7 @@ export function installApplicationMenu(getWindow: () => BrowserWindow | undefine
       ? command("Toggle Fullscreen", "fullscreen", process.platform === "darwin" ? "Control+Command+F" : "F11")
       : { role: "togglefullscreen" };
     const template: MenuItemConstructorOptions[] = [
-      ...(process.platform === "darwin" ? [{ label: "Ani Desktop", submenu: [
+      ...(process.platform === "darwin" ? [{ label: "ANIdesktop", submenu: [
         { role: "about" }, { type: "separator" }, { role: "services" }, { type: "separator" },
         { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }
       ] } as MenuItemConstructorOptions] : []),

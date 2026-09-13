@@ -23,6 +23,9 @@ import { playbackKey } from "../shared/playback";
 import { configureVideoRenderingPolicy } from "./video-rendering-policy";
 import { isHexColor, resolveTheme } from "../shared/theme";
 
+// Preserve existing settings and library data across the display-name change.
+app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Ani Desktop" : "ani-desktop"));
+
 // Electron requires Chromium switches to be installed synchronously before app readiness.
 const videoRenderingPolicy = configureVideoRenderingPolicy(app.commandLine);
 
@@ -146,7 +149,7 @@ function createWindow(): void {
     minWidth: 920,
     minHeight: 620,
     backgroundColor: colours.background,
-    title: "Ani Desktop",
+    title: "ANIdesktop",
     // Extend the renderer to the top edge; the existing header hosts the native controls.
     ...(process.platform === "darwin" ? {
       titleBarStyle: "hiddenInset" as const,
@@ -377,7 +380,7 @@ app.whenReady().then(async () => {
   await catalogRequests.health.load(join(app.getPath("userData"), "source-health.json"));
   diagnostics = new PlayerDiagnostics(join(app.getPath("userData"), "logs"));
   diagnostics.setEnabled(store.snapshot().settings.playerDiagnostics === true);
-  app.setName("Ani Desktop");
+  app.setName("ANIdesktop");
   refreshMenu = installApplicationMenu(() => mainWindow, () => playerActive);
   configureAppSession();
   registerIpc();

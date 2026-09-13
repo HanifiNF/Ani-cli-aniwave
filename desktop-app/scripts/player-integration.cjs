@@ -352,7 +352,7 @@ app.whenReady().then(async () => {
   await waitFor("!!document.querySelector('.player-shell.is-docked.corner-top-left')", 'docks again into the remembered corner');
   await evaluate("document.querySelector('.mini-bar [aria-label=\"Stop playback\"]').click()");
   await waitFor("!document.querySelector('.player-surface') && !!document.querySelector('.app input[aria-label=\"Search anime\"]')", 'close removes the player');
-  await waitFor(`document.title === 'Ani Desktop'`, 'window title restored');
+  await waitFor(`document.title === 'ANIdesktop'`, 'window title restored');
   assert.equal(playerActive, false, 'player reported inactive');
   assert.ok(!playbackMenu().enabled, 'playback menu disabled without a session');
   console.log('PASS: Escape docks, the mini bar controls, drags and resizes, backtick expands, close ends the session');

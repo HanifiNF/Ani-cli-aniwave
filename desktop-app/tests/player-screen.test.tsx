@@ -368,6 +368,6 @@ describe("built-in player screen", () => {
     root = createRoot(container);
     expect(api.setFullscreen).toHaveBeenCalledWith(false);
     expect(api.setActive).toHaveBeenLastCalledWith(false);
-    expect(document.title).toBe("Ani Desktop");
+    expect(document.title).toBe("ANIdesktop");
   });
 });
