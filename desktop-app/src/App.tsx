@@ -5,6 +5,7 @@ import type { PlayStatus, NowPlaying } from "./playback";
 import SettingsScreen from "./SettingsScreen";
 import LibrarySection from "./LibrarySection";
 import { asAnime, libraryEntry, libraryEntryAllWatched, type Row, type LibraryKind } from "./library";
+import { shortcut } from "./keys";
 import { episodeValue, episodeRowsOf, nextUpIndex, providerList, type EpisodeFilter, type EpisodeSort } from "./episodes";
 import { applyTheme } from "./theme";
 import { bestQuality } from "../shared/episode-metadata";
@@ -735,7 +736,7 @@ function App() {
         </div>
         <div className={`searchbox ${paletteOpen ? "open" : ""}`}>
           {screen === "settings" || screen === "player"
-            ? <button type="button" className="search as-button" onClick={() => { go("home"); }}><Icon name="search" /><span>Search anime</span><kbd>⌘K</kbd></button>
+            ? <button type="button" className="search as-button" onClick={() => { go("home"); }}><Icon name="search" /><span>Search anime</span><kbd>{shortcut("K")}</kbd></button>
             : <label className="search">
                 <Icon name="search" />
                 <input ref={fieldRef} value={query} onChange={(event) => changeQuery(event.target.value)}
@@ -747,7 +748,7 @@ function App() {
                 <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${unifiedResults.length} ${unifiedResults.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
                 {paletteOpen || query
                   ? <button type="button" className="clear" aria-label="Clear search" onClick={() => { setQuery(""); catalogSearch.clear(); fieldRef.current?.focus(); }}><Icon name="x" /></button>
-                  : <kbd>⌘K</kbd>}
+                  : <kbd>{shortcut("K")}</kbd>}
               </label>}
           {paletteOpen && (
             <SearchPalette results={unifiedResults} query={query} lastQuery={lastQuery} cursor={cursor}
@@ -810,7 +811,7 @@ function App() {
 
         {screen === "home" && (
           libraryRows.length === 0
-            ? !paletteOpen && <div className="empty"><b>Nothing here yet</b>Search for a title with <kbd>⌘K</kbd>. Titles you watch and save appear here.</div>
+            ? !paletteOpen && <div className="empty"><b>Nothing here yet</b>Search for a title with <kbd>{shortcut("K")}</kbd>. Titles you watch and save appear here.</div>
             : <>
                 {cardSection("continue", "Continue watching", "recent")}
                 {cardSection("saved", "Saved", "saved")}
@@ -851,9 +852,9 @@ function App() {
 
       {showHints && screen !== "player" && (
         <div className="hints" role="note">
-          {screen === "settings" ? <><span><b>⌘S</b> save</span><span><b>esc</b> back</span></>
+          {screen === "settings" ? <><span><b>{shortcut("S")}</b> save</span><span><b>esc</b> back</span></>
             : screen === "series" ? <><span><b>↑↓</b> move</span><span><b>↵</b> play</span><span><b>s</b> save</span><span><b>/</b> search</span><span><b>esc</b> back</span></>
-            : <><span><b>←→↑↓</b> move</span><span><b>↵</b> {paletteOpen ? "open" : "play"}</span><span><b>o</b> open</span><span><b>x</b> remove</span><span><b>⌘K</b> search</span></>}
+            : <><span><b>←→↑↓</b> move</span><span><b>↵</b> {paletteOpen ? "open" : "play"}</span><span><b>o</b> open</span><span><b>x</b> remove</span><span><b>{shortcut("K")}</b> search</span></>}
           {session && <span><b>`</b> player</span>}
           <span><b>?</b> hide</span>
         </div>

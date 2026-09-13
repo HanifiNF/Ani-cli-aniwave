@@ -16,6 +16,7 @@ import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
 import { DesktopMediaStorage } from "./player-storage";
+import { shortcut } from "./keys";
 import { observePlayerDiagnostics } from "./player-diagnostics";
 import { clampMiniPlayerWidth, type MiniPlayerCorner, type PlayerCommand, type PlayerSession } from "../shared/contracts";
 
@@ -474,7 +475,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
         </div>
       )}
       {docked && (
-        <div className="mini-resize" role="separator" aria-label="Resize player" aria-orientation="vertical" aria-valuenow={shownWidth} title="Drag to resize (⌘+ / ⌘−)"
+        <div className="mini-resize" role="separator" aria-label="Resize player" aria-orientation="vertical" aria-valuenow={shownWidth} title={`Drag to resize (${shortcut("+")} / ${shortcut("−")})`}
           onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />
       )}
       <dialog ref={shortcutsDialog} className="player-shortcuts" aria-labelledby="shortcuts-title" onCancel={() => setShowShortcuts(false)} onClose={() => setShowShortcuts(false)}>
@@ -493,7 +494,7 @@ export default function PlayerScreen({ session, fullscreen, onFullscreenChange, 
           <dt>F / double-click</dt><dd>Toggle fullscreen</dd>
           <dt>Escape</dt><dd>Close menu, leave fullscreen, then shrink to the corner</dd>
           <dt>`</dt><dd>Return from the corner to the full player</dd>
-          <dt>⌘ + / ⌘ −</dt><dd>Grow or shrink the corner player</dd>
+          <dt>{shortcut("+")} / {shortcut("−")}</dt><dd>Grow or shrink the corner player</dd>
           <dt>Tab / Shift + Tab</dt><dd>Move between controls</dd>
           <dt>?</dt><dd>Show shortcuts</dd>
         </dl>

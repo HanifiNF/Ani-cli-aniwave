@@ -5,6 +5,7 @@ import { PLAYBACK_QUALITIES as QUALITIES } from "../shared/settings";
 import { THEME_NAMES, resolveTheme } from "../shared/theme";
 import Chips from "./Chips";
 import Switch from "./Switch";
+import { isMac } from "./keys";
 import SourceStatusPanel from "./SourceStatusPanel";
 import BookmarkMetadataPanel from "./BookmarkMetadataPanel";
 
@@ -23,7 +24,7 @@ export default function SettingsScreen({ draft, setDraft, saved, bookmarkCount, 
         <div className="r"><span className="k">Start fullscreen<small>Enter fullscreen as soon as an episode starts</small></span><Switch checked={draft.startPlayerFullscreen} label="Start fullscreen" onChange={(startPlayerFullscreen) => setDraft({ ...draft, startPlayerFullscreen })} /></div>
         <div className="r"><span className="k">Autoplay next episode<small>Built-in player only. Waits five seconds and can be cancelled</small></span><Switch checked={draft.autoplayNext !== false} label="Autoplay next episode" onChange={(autoplayNext) => setDraft({ ...draft, autoplayNext })} /></div>
         <div className="r"><span className="k">Diagnostics<small>Local keyboard and playback logs for troubleshooting</small></span><span className="v-row"><button type="button" className="btn small" onClick={() => { onOpenLogs(); }}>open logs</button><Switch checked={draft.playerDiagnostics === true} label="Diagnostics logging" onChange={(playerDiagnostics) => setDraft({ ...draft, playerDiagnostics })} /></span></div>
-        <div className="r"><label htmlFor="player" className="k">External player<small>Optional with the built-in player. On macOS use IINA's iina-cli</small></label><input id="player" value={draft.playerPath} placeholder={draft.playbackTarget === "external" ? "required" : "optional"} spellCheck={false} onChange={(event) => setDraft({ ...draft, playerPath: event.target.value })} /></div>
+        <div className="r"><label htmlFor="player" className="k">External player<small>Optional with the built-in player. {isMac() ? "mpv, VLC, or IINA's iina-cli" : "mpv or VLC, by name or full path"}</small></label><input id="player" value={draft.playerPath} placeholder={draft.playbackTarget === "external" ? (isMac() ? "iina-cli" : "mpv") : "optional"} spellCheck={false} onChange={(event) => setDraft({ ...draft, playerPath: event.target.value })} /></div>
       </div></div>
       <div className="group"><h3>Defaults</h3><div className="box">
         <div className="r"><span className="k">Quality<small>Best takes the highest stream a source offers</small></span><Chips value={draft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setDraft({ ...draft, preferredQuality })} /></div>
