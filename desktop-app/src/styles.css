@@ -55,6 +55,26 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 
 /* ---- top bar ---------------------------------------------------------- */
 .bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 68px; padding: 0 var(--gutter); flex: none; position: relative; z-index: 30; }
+/* Keep the search centred and leave room for the macOS traffic lights (20px, 27px). */
+:root[data-platform="darwin"] .bar {
+  padding-inline: max(112px, var(--gutter));
+}
+:root[data-platform] .bar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+:root[data-platform] .bar :is(button, .searchbox, .icons) { -webkit-app-region: no-drag; }
+/* The overlay reports a safe rectangle, including Linux layouts with controls on either side. */
+:root:is([data-platform="win32"], [data-platform="linux"]) .bar {
+  --caption-left: env(titlebar-area-x, 0px);
+  --caption-right: calc(100% - var(--caption-left) - env(titlebar-area-width, calc(100% - 160px)));
+  padding-left: max(var(--gutter), calc(var(--caption-left) + 16px));
+  padding-right: max(var(--gutter), calc(var(--caption-right) + 16px));
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, var(--search-width, 420px)) minmax(max-content, 1fr);
+  column-gap: 16px;
+}
+:root:is([data-platform="win32"], [data-platform="linux"]) .bar .searchbox { width: 100%; }
+:root[data-window-fullscreen="true"] .bar { padding-inline: var(--gutter); }
 .app.is-fullscreen .bar { display: none; }
 .brand { display: flex; align-items: center; gap: 18px; }
 .logo { font-weight: 700; font-size: 19px; letter-spacing: 0.06em; color: var(--text); }
@@ -287,7 +307,7 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 .hints { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40; display: flex; gap: 18px; padding: 8px 14px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 12px; box-shadow: 0 0 0 1px var(--rule), 0 6px 20px rgb(0 0 0 / 25%); white-space: nowrap; }
 
 @media (max-width: 1100px) {
-  :root { --cols: 6; }
+  :root { --cols: 6; --search-width: 340px; }
   .searchbox { width: 340px; }
 }
 

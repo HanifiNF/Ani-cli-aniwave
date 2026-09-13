@@ -1,6 +1,30 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AniDesktopApi, AniPlayerApi, LibraryEntry, PlayRequest, PlayerCommand, PlayerSession, Settings } from "../shared/contracts";
 
+// Match renderer title-bar spacing to the native window, including in the sandbox.
+window.addEventListener("DOMContentLoaded", () => {
+  const root = document.documentElement;
+  root.dataset.platform = process.platform;
+  if (process.platform === "win32" || process.platform === "linux") {
+    // Follow live theme previews as well as saved settings, using the renderer's theme tokens.
+    let previous = "";
+    const syncTitleBar = () => {
+      const background = root.style.getPropertyValue("--theme-bg").trim();
+      const text = root.style.getPropertyValue("--theme-text").trim();
+      if (!/^#[0-9a-f]{6}$/i.test(background) || !/^#[0-9a-f]{6}$/i.test(text)) return;
+      const key = `${background}:${text}`;
+      if (key === previous) return;
+      previous = key;
+      ipcRenderer.send("app:titlebar-theme", background, text);
+    };
+    new MutationObserver(syncTitleBar).observe(root, { attributes: true, attributeFilter: ["style"] });
+    syncTitleBar();
+  }
+}, { once: true });
+ipcRenderer.on("player:fullscreen-change", (_event, fullscreen: unknown) => {
+  if (typeof fullscreen === "boolean") document.documentElement.dataset.windowFullscreen = String(fullscreen);
+});
+
 let diagnostics = false;
 let sessionId = "";
 const acceptSession = (session: PlayerSession | undefined) => {
