@@ -158,12 +158,14 @@ app.whenReady().then(async () => {
   }
   console.log('PASS: bundled HLS startup with production CSP inside the app window');
   await waitFor("!document.querySelector('video').paused", 'autoplay');
+  // HLS can report a partial duration during startup; percentage shortcuts use the player duration.
+  await waitFor("document.querySelector('.vds-time[data-type=duration]')?.textContent.trim() === '0:32'", 'full fixture duration');
   await key('k'); await waitFor("document.querySelector('video').paused", 'K before click');
   await key(' '); await waitFor("!document.querySelector('video').paused", 'Space before click');
   await key('k'); await waitFor("document.querySelector('video').paused", 'pause');
   const before=(await info()).time;
-  await key('ArrowRight'); await waitFor(`document.querySelector('video').currentTime >= ${before+9}`, 'seek forward');
-  await key('ArrowLeft'); await waitFor(`document.querySelector('video').currentTime < ${before+2}`, 'seek backward');
+  await key('ArrowRight'); await waitFor(`document.querySelector('video').currentTime >= ${before+9} && !document.querySelector('video').seeking`, 'seek forward');
+  await key('ArrowLeft'); await waitFor(`document.querySelector('video').currentTime < ${before+2} && !document.querySelector('video').seeking`, 'seek backward');
   await key('m'); assert.equal((await info()).muted,true);
   await key('m'); assert.equal((await info()).muted,false);
   await key('ArrowDown'); await waitFor("document.querySelector('video').volume < 1", 'volume shortcut');
