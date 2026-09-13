@@ -21,6 +21,7 @@ import { installApplicationMenu } from "./menu";
 import { PlayerDiagnostics, sanitizeDiagnostic } from "./player-diagnostics";
 import { playbackKey } from "../shared/playback";
 import { configureVideoRenderingPolicy } from "./video-rendering-policy";
+import { isHexColor, resolveTheme } from "../shared/theme";
 
 // Electron requires Chromium switches to be installed synchronously before app readiness.
 const videoRenderingPolicy = configureVideoRenderingPolicy(app.commandLine);
@@ -136,14 +137,25 @@ async function openBuiltinPlayer(request: PlayRequest, settings: Settings): Prom
 function createWindow(): void {
   const capturePath = !app.isPackaged ? process.env.ANI_DESKTOP_CAPTURE_PATH : undefined;
   const icon = nativeImage.createFromPath(join(__dirname, "../icon.png"));
+  const settings = store.snapshot().settings;
+  const colours = resolveTheme(settings.theme, settings.customTheme);
   if (process.platform === "darwin") app.dock?.setIcon(icon);
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 800,
     minWidth: 920,
     minHeight: 620,
-    backgroundColor: "#1F2023",
+    backgroundColor: colours.background,
     title: "Ani Desktop",
+    // Extend the renderer to the top edge; the existing header hosts the native controls.
+    ...(process.platform === "darwin" ? {
+      titleBarStyle: "hiddenInset" as const,
+      trafficLightPosition: { x: 20, y: 27 }
+    } : {
+      titleBarStyle: "hidden" as const,
+      titleBarOverlay: { color: colours.background, symbolColor: colours.text, height: 68 },
+      autoHideMenuBar: true
+    }),
     icon,
     show: false,
     fullscreenable: true,
@@ -198,6 +210,13 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.on("app:titlebar-theme", (event, background: unknown, text: unknown) => {
+    assertPlayerSender(mainWindow, event);
+    if (!isHexColor(background) || !isHexColor(text)) return;
+    if (process.platform === "win32" || process.platform === "linux") {
+      mainWindow.setTitleBarOverlay({ color: background, symbolColor: text });
+    }
+  });
   ipcMain.handle("app:icon", (event, pngDataUrl: unknown) => {
     assertPlayerSender(mainWindow, event);
     if (typeof pngDataUrl !== "string" || pngDataUrl.length > 2_000_000 || !pngDataUrl.startsWith("data:image/png;base64,")) {
