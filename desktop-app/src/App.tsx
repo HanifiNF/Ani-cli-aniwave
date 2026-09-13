@@ -146,10 +146,10 @@ function App() {
   const player = appState.settings.playbackTarget === "builtin" ? "built-in player" : playerName(appState.settings.playerPath);
   const episodeRows = useMemo(() => episodeRowsOf(episodeGroups, progress, episodeFilter, episodeSort), [episodeGroups, progress, episodeFilter, episodeSort]);
   const episodeCount = new Set(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.number))).size;
-  const seriesCursor = Math.max(0, episodeRows.findIndex((row) => row.episode.id === selectedEpisodeId));
-  const setEpisodeCursor = (index: number) => setSelectedEpisodeId(episodeRows[index]?.episode.id);
+  const selectedEpisodeIndex = Math.max(0, episodeRows.findIndex((row) => row.episode.id === selectedEpisodeId));
+  const selectEpisodeAt = (index: number) => setSelectedEpisodeId(episodeRows[index]?.episode.id);
   const sourceScope = catalogScope(appState.settings);
-  const metadata = useEpisodeMetadata(listRef, screen === "series", episodeRows.map((row) => row.episode.id), episodeRows[seriesCursor]?.episode.id, mode, sourceScope);
+  const metadata = useEpisodeMetadata(listRef, screen === "series", episodeRows.map((row) => row.episode.id), episodeRows[selectedEpisodeIndex]?.episode.id, mode, sourceScope);
 
   // Anchor the first visible source row while asynchronous provider updates insert rows above it.
   const scrollAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
@@ -180,13 +180,15 @@ function App() {
     previousResults.current = results;
   }, [results]);
   useEffect(() => { if (screen !== "series" && screen !== "player") setCursor(0); }, [screen, filter]);
-  // Opening a series shows its header first; the list follows the cursor only once it moves.
+  // Opening a series shows its header first; later jumps and playback reveal the relevant episode.
   const skipReveal = useRef(false);
   // Reveal follows the selected row itself, so a state refresh (saving, window focus) does not scroll the list back.
-  const cursorKey = screen === "series" ? episodeRows[seriesCursor]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
+  const cursorKey = screen === "series" ? episodeRows[selectedEpisodeIndex]?.episode.id : rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
   useEffect(() => {
     if (skipReveal.current) { skipReveal.current = false; return; }
-    const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
+    const selected = screen === "series"
+      ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-episode]") ?? [])].find((row) => row.dataset.episode === cursorKey)
+      : document.querySelector<HTMLElement>('[data-cursor="true"]');
     if (!selected) return;
     const list = selected.closest<HTMLElement>(".page, .palette");
     if (!list) { selected.scrollIntoView({ block: "nearest" }); return; }
@@ -202,16 +204,8 @@ function App() {
     return () => observer.disconnect();
   }, [cursorKey, screen]);
   useEffect(() => {
-    if (screen === "series") listRef.current?.focus();
-    else if (screen !== "settings" && screen !== "player") fieldRef.current?.focus();
+    if (screen !== "series" && screen !== "settings" && screen !== "player") fieldRef.current?.focus();
   }, [screen]);
-  useEffect(() => {
-    const list = listRef.current;
-    // Follow the selection while navigating the episode list, preserving focus if the user leaves it.
-    if (screen === "series" && list?.contains(document.activeElement)) {
-      list.querySelector<HTMLButtonElement>('[data-cursor="true"] .src-hit')?.focus({ preventScroll: true });
-    }
-  }, [screen, selectedEpisodeId]);
 
   async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError(undefined); setNotice(undefined);
@@ -230,11 +224,11 @@ function App() {
   // Watched marks and resume points change while the player has the store.
   const refreshState = () => { void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason))); };
 
-  // Returning to the list puts the cursor on the playing episode when it belongs to the open series.
+  // Returning to the list reveals the playing episode when it belongs to the open series.
   function focusPlayingEpisode() {
     const id = session?.request.episode?.id;
     const index = id && nowPlaying?.anime.id === selectedAnime?.id ? episodeRows.findIndex((row) => row.episode.id === id) : -1;
-    if (index >= 0) setEpisodeCursor(index);
+    if (index >= 0) selectEpisodeAt(index);
   }
 
   function dockPlayer() {
@@ -432,7 +426,7 @@ function App() {
     const token = ++playToken.current;
     if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current);
     const rowIndex = episodeRows.findIndex((item) => item.episode.id === episode.id);
-    if (rowIndex >= 0) setEpisodeCursor(rowIndex);
+    if (rowIndex >= 0) selectEpisodeAt(rowIndex);
     setStatus({ episode, phase: "finding", detail: `${playMode} from ${episode.provider}` });
     try {
       const requestId = catalogRequestId("playback");
@@ -573,7 +567,7 @@ function App() {
 
   // Changing the order or filter keeps the selection on the same row when it is still shown.
   function reorder(filter: EpisodeFilter, sort: EpisodeSort) {
-    const id = episodeRows[seriesCursor]?.episode.id;
+    const id = episodeRows[selectedEpisodeIndex]?.episode.id;
     const next = episodeRowsOf(episodeGroups, progress, filter, sort);
     setEpisodeFilter(filter); setEpisodeSort(sort);
     const index = id ? next.findIndex((row) => row.episode.id === id) : -1;
@@ -586,7 +580,7 @@ function App() {
     if (!wanted) return;
     const index = episodeRows.findIndex((row) => row.number === wanted) ;
     const loose = index >= 0 ? index : episodeRows.findIndex((row) => row.number.startsWith(wanted));
-    if (loose >= 0) setEpisodeCursor(loose);
+    if (loose >= 0) selectEpisodeAt(loose);
   }
 
   const moveCursor = (delta: number, length: number) => { if (length) setCursor((current) => Math.min(Math.max(current + delta, 0), length - 1)); };
@@ -629,13 +623,13 @@ function App() {
     const target = event.target as HTMLElement | null;
     const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
     if (event.isComposing || composing || event.keyCode === 229) return;
-    if (screen === "player") return; // The player screen owns its keys.
-    // The backtick returns to the docked player from anywhere but the settings form; it is never useful in a title search.
+    if (screen === "player" || screen === "series") return; // Series uses native controls; the player owns its keys.
+    // The backtick expands the docked player while browsing the library or search results.
     if (event.key === "`" && session && screen !== "settings" && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); expandPlayer(); return; }
     if (event.metaKey || event.ctrlKey) {
       if (event.key === "s" && screen === "settings") { event.preventDefault(); void saveSettings(); }
-      else if (event.key === "k" && screen !== "settings") { event.preventDefault(); if (screen !== "home" && screen !== "series") go("home"); fieldRef.current?.focus(); fieldRef.current?.select(); }
-      // The corner player grows and shrinks from anywhere while docked, even with the search field focused.
+      else if (event.key === "k" && screen !== "settings") { event.preventDefault(); if (screen !== "home") go("home"); fieldRef.current?.focus(); fieldRef.current?.select(); }
+      // Library and settings shortcuts resize the docked player, including while typing.
       else if (session && (event.key === "=" || event.key === "+")) { event.preventDefault(); resizeMiniPlayer(miniWidth + MINI_PLAYER_WIDTH.step); }
       else if (session && (event.key === "-" || event.key === "_")) { event.preventDefault(); resizeMiniPlayer(miniWidth - MINI_PLAYER_WIDTH.step); }
       return;
@@ -648,18 +642,6 @@ function App() {
     if (!typing && event.key === "?") { event.preventDefault(); setShowHints((value) => !value); return; }
     if (!typing && event.key === "/") {
       event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
-    }
-    if (screen === "series") {
-      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        event.preventDefault(); setEpisodeCursor(Math.min(Math.max(seriesCursor + (event.key === "ArrowUp" ? -1 : 1), 0), episodeRows.length - 1)); return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        if (episodeRows[seriesCursor]) void playEpisode(episodeRows[seriesCursor].episode);
-        return;
-      }
-      if (!typing && event.key === "s") void toggleBookmark();
-      return;
     }
     if (paletteOpen) {
       if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(event.key === "ArrowUp" ? -1 : 1, rows.length); return; }
@@ -748,7 +730,7 @@ function App() {
                 <span className="sr-only" role="status">{searching ? "Searching" : catalogSearch.ready ? `${unifiedResults.length} ${unifiedResults.length === 1 ? "title" : "titles"} found for ${lastQuery}` : ""}</span>
                 {paletteOpen || query
                   ? <button type="button" className="clear" aria-label="Clear search" onClick={() => { setQuery(""); catalogSearch.clear(); fieldRef.current?.focus(); }}><Icon name="x" /></button>
-                  : <kbd>{shortcut("K")}</kbd>}
+                  : screen !== "series" && <kbd>{shortcut("K")}</kbd>}
               </label>}
           {paletteOpen && (
             <SearchPalette results={unifiedResults} query={query} lastQuery={lastQuery} cursor={cursor}
@@ -830,14 +812,14 @@ function App() {
           <SeriesScreen anime={selectedAnime} progress={progress} isSaved={isSaved} player={player}
             mode={mode} quality={quality} lastQuery={lastQuery} busy={busy} resolving={resolving}
             pendingSources={pendingSources} sourceErrors={sourceErrors} episodeGroups={episodeGroups} episodeRows={episodeRows}
-            episodeCount={episodeCount} seriesCursor={seriesCursor} nextUp={nextUp} episodeFilter={episodeFilter}
+            episodeCount={episodeCount} nextUp={nextUp} episodeFilter={episodeFilter}
             episodeSort={episodeSort} jump={jump} playingId={playingId} status={status} metadata={metadata} listRef={listRef}
             onPlay={(episode) => void playEpisode(episode)} onBookmark={() => void toggleBookmark()} onBack={goBack}
             onMode={setMode} onQuality={setQuality} onCheckSources={() => void openAnime(selectedAnime, { refresh: true, checkNow: true })}
             onRefreshSources={() => {
               void metadata.refresh(episodeGroups.flatMap((group) => group.episodes.map((episode) => episode.id))).catch((error) => setError(messageFrom(error)));
               void openAnime(selectedAnime, { refresh: true });
-            }} onJump={jumpTo} onCursor={setEpisodeCursor} onWatched={(episode) => void markWatched(episode)}
+            }} onJump={jumpTo} onWatched={(episode) => void markWatched(episode)}
             onWatchedAll={() => void markAllWatched()} onDismissStatus={cancelPlay} reorder={reorder} />
         )}
 
@@ -850,10 +832,9 @@ function App() {
       </div>}
       </div>
 
-      {showHints && screen !== "player" && (
+      {showHints && screen !== "player" && screen !== "series" && (
         <div className="hints" role="note">
           {screen === "settings" ? <><span><b>{shortcut("S")}</b> save</span><span><b>esc</b> back</span></>
-            : screen === "series" ? <><span><b>↑↓</b> move</span><span><b>↵</b> play</span><span><b>s</b> save</span><span><b>/</b> search</span><span><b>esc</b> back</span></>
             : <><span><b>←→↑↓</b> move</span><span><b>↵</b> {paletteOpen ? "open" : "play"}</span><span><b>o</b> open</span><span><b>x</b> remove</span><span><b>{shortcut("K")}</b> search</span></>}
           {session && <span><b>`</b> player</span>}
           <span><b>?</b> hide</span>

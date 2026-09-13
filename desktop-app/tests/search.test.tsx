@@ -46,6 +46,9 @@ async function press(key: string) {
 async function enter(options: KeyboardEventInit = {}) {
   await act(async () => { input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...options })); });
 }
+async function backFromSeries() {
+  await act(async () => { container.querySelector<HTMLButtonElement>(".series .crumb")!.click(); });
+}
 async function click(text: string) {
   const button = [...container.querySelectorAll("button")].find((node) => node.textContent === text)!;
   expect(button).toBeDefined();
@@ -130,7 +133,7 @@ describe("built-in player screen", () => {
     expect(player()?.dataset.docked).toBe("true");
     expect(player()?.dataset.corner).toBe("bottom-right");
     expect(container.querySelector(".page")).not.toBeNull();
-    expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
+    expect(container.querySelector('.eps [data-episode="ep-3"]')?.textContent).toContain("Episode 3");
     expect(api.player.setActive).toHaveBeenLastCalledWith(true);
     expect(api.getState).toHaveBeenCalledTimes(refreshes + 1);
     expect(container.querySelector(".now-pill")).toBeNull(); // the corner player itself is the way back
@@ -160,6 +163,7 @@ describe("built-in player screen", () => {
     vi.mocked(api.saveSettings).mockClear();
     await press("`"); expect(player()?.dataset.docked).toBe("false");
     await click("dock player");
+    await click("saved");
     await act(async () => { input().focus(); });
     const typed = input().value;
     await press("="); expect(player()?.dataset.width).toBe("400");
@@ -177,10 +181,11 @@ describe("built-in player screen", () => {
     await advance(300);
     expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ miniPlayerWidth: 333 }));
 
+    await click("playing episodes");
     await click("close player");
     expect(player()).toBeNull();
     expect(api.player.setActive).toHaveBeenLastCalledWith(false);
-    expect(container.querySelector('.eps [data-cursor="true"]')?.textContent).toContain("Episode 3");
+    expect(container.querySelector('.eps [data-episode="ep-3"]')?.textContent).toContain("Episode 3");
   });
 
   it("keeps next and previous for the playing series while another series is open", async () => {
@@ -238,7 +243,7 @@ describe("live catalog search", () => {
     expect(icon()).toContain('fill="#CBA6F7"');
   });
 
-  it.each(["keyboard", "mouse"])("focuses episodes after opening a search result with the %s", async (method) => {
+  it.each(["keyboard", "mouse"])("uses native episode buttons after opening a search result with the %s", async (method) => {
     const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
     vi.mocked(api.episodes).mockReturnValue(pending.promise);
     await type("frieren"); await advance();
@@ -248,16 +253,28 @@ describe("live catalog search", () => {
     // Newest first: episode 6 is on top and, with nothing watched, episode 1 is next up.
     const cells = [...container.querySelectorAll<HTMLButtonElement>(".eps .src-hit")];
     expect(cells.map((cell) => cell.textContent)).toEqual(["Episode 6aniwave", "Episode 5aniwave", "Episode 4aniwave", "Episode 3aniwave", "Episode 2aniwave", "Episode 1aniwave"]);
-    expect(document.activeElement).toBe(cells[5]);
+    expect(cells.every((cell) => cell.tabIndex === 0)).toBe(true);
+    expect(container.querySelector(".eps .cur, .eps .in-cur, .eps [data-cursor]")).toBeNull();
+    await act(async () => { input().blur(); });
+    for (const key of ["ArrowUp", "ArrowDown", "Enter", "s", "/", "Escape", "?", "`"]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      await act(async () => { document.activeElement!.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(false);
+    }
+    for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+      const event = new KeyboardEvent("keydown", { key: "k", ...modifier, bubbles: true, cancelable: true });
+      await act(async () => { document.activeElement!.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(api.streams).not.toHaveBeenCalled();
+    expect(api.toggleBookmark).not.toHaveBeenCalled();
+    expect(container.querySelector(".series")).not.toBeNull();
+    expect(container.querySelector(".hints")).toBeNull();
+    expect(container.querySelector(".bar kbd")).toBeNull();
+    await act(async () => { cells[4].focus(); });
     await press("ArrowUp"); expect(document.activeElement).toBe(cells[4]);
-    await press("ArrowUp"); expect(document.activeElement).toBe(cells[3]);
-    await press("ArrowDown"); expect(document.activeElement).toBe(cells[4]);
-    await press("Enter");
+    await act(async () => { cells[4].click(); });
     expect(api.streams).toHaveBeenCalledExactlyOnceWith("ep-2", "sub", expect.objectContaining({ priority: "playback" }));
-    await press("/"); expect(document.activeElement).toBe(input());
-    expect(input().selectionStart).toBe(0); expect(input().selectionEnd).toBe("frieren".length);
-    await press("ArrowLeft");
-    expect(container.querySelector('.eps [data-cursor="true"] .src-hit')).toBe(cells[4]);
     await type("another title"); await advance(); expect(titles()).toEqual(["another title"]);
   });
 
@@ -288,7 +305,7 @@ describe("live catalog search", () => {
     }) }) }));
   });
 
-  it("marks next up from progress regardless of the cursor, sort, or filter", async () => {
+  it("marks next up from progress regardless of jump, sort, or filter", async () => {
     const state = await api.getState();
     state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "7", mode: "sub", updatedAt: "", completed: false,
       lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "7", mode: "sub", updatedAt: "", completed: false } } }];
@@ -296,13 +313,12 @@ describe("live catalog search", () => {
     await act(async () => { root.render(<StrictMode><App key="progress" /></StrictMode>); });
     await type("frieren"); await advance(); await press("Enter");
     const nextUp = () => container.querySelector(".grp-head .up")?.parentElement?.textContent;
-    const cursorRow = () => container.querySelector('.eps [data-cursor="true"] .src-hit')?.textContent;
     const playButton = () => [...container.querySelectorAll<HTMLButtonElement>(".series .side .btn")][0].textContent;
-    expect(nextUp()).toBe("Ep 7Next up"); expect(cursorRow()).toBe("Episode 7aniwave"); expect(playButton()).toBe("Play Ep 7");
-    await press("ArrowUp"); expect(cursorRow()).toBe("Episode 8aniwave");
+    expect(nextUp()).toBe("Ep 7Next up"); expect(playButton()).toBe("Play Ep 7");
+    await type("8", container.querySelector<HTMLInputElement>('[aria-label="Jump to episode"]')!);
     expect(nextUp()).toBe("Ep 7Next up"); expect(playButton()).toBe("Play Ep 7");
     await act(async () => { container.querySelector<HTMLButtonElement>('[title="Oldest first"]')!.click(); });
-    expect(cursorRow()).toBe("Episode 8aniwave"); expect(nextUp()).toBe("Ep 7Next up");
+    expect(nextUp()).toBe("Ep 7Next up");
     await act(async () => { [...container.querySelectorAll("button")].find((node) => node.textContent === "Watched")!.click(); });
     expect(nextUp()).toBeUndefined(); expect(playButton()).toBe("Play Ep 7");
     expect([...container.querySelectorAll(".eps .src-hit")].map((node) => node.textContent)).toEqual(["Episode 1aniwave", "Episode 2aniwave", "Episode 3aniwave", "Episode 4aniwave", "Episode 5aniwave", "Episode 6aniwave"]);
@@ -359,7 +375,7 @@ describe("live catalog search", () => {
     expect(api.play).toHaveBeenCalledWith(expect.objectContaining({ episode: expect.objectContaining({ entry: expect.objectContaining({ lastProvider: "anidb", sources: expect.arrayContaining([expect.objectContaining({ id: "anidb:frieren-9" })]) }) }) }));
   });
 
-  it("saves a series with its real progress and keeps the selected row where it is", async () => {
+  it("saves a series with its real progress and preserves scroll position", async () => {
     const state = await api.getState();
     state.history = [{ animeId: "aniwave:frieren-1", title: "frieren", lastEpisode: "7", mode: "sub", updatedAt: "", completed: false,
       lastProvider: "aniwave", progressByProvider: { aniwave: { lastEpisode: "7", mode: "sub", updatedAt: "", completed: false } } }];
@@ -368,22 +384,20 @@ describe("live catalog search", () => {
     vi.mocked(api.toggleBookmark).mockImplementation(async (entry) => { saved = !saved; return { ...state, bookmarks: saved ? [entry] : [] }; });
     await act(async () => { root.render(<StrictMode><App key="save" /></StrictMode>); });
     await type("frieren"); await advance(); await press("Enter");
-    const cursorRow = () => container.querySelector('.eps [data-cursor="true"] .src-hit')?.textContent;
-    await press("ArrowUp"); await press("ArrowUp"); expect(cursorRow()).toBe("Episode 9aniwave");
+    await type("9", container.querySelector<HTMLInputElement>('[aria-label="Jump to episode"]')!);
     const scrolls = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length;
-    await press("s");
+    await click("Save");
     expect(api.toggleBookmark).toHaveBeenLastCalledWith(expect.objectContaining({ lastEpisode: "7", completed: false, lastProvider: "aniwave" }));
     expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe("Saved");
-    await press("s");
+    await click("Saved");
     expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
-    expect(cursorRow()).toBe("Episode 9aniwave");
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.length).toBe(scrolls);
     // Without any progress, saving records the first episode as not started.
     state.history = [];
     vi.mocked(api.getState).mockResolvedValue(state);
     await act(async () => { root.render(<StrictMode><App key="fresh" /></StrictMode>); });
     await type("frieren"); await advance(); await press("Enter");
-    await press("s");
+    await click("Save");
     expect(api.toggleBookmark).toHaveBeenLastCalledWith(expect.objectContaining({ lastEpisode: "1", completed: false }));
   });
 
@@ -417,7 +431,7 @@ describe("live catalog search", () => {
     const pending = deferred<AnimeResult>();
     vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise).mockImplementation(async (anime) => anime);
     await type("frieren"); await advance(); await press("Enter");
-    await press("Escape");
+    await backFromSeries();
     await type("other"); await advance(); await press("Enter");
     expect(container.querySelector("h1")?.textContent).toBe("other");
     await act(async () => pending.resolve({ id: "aniwave:frieren-1", title: "frieren", provider: "aniwave", sources: [
@@ -432,8 +446,8 @@ describe("live catalog search", () => {
     const pending = deferred<Awaited<ReturnType<AniDesktopApi["episodes"]>>>();
     vi.mocked(api.episodes).mockReturnValue(pending.promise);
     await type("frieren"); await advance(); await press("Enter");
-    expect(document.activeElement).toBe(container.querySelector(".eps"));
-    await press("/"); expect(document.activeElement).toBe(input());
+    await act(async () => { input().focus(); });
+    expect(document.activeElement).toBe(input());
     await act(async () => pending.resolve({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }));
     expect(document.activeElement).toBe(input());
   });
@@ -476,12 +490,12 @@ describe("live catalog search", () => {
     expect(api.streams).not.toHaveBeenCalled();
   });
 
-  it("navigates results, opens the selected series, and returns and clears with Escape", async () => {
+  it("navigates results, returns through the series breadcrumb, and clears with Escape", async () => {
     search.mockResolvedValue([...result("first"), ...result("second")]);
     await type("title"); await advance();
     await press("ArrowDown"); await press("Enter");
     expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:second-1" }), expect.any(Object), expect.any(Function));
-    await press("Escape"); expect(titles()).toEqual(["first", "second"]);
+    await backFromSeries(); expect(titles()).toEqual(["first", "second"]);
     await press("Escape"); expect(input().value).toBe(""); expect(titles()).toEqual([]);
   });
 
@@ -596,13 +610,13 @@ describe("live catalog search", () => {
     expect(container.querySelector("#results-heading")?.textContent).toContain('result for "frieren"');
     expect(container.querySelector(".foot-hints")?.textContent).toContain("open");
     await press("Enter"); expect(api.episodes).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "aniwave:frieren-1" }), expect.any(Object), expect.any(Function));
-    await press("Escape"); expect(titles()).toEqual(["frieren"]);
+    await backFromSeries(); expect(titles()).toEqual(["frieren"]);
     await press("Escape"); expect(titles()).toEqual([]); expect(search).toHaveBeenCalledTimes(1);
   });
   it("returns from a series without searching again after the cache expires", async () => {
     await type("frieren"); await advance(); await enter();
     expect(container.querySelector("h1")?.textContent).toBe("frieren");
-    await advance(60_001); await press("Escape");
+    await advance(60_001); await backFromSeries();
     expect(titles()).toEqual(["frieren"]); expect(search).toHaveBeenCalledTimes(1);
     await enter(); expect(api.episodes).toHaveBeenCalledTimes(2);
   });
@@ -632,7 +646,7 @@ describe("progressive catalog navigation", () => {
     expect(playerStub.props?.onNext).toBeDefined();
     await click("playing episodes");
     expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
-    expect(container.querySelector<HTMLElement>('.src[data-cursor="true"]')?.dataset.episode).toBe("aniwave:1:2");
+    expect(container.querySelector<HTMLElement>('.src.playing')?.dataset.episode).toBe("aniwave:1:2");
     expect(vi.mocked(api.play).mock.calls[0][0].episode?.entry.progressByProvider?.aniwave?.lastEpisodeId).toBe("aniwave:1:2");
     await click("next episode");
     expect(api.streams).toHaveBeenLastCalledWith("aniwave:1:3", "dub", expect.any(Object));
@@ -694,18 +708,18 @@ describe("progressive catalog navigation", () => {
     expect(container.querySelector("h1")?.textContent).toBe("frieren");
   });
 
-  it("keeps the selected episode and focus when source rows are inserted above it", async () => {
+  it("keeps native button focus when source rows are inserted above it", async () => {
     const pending = deferred<AnimeResult>();
     vi.mocked(api.resolveSources).mockReturnValueOnce(pending.promise);
     vi.mocked(api.episodes).mockImplementation(async (anime) => ({ groups: (anime.sources ?? [{ id: anime.id, provider: anime.provider }]).map((source) => ({ provider: source.provider, episodes: [1, 2, 3, 4].map((number) => ({ id: `${source.provider}:${number}`, number: String(number), provider: source.provider })) })) }));
-    await type("frieren"); await advance(); await enter(); await press("ArrowUp");
-    const selected = () => container.querySelector<HTMLElement>('.src[data-cursor="true"]')?.dataset.episode;
-    expect(selected()).toBe("aniwave:2");
+    await type("frieren"); await advance(); await enter();
+    const episodeButton = container.querySelector<HTMLButtonElement>('[aria-label="play episode 2 from aniwave"]')!;
+    await act(async () => { episodeButton.focus(); });
     await act(async () => pending.resolve({ ...result("frieren")[0], sources: [
       { id: "aniwave:frieren-1", provider: "aniwave", title: "frieren", aliases: [] },
       { id: "hianime:frieren-2", provider: "hianime", title: "frieren", aliases: [] }
     ] }));
-    expect(selected()).toBe("aniwave:2");
+    expect(document.activeElement).toBe(episodeButton);
     expect(document.activeElement?.getAttribute("aria-label")).toBe("play episode 2 from aniwave");
     expect(container.querySelectorAll(".src")).toHaveLength(8);
   });
@@ -733,7 +747,7 @@ it("cancels a pending play lookup when leaving the series and ignores its late r
   await type("frieren"); await advance(); await enter();
   await act(async () => container.querySelector<HTMLButtonElement>('.src-hit')!.click());
   const request = vi.mocked(api.streams).mock.calls[0][2]!;
-  await press("Escape"); expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
+  await backFromSeries(); expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
   await act(async () => pending.resolve([{ quality: "720p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]));
   expect(api.play).not.toHaveBeenCalled();
 });

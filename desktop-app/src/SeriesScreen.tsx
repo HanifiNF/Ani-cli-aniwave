@@ -16,21 +16,20 @@ interface Props {
   anime: AnimeResult; progress?: LibraryEntry; isSaved: boolean; player: string;
   mode: TranslationMode; quality: string; lastQuery: string; busy?: string; resolving: boolean;
   pendingSources: ProviderName[]; sourceErrors: Partial<Record<ProviderName, string>>;
-  episodeGroups: EpisodeGroup[]; episodeRows: EpisodeRow[]; episodeCount: number; seriesCursor: number;
+  episodeGroups: EpisodeGroup[]; episodeRows: EpisodeRow[]; episodeCount: number;
   nextUp?: EpisodeRow; episodeFilter: EpisodeFilter; episodeSort: EpisodeSort; jump: string;
   playingId?: string; status?: PlayStatus; metadata: ReturnType<typeof useEpisodeMetadata>; listRef: RefObject<HTMLDivElement | null>;
   onPlay: (episode: Episode) => void; onBookmark: () => void; onBack: () => void;
   onMode: (mode: TranslationMode) => void; onQuality: (quality: string) => void;
   onCheckSources: () => void; onRefreshSources: () => void; onJump: (value: string) => void;
-  onCursor: (index: number) => void; onWatched: (episode: Episode) => void; onWatchedAll: () => void; onDismissStatus: () => void;
+  onWatched: (episode: Episode) => void; onWatchedAll: () => void; onDismissStatus: () => void;
   reorder: (filter: EpisodeFilter, sort: EpisodeSort) => void;
 }
 
 export default function SeriesScreen({ anime, progress, isSaved, player, mode, quality, lastQuery, busy, resolving,
-  pendingSources, sourceErrors, episodeGroups, episodeRows, episodeCount, seriesCursor, nextUp, episodeFilter, episodeSort,
+  pendingSources, sourceErrors, episodeGroups, episodeRows, episodeCount, nextUp, episodeFilter, episodeSort,
   jump, playingId, status, metadata, listRef, onPlay, onBookmark, onBack, onMode, onQuality, onCheckSources, onRefreshSources,
-  onJump, onCursor, onWatched, onWatchedAll, onDismissStatus, reorder }: Props) {
-  const nextRow = episodeRows[seriesCursor];
+  onJump, onWatched, onWatchedAll, onDismissStatus, reorder }: Props) {
   const hasEpisodes = episodeGroups.some((group) => group.episodes.length);
   const allWatched = hasEpisodes && episodeRowsOf(episodeGroups, progress, "unwatched", "oldest").length === 0;
   return (
@@ -76,7 +75,7 @@ export default function SeriesScreen({ anime, progress, isSaved, player, mode, q
             <button type="button" role="radio" aria-checked={episodeSort === "newest"} className={episodeSort === "newest" ? "on" : ""} title="Newest first" onClick={() => reorder(episodeFilter, "newest")}><Icon name="down" /></button>
           </span>
         </div>
-        <div className="eps" ref={listRef} tabIndex={-1} role="group" aria-label="Episodes">
+        <div className="eps" ref={listRef} role="group" aria-label="Episodes">
           {episodeRows.length === 0 && !busy && !resolving && <div className="empty">{episodeFilter === "all" ? "No episodes found." : `No ${episodeFilter} episodes.`}</div>}
           {episodeRows.length === 0 && busy && Array.from({ length: SKELETON_ROWS }, (_, index) => (
             <div key={index} className={`src-wrap skel ${index === 0 ? "first" : ""}`} style={stagger(index, SKELETON_ROWS)} aria-hidden="true">
@@ -86,13 +85,11 @@ export default function SeriesScreen({ anime, progress, isSaved, player, mode, q
           ))}
           {episodeRows.map((row, index) => {
             const info = metadata.get(row.episode.id);
-            const isCursor = index === seriesCursor;
-            const groupCursor = nextRow?.number === row.number;
             return (
-              <div key={row.episode.id} className={`src-wrap ${row.first ? "first" : ""} ${groupCursor ? "in-cur" : ""}`} style={stagger(index, 14)}>
+              <div key={row.episode.id} className={`src-wrap ${row.first ? "first" : ""}`} style={stagger(index, 14)}>
                 {row.first && <h4 className="grp-head">Ep {row.number}{nextUp?.number === row.number && <span className="up">Next up</span>}</h4>}
-                <div className={`src ${row.watched ? "w" : ""} ${isCursor ? "cur" : ""} ${playingId === row.episode.id ? "playing" : ""}`} data-cursor={isCursor} data-episode={row.episode.id}>
-                  <button type="button" className="src-hit" tabIndex={isCursor ? 0 : -1} onFocus={() => onCursor(index)}
+                <div className={`src ${row.watched ? "w" : ""} ${playingId === row.episode.id ? "playing" : ""}`} data-episode={row.episode.id}>
+                  <button type="button" className="src-hit"
                     onClick={() => onPlay(row.episode)} aria-label={`play episode ${row.number} from ${row.episode.provider}`}>
                     <span className="t">Episode {row.number}<small>{row.episode.provider}</small>{playingId === row.episode.id && <em>playing</em>}</span>
                     {info?.availability && <span className="audio-availability" title="Audio listed by a supported provider server">{[info?.availability?.sub && "sub", info?.availability?.dub && "dub"].filter(Boolean).join(" · ") || "no audio"}</span>}
