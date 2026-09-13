@@ -85,9 +85,15 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--
 /* The results panel hangs below the pill rather than wrapping it, which keeps it clear of the window's top edge. */
 .palette {
   position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 1; padding: 6px 12px 12px;
-  max-height: calc(100vh - 100px); overflow: auto; border-radius: 14px; background: var(--raised);
+  max-height: calc(100vh - 100px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; background: var(--raised);
   box-shadow: 0 0 0 1px var(--rule), 0 24px 60px rgb(0 0 0 / 45%);
 }
+/* Only the list scrolls; the count and key hints stay put. The list reaches into the panel's padding so its focus ring and the thumb are not clipped. */
+.palette .section-results { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -8px 0 -2px; padding: 0 8px 0 2px; scrollbar-gutter: stable; }
+.palette .section-results::-webkit-scrollbar { width: 6px; }
+.palette .section-results::-webkit-scrollbar-track { background: transparent; margin: 2px 0; }
+.palette .section-results::-webkit-scrollbar-thumb { background-color: var(--dim); border: 0; border-radius: 3px; }
+.palette .section-results::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
 .palette .found { margin: 6px 4px 8px; color: var(--muted); font-size: 12px; }
 .palette .msg { margin: 0 4px 8px; }
 .hit-row { position: relative; }
