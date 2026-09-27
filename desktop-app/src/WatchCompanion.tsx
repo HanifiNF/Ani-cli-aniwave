@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { COMPANION_ANIMATIONS, COMPANION_REGISTRY, companionFrame, companionImageUrl, normalizeCompanionPreferences, type CompanionAnimation, type CompanionHome, type CompanionPetId } from "../shared/companion";
 import type { MiniPlayerCorner, Settings } from "../shared/contracts";
 import { CompanionDialogueGate, companionLine, type CompanionEvent } from "./companion-dialogue";
+import CompanionBubble, { type BubbleCountdown, type BubblePlacement } from "./CompanionBubble";
 import { clampPoint, homeFromPosition, petSize, positionFromHome, wanderTarget, type Bounds, type Point, type Obstacle } from "./companion-motion";
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   onMessageAction?: (event: CompanionEvent) => void;
 }
 
+/** The widest a bubble grows, which decides the side it opens toward. */
+const BUBBLE_WIDTH = 250;
 const initialBounds = (): Bounds => ({ left: 8, top: 76, right: window.innerWidth - 8, bottom: window.innerHeight - 8 });
 export default function WatchCompanion({ settings, screen, fullscreen, corner, dockedPlayer, event, customImage, customName, onHomeChange, onMessageDone, onMessageAction }: Props) {
   const { companionEnabled: enabled, companionPetId: selectedId, companionFrequency: frequency, companionWander: wander, companionHome: home, companionSize } = normalizeCompanionPreferences(settings);
@@ -36,12 +39,19 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   const gate = useRef(new CompanionDialogueGate());
   const priorScreen = useRef(screen);
   const lastEventId = useRef<number>(undefined);
-  const [line, setLine] = useState<string>();
+  const [line, setLine] = useState<{ id: number; text: string; title?: string }>();
+  const [countdown, setCountdown] = useState<BubbleCountdown>();
+  const messageCount = useRef(0);
   const [activeEvent, setActiveEvent] = useState<CompanionEvent>();
   const activeEventRef = useRef<CompanionEvent | undefined>(undefined);
   const [animation, setAnimation] = useState<CompanionAnimation>("idle");
   const [frame, setFrame] = useState(0);
   const [hidden, setHidden] = useState(document.hidden);
+  // The pointer or focus on the bubble holds its countdown, as a hidden window does.
+  const [held, setHeld] = useState(false);
+  const paused = hidden || held;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const [reduced, setReduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const bubbleTimer = useRef<number | undefined>(undefined);
   const animationTimer = useRef<number | undefined>(undefined);
@@ -57,13 +67,25 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
     activeEventRef.current = undefined;
     setActiveEvent(undefined);
     setLine(undefined);
+    setHeld(false);
     if (notify && previous && (previous.kind === "startup-update" || previous.kind === "startup-continue")) onMessageDone?.(previous.id);
+  };
+  const runBubble = () => {
+    window.clearTimeout(bubbleTimer.current);
+    bubbleDeadline.current = Date.now() + bubbleRemaining.current;
+    bubbleTimer.current = window.setTimeout(() => dismissMessage(), bubbleRemaining.current);
+    setCountdown((current) => current && { ...current, remaining: bubbleRemaining.current, running: true, run: current.run + 1 });
+  };
+  const holdBubble = () => {
+    bubbleRemaining.current = Math.max(0, bubbleDeadline.current - Date.now());
+    window.clearTimeout(bubbleTimer.current);
+    setCountdown((current) => current && { ...current, remaining: bubbleRemaining.current, running: false });
   };
   const show = (candidate: CompanionEvent) => {
     moveTo(positionFromHome(home, bounds, dockedPlayer && corner.endsWith("left"), size));
     const result = companionLine(candidate, companionLine(candidate).text === lastLine.current);
     lastLine.current = result.text;
-    setLine(result.text);
+    setLine({ id: ++messageCount.current, text: result.text, title: result.title });
     activeEventRef.current = candidate;
     setActiveEvent(candidate);
     setAnimation(result.animation);
@@ -72,9 +94,9 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
     window.clearTimeout(animationTimer.current);
     bubbleRemaining.current = candidate.kind.startsWith("startup-") ? 10_000 : 5_000;
     animationRemaining.current = 1_700;
-    bubbleDeadline.current = Date.now() + bubbleRemaining.current;
+    setCountdown({ total: bubbleRemaining.current, remaining: bubbleRemaining.current, running: false, run: 0 });
+    if (!pausedRef.current) runBubble();
     animationDeadline.current = Date.now() + animationRemaining.current;
-    bubbleTimer.current = window.setTimeout(() => dismissMessage(), bubbleRemaining.current);
     animationTimer.current = window.setTimeout(() => { animationRemaining.current = 0; setAnimation("idle"); setFrame(0); }, animationRemaining.current);
   };
 
@@ -116,21 +138,22 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   }, []);
   useEffect(() => {
     if (hidden) {
-      bubbleRemaining.current = bubbleRemaining.current ? Math.max(0, bubbleDeadline.current - Date.now()) : 0;
       animationRemaining.current = animationRemaining.current ? Math.max(0, animationDeadline.current - Date.now()) : 0;
-      window.clearTimeout(bubbleTimer.current);
       window.clearTimeout(animationTimer.current);
       return;
-    }
-    if (bubbleRemaining.current) {
-      bubbleDeadline.current = Date.now() + bubbleRemaining.current;
-      bubbleTimer.current = window.setTimeout(() => dismissMessage(), bubbleRemaining.current);
     }
     if (animationRemaining.current) {
       animationDeadline.current = Date.now() + animationRemaining.current;
       animationTimer.current = window.setTimeout(() => { animationRemaining.current = 0; setAnimation("idle"); setFrame(0); }, animationRemaining.current);
     }
   }, [hidden]);
+  const wasPaused = useRef(paused);
+  useEffect(() => {
+    if (wasPaused.current === paused) return;
+    wasPaused.current = paused;
+    if (!bubbleRemaining.current) return;
+    if (paused) holdBubble(); else runBubble();
+  }, [paused]);
   useEffect(() => () => { window.clearTimeout(bubbleTimer.current); window.clearTimeout(animationTimer.current); }, []);
   useEffect(() => {
     const page = document.querySelector<HTMLElement>(".page");
@@ -205,12 +228,15 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   const { x, y } = companionFrame(animation, frame);
   const image = customSelected ? customImage! : companionImageUrl(builtInId, import.meta.env.BASE_URL);
   const sprite = { width: size.width, height: size.height, backgroundImage: `url(${image})`, backgroundSize: `${768 * scale}px ${936 * scale}px`, backgroundPosition: `${-x / 2 * scale}px ${-y / 2 * scale}px` };
-  const actionable = activeEvent?.kind === "startup-update" || activeEvent?.kind === "startup-continue";
-  const bubbleLeft = Math.max(8 - position.x, Math.min(0, window.innerWidth - position.x - (actionable ? 288 : 248)));
+  // The bubble opens toward the roomier side and points its tail at the pet's head; it drops below near the top of the window.
+  const end = position.x - 6 + BUBBLE_WIDTH > window.innerWidth - 8;
+  const offset = end ? Math.max(-6, position.x + size.width - (window.innerWidth - 8)) : Math.max(-6, 8 - position.x);
+  const below = position.y < size.height + 56;
+  const placement: BubblePlacement = { end, below, offset, tail: Math.max(12, size.width / 2 - offset - 6), lift: below ? size.height + 4 : size.height - 4 * scale };
+  const action = activeEvent?.kind === "startup-update" ? "View episode" : activeEvent?.kind === "startup-continue" ? "Continue" : undefined;
   return <aside className="watch-companion" style={{ left: position.x, top: position.y, width: size.width, height: size.height }} aria-label={`${pet.name} watch companion`}>
-    {line && <div className={`companion-bubble${actionable ? " has-action" : ""}`} style={position.y < size.height + 56 ? { left: bubbleLeft, top: size.height + 4, bottom: "auto" } : { left: bubbleLeft, bottom: size.height + 4 }} role="status"><span>{line}</span>
-      {actionable && activeEvent && <button type="button" className="companion-action" onClick={() => { onMessageAction?.(activeEvent); dismissMessage(false); }}>{activeEvent.kind === "startup-update" ? "View episode" : "Continue"}</button>}
-      <button type="button" aria-label="Dismiss companion message" onClick={() => dismissMessage()}>×</button></div>}
+    <CompanionBubble message={line && { ...line, action }} countdown={countdown} placement={placement} onHold={setHeld}
+      onAction={() => { if (activeEvent) onMessageAction?.(activeEvent); dismissMessage(false); }} onDismiss={() => dismissMessage()} />
     <button type="button" className="companion-pet" style={sprite} title={`Talk to or drag ${pet.name}`} aria-label={`Talk to or drag ${pet.name}`}
       onPointerDown={(pointer) => { if (pointer.button !== 0) return; drag.current = { pointerId: pointer.pointerId, x: pointer.clientX, y: pointer.clientY, origin: positionRef.current, moved: false }; pointer.currentTarget.setPointerCapture?.(pointer.pointerId); setDragging(true); }}
       onPointerMove={(pointer) => { const current = drag.current; if (!current || pointer.pointerId !== current.pointerId) return; const dx = pointer.clientX - current.x, dy = pointer.clientY - current.y; if (Math.hypot(dx, dy) < 6 && !current.moved) return; current.moved = true; moveTo(clampPoint({ x: current.origin.x + dx, y: current.origin.y + dy }, bounds, size)); setAnimation(dx >= 0 ? "run-right" : "run-left"); }}

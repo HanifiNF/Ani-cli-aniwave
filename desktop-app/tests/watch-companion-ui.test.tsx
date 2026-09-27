@@ -83,10 +83,29 @@ describe("watch companion overlay", () => {
       expect(aside.style.width).toBe(`${96 * percent / 100}px`);
       expect(pet.style.height).toBe(`${104 * percent / 100}px`);
       expect(pet.style.backgroundSize).toBe(`${768 * percent / 100}px ${936 * percent / 100}px`);
-      expect(container.querySelector<HTMLElement>(".companion-bubble")?.style.bottom).toBe(`${104 * percent / 100 + 4}px`);
+      // The bubble rests on the brim, a little into the transparent top of the sprite, and its tail points at the head.
+      const bubble = container.querySelector<HTMLElement>(".companion-bubble")!;
+      expect(bubble.style.bottom).toBe(`${(104 - 4) * percent / 100}px`);
+      expect(bubble.style.getPropertyValue("--tail")).toBe(`${Math.max(12, 48 * percent / 100)}px`);
     }
     await act(async () => root.render(<WatchCompanion {...props} settings={{ ...DEFAULT_STATE.settings, companionPetId: "custom:11111111-1111-4111-8111-111111111111", companionSize: 200, companionWander: false }} customImage="data:image/png;base64,AA==" />));
     expect(container.querySelector<HTMLElement>(".companion-pet")?.style.backgroundSize).toBe("1536px 1872px");
+  });
+  it("holds the countdown while focus rests on the bubble", async () => {
+    vi.useFakeTimers();
+    const props = { settings: { ...DEFAULT_STATE.settings, companionWander: false }, screen: "home", fullscreen: false, corner: "bottom-right" as const, dockedPlayer: false };
+    await act(async () => root.render(<WatchCompanion {...props} event={{ id: 1, kind: "series", title: "Held Anime" }} />));
+    expect(container.querySelector(".companion-title")?.textContent).toBe("Held Anime");
+    const dismiss = container.querySelector<HTMLButtonElement>('[aria-label="Dismiss companion message"]')!;
+    await act(async () => { vi.advanceTimersByTime(2_000); });
+    await act(async () => dismiss.focus());
+    await act(async () => { vi.advanceTimersByTime(10_000); });
+    expect(container.querySelector(".companion-bubble")).not.toBeNull();
+    await act(async () => dismiss.blur());
+    await act(async () => { vi.advanceTimersByTime(2_900); });
+    expect(container.querySelector(".companion-bubble")).not.toBeNull();
+    await act(async () => { vi.advanceTimersByTime(200); });
+    expect(container.querySelector(".companion-bubble")).toBeNull();
   });
   it("shows guaranteed series and section lines immediately and handles startup actions", async () => {
     const onMessageDone = vi.fn();

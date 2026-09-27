@@ -1,0 +1,227 @@
+<!doctype html><meta charset="utf-8"><title>Companion bubble · variants</title>
+<!-- Stills: env -u ELECTRON_RUN_AS_NODE npx electron design/record-companion-bubble.cjs. Opened directly, the page plays its script on a loop. -->
+<style>
+@font-face { font-family: Inter; src: url(../shots/fonts/inter.woff2) format("woff2"); font-weight: 100 900; }
+:root {
+  --bg: #282828; --text: #EBDBB2; --cursor: #FABD2F; --cursor-text: var(--bg);
+  --raised: color-mix(in oklab, var(--bg), var(--text) 6%);
+  --raised2: color-mix(in oklab, var(--bg), var(--text) 10%);
+  --rule: color-mix(in oklab, var(--bg), var(--text) 12%);
+  --dim: color-mix(in oklab, var(--bg), var(--text) 36%);
+  --muted: color-mix(in oklab, var(--bg), var(--text) 60%);
+  --radius: 10px; --radius-sm: 8px; --radius-inset: 5px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px; background: #151515; color: var(--text); font: 400 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.grid { display: grid; grid-template-columns: repeat(4, 380px); gap: 20px; }
+.col h2 { margin: 0 0 10px; font-size: 13px; font-weight: 500; color: #a89f8a; }
+.col h2 b { color: #e4dcc6; font-weight: 600; }
+.stage { position: relative; height: 300px; margin-bottom: 20px; border-radius: 12px; overflow: hidden;
+  background: radial-gradient(120% 90% at 85% 0%, color-mix(in oklab, var(--bg), #fff 7%), transparent 60%), var(--bg); }
+/* A hint of the page behind: a row of posters, as on Home. */
+.stage::before { content: ""; position: absolute; right: -40px; top: 26px; width: 300px; height: 150px; opacity: .5;
+  background: repeating-linear-gradient(90deg, var(--raised) 0 92px, transparent 92px 104px); border-radius: 10px; }
+.pet { position: absolute; left: 36px; bottom: 18px; width: 96px; height: 104px; background-size: 768px 936px; background-repeat: no-repeat;
+  background-image: url(../../public/pets/feibi/spritesheet.webp); filter: drop-shadow(0 4px 9px #0008); }
+.anchor { position: absolute; left: 36px; bottom: 18px; width: 96px; height: 104px; }
+.cursor { position: absolute; z-index: 9; width: 16px; height: 22px; left: 0; top: 0; pointer-events: none; }
+.icon { width: 14px; height: 14px; flex: none; }
+
+/* Current, as in styles.css today. */
+.b { position: absolute; left: 0; pointer-events: auto; }
+.b.cur { bottom: 108px; width: max-content; max-width: 240px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--raised); color: var(--text); box-shadow: 0 8px 24px #0004; display: flex; align-items: flex-start; gap: 8px; }
+.b.cur > button { color: var(--muted); font-size: 18px; line-height: 1; flex: none; }
+.b.cur.has-action { width: 280px; display: grid; grid-template-columns: 1fr auto; align-items: center; }
+.b.cur.has-action span { grid-column: 1 / -1; }
+.b.cur .act { align-self: center; padding: 5px 8px; border-radius: 6px; background: var(--cursor); color: var(--cursor-text); font-size: 12px; font-weight: 650; }
+
+/* Shared by V1 to V3: a speech bubble whose tail points at the head, sitting on the hat's brim rather than the sprite's box. */
+.s { bottom: 100px; left: -6px; width: max-content; max-width: 250px; padding: 10px 14px 11px; border-radius: var(--radius); font-size: 13px; line-height: 1.45;
+  background: var(--raised2); box-shadow: 0 0 0 1px var(--rule), 0 10px 28px rgb(0 0 0 / 35%); transform-origin: 54px calc(100% + 7px); }
+.s::after { content: ""; position: absolute; left: 48px; bottom: -6px; width: 12px; height: 12px; transform: rotate(45deg); background: var(--raised2);
+  border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-bottom-right-radius: 3px; }
+.s p { margin: 0; }
+.s .title { color: var(--text); font-weight: 500; }
+.s .x { position: absolute; top: 7px; right: 7px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-inset); color: var(--muted); }
+.s .x:hover, .s .x.hover { color: var(--text); background: var(--raised); }
+.s .x .icon { width: 12px; height: 12px; }
+.timer { position: absolute; left: 12px; right: 12px; top: 0; height: 2px; border-radius: 1px; background: color-mix(in oklab, var(--raised2), var(--text) 22%); transform-origin: left; }
+
+/* V1: one quiet link; the countdown is an arc that drains around the ×. */
+.v1 { padding-right: 38px; }
+.v1 .link { display: inline-flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--cursor); font-weight: 500; }
+.v1 .link .icon { width: 13px; height: 13px; transition: transform .15s; }
+.v1 .link.hover .icon { transform: translateX(2px); }
+.v1 .link.hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in oklab, var(--cursor), transparent 50%); }
+.v1 .x svg.arc { position: absolute; inset: 0; width: 22px; height: 22px; transform: rotate(-90deg); }
+.v1 .x svg.arc circle { fill: none; stroke: color-mix(in oklab, var(--raised2), var(--text) 30%); stroke-width: 1.5; stroke-linecap: round; }
+
+/* V2: the app's own small buttons, right-aligned; "not now" is the dismiss. */
+.v2 { width: 260px; padding-bottom: 12px; }
+.v2.plain { width: max-content; padding-right: 38px; }
+.v2 .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+.btn { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; }
+.btn.ghost { color: var(--muted); }
+.btn.ghost.hover { color: var(--text); background: var(--raised); }
+.btn.primary { background: var(--cursor); color: var(--cursor-text); }
+.btn.primary.hover { background: color-mix(in oklab, var(--cursor), var(--text) 14%); }
+
+/* V3: the line, then a resume row the whole width can press. */
+.v3 { width: 268px; padding: 10px 10px 12px 14px; }
+.v3.plain { width: max-content; padding-right: 38px; }
+.v3 > p { padding-right: 22px; }
+.v3.plain > p { padding-right: 0; }
+.v3 .resume { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; width: 100%; margin-top: 9px; padding: 6px 8px 6px 6px; border-radius: var(--radius-sm); background: var(--raised); }
+.v3 .resume.hover { background: color-mix(in oklab, var(--raised), var(--text) 6%); }
+.v3 .resume img { width: 34px; height: 48px; object-fit: cover; border-radius: var(--radius-inset); display: block; }
+.v3 .resume b { display: block; font-weight: 500; font-size: 12.5px; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.v3 .resume small { display: block; color: var(--muted); font-size: 12px; }
+.v3 .resume .bar { display: block; height: 2px; margin-top: 6px; border-radius: 1px; background: var(--rule); }
+.v3 .resume .bar i { display: block; height: 100%; width: 58%; border-radius: 1px; background: var(--cursor); }
+.v3 .resume .play { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--cursor); color: var(--cursor-text); }
+.v3 .resume .play .icon { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+</style>
+<body>
+<div class="grid" id="grid"></div>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></symbol>
+  <symbol id="i-cursor" viewBox="0 0 16 22"><path d="M1 1v17l4.3-4.1 2.9 6.6 2.7-1.2-2.9-6.4H14z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round" /></symbol>
+</defs></svg>
+<script>
+const TITLE = "I Became a Legend After My 10 Year-Long Last Stand";
+const PROMPT = { text: `Want to continue <span class="title">${TITLE}</span>?`, action: true, total: 10 };
+const LINE = { text: "Saved! It's on your shelf now.", action: false, total: 5 };
+const VARIANTS = [
+  ["current", "Current", "as it ships today"],
+  ["v1", "V1 · speech bubble", "tail, quiet link, arc countdown"],
+  ["v2", "V2 · two buttons", "not now + Continue, line countdown"],
+  ["v3", "V3 · resume card", "poster and progress, line countdown"],
+];
+const icon = (id, cls = "icon") => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
+
+function bubble(variant, msg, left) {
+  const fraction = Math.max(0, left / msg.total);
+  const timer = `<i class="timer" style="transform:scaleX(${fraction})"></i>`;
+  const x = (label = "Dismiss") => `<button class="x" data-hit="x" aria-label="${label}">${icon("x")}</button>`;
+  if (variant === "current") return `<div class="b cur${msg.action ? " has-action" : ""}"><span>${msg.text.replace(/<[^>]+>/g, "")}</span>${msg.action ? `<button class="act" data-hit="go">Continue</button>` : ""}<button data-hit="x">×</button></div>`;
+  if (variant === "v1") {
+    const c = 2 * Math.PI * 9.5;
+    return `<div class="b s v1"><p>${msg.text}</p>${msg.action ? `<button class="link" data-hit="go">Continue ${icon("chev")}</button>` : ""}
+      <button class="x" data-hit="x" aria-label="Dismiss">${icon("x")}<svg class="arc" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5" stroke-dasharray="${c * fraction} ${c}"/></svg></button></div>`;
+  }
+  if (variant === "v2") return msg.action
+    ? `<div class="b s v2"><p>${msg.text}</p><div class="acts"><button class="btn ghost" data-hit="x">not now</button><button class="btn primary" data-hit="go">Continue</button></div>${timer}</div>`
+    : `<div class="b s v2 plain"><p>${msg.text}</p>${x()}${timer}</div>`;
+  return msg.action
+    ? `<div class="b s v3"><p>Want to pick this up again?</p>${x()}<button class="resume" data-hit="go"><img src="../shots/schedule-posters/82683.jpg" alt=""><span><b>${TITLE}</b><small>Episode 6 · 12 min left</small><span class="bar"><i></i></span></span><span class="play">${icon("play")}</span></button>${timer}</div>`
+    : `<div class="b s v3 plain"><p>${msg.text}</p>${x()}${timer}</div>`;
+}
+
+// One stage: a pet, maybe a bubble, maybe a pointer. Everything moves on mock.t, which the recorder steps 1/60 s at a time.
+class Stage {
+  constructor(el, variant) { this.el = el; this.variant = variant; this.msg = null; this.p = 0; this.target = 0; this.left = 0; this.hover = null; this.press = 0;
+    this.anim = "idle"; this.animStart = 0; this.cursor = null; this.cursorTo = null; }
+  show(msg) { this.msg = msg; this.left = msg.total; this.target = 1; this.p = Math.min(this.p, 0.001); this.anim = "wave"; this.animStart = mock.t; }
+  hide() { this.target = 0; this.hover = null; }
+  hit(name) { return this.el.querySelector(`.b [data-hit="${name}"]`); }
+  point(name, dx = 0, dy = 0) {
+    const r = name ? this.hit(name)?.getBoundingClientRect() : null, s = this.el.getBoundingClientRect();
+    const to = r ? { x: r.left - s.left + r.width * .55 + dx, y: r.top - s.top + r.height * .55 + dy, name } : { x: s.width + 30, y: 60, name: null };
+    this.cursor ??= { x: s.width + 30, y: 150 };
+    this.cursorTo = to;
+  }
+  step(dt) {
+    const k = (response) => 1 - Math.exp(-2 * Math.PI / response * dt);
+    // Launched springs: enter on the glide preset, leave on the quicker out preset.
+    this.p += (this.target - this.p) * k(this.target ? 0.4 : 0.16);
+    if (this.target === 0 && this.p < 0.004) { this.p = 0; this.msg = this.target ? this.msg : null; }
+    if (this.msg && this.target && !this.hover) this.left = Math.max(0, this.left - dt);
+    if (this.msg && this.target && this.left === 0) this.hide();
+    if (this.cursor && this.cursorTo) {
+      this.cursor.x += (this.cursorTo.x - this.cursor.x) * k(0.32); this.cursor.y += (this.cursorTo.y - this.cursor.y) * k(0.32);
+      const close = Math.hypot(this.cursorTo.x - this.cursor.x, this.cursorTo.y - this.cursor.y) < 10;
+      this.hover = close && this.cursorTo.name && this.msg && this.target ? this.cursorTo.name : (this.bubbleHovered() ? "bubble" : null);
+    }
+    this.press = Math.max(0, this.press - dt);
+  }
+  bubbleHovered() {
+    const b = this.el.querySelector(".b"); if (!b || !this.cursor || !this.target) return false;
+    const r = b.getBoundingClientRect(), s = this.el.getBoundingClientRect(), x = this.cursor.x + s.left, y = this.cursor.y + s.top;
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+  render() {
+    const rows = { idle: [0, 6], wave: [3, 4] }, [row, count] = rows[this.anim];
+    let frame = Math.floor((mock.t - this.animStart) / 0.14);
+    if (this.anim === "wave" && frame >= count * 2) { this.anim = "idle"; this.animStart = mock.t; frame = 0; }
+    const pet = this.el.querySelector(".pet");
+    pet.style.backgroundPosition = `${-(frame % count) * 96}px ${-row * 104}px`;
+    const anchor = this.el.querySelector(".anchor");
+    if (!this.msg) { anchor.innerHTML = ""; }
+    else {
+      anchor.innerHTML = bubble(this.variant, this.msg, this.left);
+      const b = anchor.firstElementChild, p = this.p;
+      b.style.opacity = Math.min(1, p * 1.6);
+      b.style.transform = this.variant === "current" ? `translateY(${(1 - p) * 6}px)` : `translateY(${(1 - p) * 8}px) scale(${0.86 + 0.14 * p})`;
+      if (this.hover && this.hover !== "bubble") b.querySelector(`[data-hit="${this.hover}"]`)?.classList.add("hover");
+      if (this.press > 0) { const pressed = b.querySelector(`[data-hit="${this.pressed}"]`); if (pressed) pressed.style.scale = "0.96"; }
+    }
+    let c = this.el.querySelector(".cursor");
+    if (this.cursor) {
+      if (!c) { this.el.insertAdjacentHTML("beforeend", `<svg class="cursor"><use href="#i-cursor"/></svg>`); c = this.el.querySelector(".cursor"); }
+      c.style.transform = `translate(${this.cursor.x}px, ${this.cursor.y}px)`;
+    }
+  }
+  click(name) { this.press = 0.12; this.pressed = name; mock.later(0.1, () => this.hide()); }
+}
+
+const mock = { t: 0, virtual: false, queue: [], stages: [] };
+mock.later = (s, fn) => mock.queue.push({ at: mock.t + s, fn });
+mock.frame = (dt = 1 / 60) => {
+  mock.t += dt;
+  for (const job of mock.queue.filter((j) => j.at <= mock.t)) { mock.queue.splice(mock.queue.indexOf(job), 1); job.fn(); }
+  for (const s of mock.stages) { s.step(dt); s.render(); }
+  return true;
+};
+mock.each = (fn) => mock.stages.filter((s) => s.el.dataset.scene === "prompt" || mock.single).forEach(fn);
+
+// The recorded script: the prompt arrives, the pointer rests on it (the countdown holds), Continue; then a plain line, dismissed.
+mock.script = () => {
+  const at = (s, fn) => mock.later(s, () => mock.each(fn));
+  at(0.4, (s) => s.show(PROMPT));
+  at(2.4, (s) => s.point("go"));
+  at(4.0, (s) => s.click("go"));
+  at(4.6, (s) => s.point(null));
+  at(5.2, (s) => s.show(LINE));
+  at(7.4, (s) => s.point("x"));
+  at(8.3, (s) => s.click("x"));
+};
+
+// Stills: both rows, the countdown part-way, no pointer.
+mock.still = () => {
+  for (const s of mock.stages) { s.show(s.el.dataset.scene === "prompt" ? PROMPT : LINE); s.p = 1; s.left = s.msg.total * 0.62; s.anim = "idle"; }
+  mock.frame(0);
+};
+
+document.getElementById("grid").innerHTML = VARIANTS.map(([id, name, note]) => `<div class="col" data-variant="${id}"><h2><b>${name}</b> · ${note}</h2>
+  <div class="stage" data-scene="prompt" data-v="${id}"><div class="pet"></div><div class="anchor"></div></div>
+  <div class="stage" data-scene="line" data-v="${id}"><div class="pet"></div><div class="anchor"></div></div></div>`).join("");
+mock.stages = [...document.querySelectorAll(".stage")].map((el) => new Stage(el, el.dataset.v));
+
+// Opened in a browser: loop the script on the real clock. The recorder sets ?virtual and drives mock.frame itself.
+if (!location.search.includes("virtual")) {
+  if (location.search.includes("still")) mock.still();
+  else {
+    mock.single = false;
+    const loop = () => { mock.stages.forEach((s) => { s.msg = null; s.p = 0; s.target = 0; s.cursor = null; s.cursorTo = null; }); mock.t = 0; mock.queue = []; mock.script(); mock.later(9.5, loop); };
+    loop();
+    let last = performance.now();
+    const tick = (now) => { mock.frame(Math.min(0.05, (now - last) / 1000)); last = now; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+}
+</script>
+</body>
