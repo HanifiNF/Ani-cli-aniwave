@@ -21,7 +21,8 @@ records the real renderer, both at true speed.
   the shortcuts button is a keyboard instead of "?". The player's menus use the raised surface and hairline. Mockup:
   `design/variants/player-icons.html` (with Vidstack's glyphs beside them, from `player-icons-vidstack.js`).
 - Motion (`src/motion.ts`): springs on everything, three presets. Snap (0.25 s, damping 1) moves controls; glide (0.4 s,
-  0.95) moves layout and shared elements; stretch moves indicator edges (leading 0.2 s, trailing 0.32 s), so an indicator
+  0.95) moves layout and shared elements, with posters flying between a card and a title page on a 20% quicker
+  version (0.32 s); stretch moves indicator edges (leading 0.2 s, trailing 0.32 s), so an indicator
   runs ahead and gathers up as it lands. Every spring is launched: a new target from rest starts at distance × ω, so about a
   quarter of the travel lands in the first frame and the rest settles calmly. Shorter springs from rest were tried and
   rejected (they read as sped up); springs from rest felt laggy. A new target mid-flight keeps position and velocity. CSS

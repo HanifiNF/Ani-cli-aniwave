@@ -3,8 +3,9 @@ import { Spring, motionAllowed } from "./motion";
 /*
   Shared posters. Opening a title from a card or a search row flies that poster to the series page's poster; going
   back flies the series poster home to the very card that opened it (the Saved card stays the Saved card, even when
-  the title also sits in Continue watching). The flyer is a copy of the image on the four glide springs of its
-  rectangle; a new destination mid-flight (Escape while it is still moving) turns it from where it is, at its speed.
+  the title also sits in Continue watching). The flyer is a copy of the image on four springs, one per side of its
+  rectangle, on the flight preset (the glide's shape, 20% quicker); a new destination mid-flight (Escape while it is
+  still moving) turns it from where it is, at its speed.
 
   Cards take part by carrying data-origin (unique within their group) inside an element with data-origin-group
   (a section, the Browse grid, the search results, the notifications list).
@@ -110,7 +111,7 @@ export function land(target: HTMLElement | null): void {
       const s = created.springs;
       node.style.transform = `translate(${s.x.x}px, ${s.y.x}px)`; node.style.width = `${s.w.x}px`; node.style.height = `${s.h.x}px`;
     };
-    for (const key of KEYS) created.springs[key] = new Spring(from[key], "glide", apply, 0.3);
+    for (const key of KEYS) created.springs[key] = new Spring(from[key], "flight", apply, 0.3);
     flight = created;
     apply();
   }

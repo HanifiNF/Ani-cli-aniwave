@@ -7,12 +7,14 @@
   rest settles calmly. A new target mid-flight keeps the current position and velocity, so a movement only ever turns.
 */
 
-export type Preset = "snap" | "glide" | "lead" | "trail" | "out";
+export type Preset = "snap" | "glide" | "flight" | "lead" | "trail" | "out";
 
 /** Response is the period of the undamped spring in seconds; damping 1 never overshoots. */
 export const PRESETS: Record<Preset, { response: number; damping: number }> = {
   snap: { response: 0.25, damping: 1 },
   glide: { response: 0.4, damping: 0.95 },
+  // The glide's shape, 20% quicker, for posters flying between a card and a title page.
+  flight: { response: 0.32, damping: 0.95 },
   lead: { response: 0.2, damping: 0.95 },
   trail: { response: 0.32, damping: 1 },
   out: { response: 0.12, damping: 1 }
