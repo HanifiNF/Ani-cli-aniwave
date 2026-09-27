@@ -15,10 +15,11 @@ import { BookmarkMetadataFetcher } from "./bookmark-metadata";
 import { availabilityFresh } from "../shared/episode-metadata";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { app, BrowserWindow, clipboard, ipcMain, nativeImage, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
+import { CompanionService, MAX_COMPANION_BYTES } from "./companion-service";
 import { EpisodeUpdates } from "./episode-updates";
 import type { AnimeResult, CatalogRequest, LibraryEntry, PlayerSession, PlayRequest, ProviderName, ProviderPreference, ScheduleQuery, Settings, TranslationMode } from "../shared/contracts";
 import { playerArguments } from "./player";
@@ -63,6 +64,7 @@ let updateInstaller: UpdateInstaller;
 let episodeMetadata: EpisodeMetadataCache;
 let bookmarkMetadata: BookmarkMetadataFetcher;
 let episodeUpdates: EpisodeUpdates;
+const companionService = new CompanionService(join(app.getPath("userData"), "companions"));
 let refreshMenu: () => void = () => undefined;
 // In-memory partition: stream segments never reach the disk cache, and the renderer gets no permissions.
 const APP_PARTITION = "ani-desktop";
@@ -258,6 +260,27 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("companion:list", (event) => { assertPlayerSender(mainWindow, event); return companionService.list(); });
+  ipcMain.handle("companion:choose", async (event) => {
+    assertPlayerSender(mainWindow, event);
+    const result = await dialog.showOpenDialog(mainWindow!, { title: "Import companion spritesheet", properties: ["openFile"], filters: [{ name: "PNG or WebP images", extensions: ["png", "webp"] }] });
+    if (result.canceled || !result.filePaths[0]) return undefined;
+    if ((await stat(result.filePaths[0])).size > MAX_COMPANION_BYTES) throw new Error("Companion sheet must be 8 MB or smaller");
+    return companionService.stage(await readFile(result.filePaths[0]));
+  });
+  ipcMain.handle("companion:save", (event, ticket: unknown, name: unknown) => { assertPlayerSender(mainWindow, event); return companionService.commit(ticket, name); });
+  ipcMain.handle("companion:image", (event, id: unknown) => { assertPlayerSender(mainWindow, event); return companionService.image(id); });
+  ipcMain.handle("companion:remove", async (event, id: unknown) => {
+    assertPlayerSender(mainWindow, event);
+    const record = (await companionService.list()).find((item) => item.id === id);
+    if (!record) return false;
+    const answer = await dialog.showMessageBox(mainWindow!, { type: "warning", buttons: ["Cancel", "Remove"], defaultId: 0, cancelId: 0,
+      title: "Remove custom companion?", message: `Remove ${record.name} from ANIdesktop?`, detail: "Your original PNG or WebP file is not changed. You can import it again later." });
+    if (answer.response !== 1) return false;
+    const removed = await companionService.remove(id);
+    if (removed && store.snapshot().settings.companionPetId === id) await store.saveSettings({ ...store.snapshot().settings, companionPetId: "columbinya" });
+    return removed;
+  });
   ipcMain.on("app:titlebar-theme", (event, background: unknown, text: unknown) => {
     assertPlayerSender(mainWindow, event);
     if (!isHexColor(background) || !isHexColor(text)) return;
@@ -462,7 +485,11 @@ function registerIpc(): void {
     assertPlayerSender(mainWindow, event);
     return store.saveSubtitleAppearance(value);
   });
-  ipcMain.handle("state:settings", async (_event, settings: Settings) => {
+  ipcMain.handle("state:settings", async (event, settings: Settings) => {
+    assertPlayerSender(mainWindow, event);
+    if (settings.companionPetId?.startsWith("custom:") && !(await companionService.list()).some((item) => item.id === settings.companionPetId && item.available)) {
+      throw new Error("Selected custom companion is unavailable");
+    }
     const previous = store.snapshot().settings;
     const state = await store.saveSettings(settings);
     if (sourceSettingsKey(previous) !== sourceSettingsKey(state.settings)) bookmarkMetadata.cancel();
@@ -598,6 +625,11 @@ app.whenReady().then(async () => {
   backend?.on("error", () => updateInstaller.failed());
   store = new StateStore(join(app.getPath("userData"), "state.json"));
   await store.load();
+  await companionService.load();
+  const selectedCompanion = store.snapshot().settings.companionPetId;
+  if (selectedCompanion?.startsWith("custom:") && !(await companionService.list()).some((item) => item.id === selectedCompanion && item.available)) {
+    await store.saveSettings({ ...store.snapshot().settings, companionPetId: "columbinya" });
+  }
   await catalogService.load(join(app.getPath("userData"), "episode-lists.json"));
   if (process.platform === "win32") app.setAppUserModelId("dev.hanifi.anidesktop");
   episodeUpdates = new EpisodeUpdates(join(app.getPath("userData"), "episode-updates.json"),

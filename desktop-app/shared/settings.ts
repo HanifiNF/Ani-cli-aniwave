@@ -2,6 +2,7 @@ import { MINI_PLAYER_WIDTH, type PersistedState, type Settings } from "./contrac
 import { THEME_PRESETS } from "./theme";
 import { enabledProviders } from "./catalog";
 import { DEFAULT_SUBTITLE_APPEARANCE } from "./subtitle-appearance";
+import { COMPANION_DEFAULTS } from "./companion";
 
 export const DEFAULT_STATE: PersistedState = {
   bookmarks: [],
@@ -11,6 +12,7 @@ export const DEFAULT_STATE: PersistedState = {
   dismissedMergeKeys: [],
   subtitleAppearance: { ...DEFAULT_SUBTITLE_APPEARANCE },
   settings: {
+    ...COMPANION_DEFAULTS,
     playerPath: "",
     playbackTarget: "builtin",
     startPlayerFullscreen: true,

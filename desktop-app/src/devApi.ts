@@ -120,6 +120,11 @@ const player: AniPlayerApi = {
 export function installDevApi(): void {
   const api: AniDesktopApi = {
     player,
+    async listCompanions() { return []; },
+    async chooseCompanion() { throw new Error("Import companions in the Electron app"); },
+    async saveCompanion() { throw new Error("Import companions in the Electron app"); },
+    async companionImage() { return undefined; },
+    async removeCompanion() { return false; },
     async saveSubtitleAppearance(appearance) { state.subtitleAppearance = appearance; return appearance; },
     async search(query) {
       await wait(400);

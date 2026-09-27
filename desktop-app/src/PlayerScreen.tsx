@@ -33,6 +33,7 @@ export interface PlayerScreenProps {
   session: PlayerSession;
   subtitleAppearance: SubtitleAppearance;
   onSubtitleAppearance: (value: SubtitleAppearance) => void;
+  onCompanionEvent?: (kind: "pause" | "complete" | "error") => void;
   fullscreen: boolean;
   onFullscreenChange: (fullscreen: boolean) => void;
   /** Docked: the player is a small box in a corner while the user browses. Playback keys are off. */
@@ -151,7 +152,7 @@ function MenuEscapeHandler() {
   return null;
 }
 
-export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAppearance, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onRetry, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
+export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAppearance, onCompanionEvent, fullscreen, onFullscreenChange, docked, corner, onCornerChange, width, onWidthChange, episodeCount, detail, message, autoplayNext, onPrev, onNext, onRetry, onDock, onEpisodes, onExpand, onClose }: PlayerScreenProps) {
   const api = window.aniDesktop.player;
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -540,6 +541,7 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
           storage={storage}
           onPause={() => {
             setPaused(true);
+            if (player.current?.state.canPlay && player.current.state.currentTime >= 30 && !player.current.state.ended) onCompanionEvent?.("pause");
             if (player.current?.state.canPlay) void storage.setTime(player.current.state.currentTime);
             storage.flush();
           }}
@@ -548,12 +550,12 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
           onPlaying={() => setPaused(false)}
           onTimeUpdate={({ currentTime }) => setTime((value) => Math.floor(currentTime) === value ? value : Math.floor(currentTime))}
           onDurationChange={(value) => setDuration(Number.isFinite(value) ? value : 0)}
-          onEnded={() => { if (autoplayNext && onNext) { fired.current = false; setCountdown(NEXT_COUNTDOWN); } }}
+          onEnded={() => { onCompanionEvent?.("complete"); if (autoplayNext && onNext) { fired.current = false; setCountdown(NEXT_COUNTDOWN); } }}
           onProviderChange={(provider) => {
             if (isHLSProvider(provider)) provider.library = () => import("hls.js");
           }}
           crossOrigin="anonymous"
-          onError={(detail) => setError(errorMessage(detail))}
+          onError={(detail) => { setError(errorMessage(detail)); onCompanionEvent?.("error"); }}
         >
           <MenuEscapeHandler />
           <TrackWatcher onChange={setSubtitleTracks} />

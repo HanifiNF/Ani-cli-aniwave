@@ -1,4 +1,5 @@
 import { DEFAULT_STATE } from "../shared/settings";
+import { normalizeCompanionPreferences } from "../shared/companion";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -140,6 +141,7 @@ export class StateStore {
         playbackPositions: parsed.playbackPositions ?? {},
         settings: {
           ...settings,
+          ...normalizeCompanionPreferences(settings),
           playbackTarget: settings.playbackTarget === "external" ? "external" : "builtin",
           startPlayerFullscreen: typeof settings.startPlayerFullscreen === "boolean" ? settings.startPlayerFullscreen : true,
           autoplayNext: settings.autoplayNext !== false,
@@ -231,6 +233,7 @@ export class StateStore {
       if (!isHexColor(custom[key])) throw new Error(`Custom ${key} colour must be a hex value like #1F2023`);
     }
     this.state.settings = {
+      ...normalizeCompanionPreferences(settings),
       playerPath: settings.playerPath.trim(),
       playbackTarget: settings.playbackTarget,
       startPlayerFullscreen: Boolean(settings.startPlayerFullscreen),
