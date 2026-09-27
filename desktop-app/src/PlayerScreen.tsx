@@ -11,7 +11,7 @@ import {
   Track,
   type MediaPlayerInstance
 } from "@vidstack/react";
-import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
+import { DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
@@ -20,7 +20,8 @@ import { shortcut } from "./keys";
 import { observePlayerDiagnostics } from "./player-diagnostics";
 import { clampMiniPlayerWidth, type MiniPlayerCorner, type PlayerCommand, type PlayerSession, type SubtitleAppearance } from "../shared/contracts";
 import { SubtitleAppearanceEditor, SubtitlePreview, subtitleVariables } from "./SubtitleAppearanceEditor";
-import { Icon } from "./icons";
+import { Glyph, Icon } from "./icons";
+import { playerIcons } from "./playerIcons";
 import Swap from "./Swap";
 import { Spring, rubber, velocityTracker } from "./motion";
 import { takeCapturedPlayer, takePlayOrigin, type Rect } from "./playerMotion";
@@ -81,7 +82,7 @@ function errorMessage(value: unknown): string {
 function SeekControl({ seconds }: { seconds: -10 | 10 }) {
   const backward = seconds < 0;
   const label = backward ? "Rewind 10 seconds" : "Forward 10 seconds";
-  const Icon = backward ? defaultLayoutIcons.SeekButton.Backward : defaultLayoutIcons.SeekButton.Forward;
+  const Icon = backward ? playerIcons.SeekButton.Backward : playerIcons.SeekButton.Forward;
 
   return (
     <SeekButton className="vds-button player-seek-button" seconds={seconds} aria-label={label} title={label}>
@@ -92,7 +93,7 @@ function SeekControl({ seconds }: { seconds: -10 | 10 }) {
 
 function FullscreenControl({ fullscreen, busy, onToggle }: { fullscreen: boolean; busy: boolean; onToggle: () => void }) {
   const label = fullscreen ? "Exit fullscreen" : "Enter fullscreen";
-  const Icon = fullscreen ? defaultLayoutIcons.FullscreenButton.Exit : defaultLayoutIcons.FullscreenButton.Enter;
+  const Icon = fullscreen ? playerIcons.FullscreenButton.Exit : playerIcons.FullscreenButton.Enter;
 
   return (
     <button
@@ -113,6 +114,7 @@ function FullscreenControl({ fullscreen, busy, onToggle }: { fullscreen: boolean
 function SubtitleMenuEntry({ onOpen }: { onOpen: () => void }) {
   const media = useMediaContext();
   return <button type="button" className="vds-menu-item subtitle-menu-entry" role="menuitem" onClick={(event) => { media.activeMenu?.close(event.nativeEvent); onOpen(); }}>
+    <Glyph name="captions" className="vds-icon" />
     <span className="vds-menu-item-label">Subtitle appearance</span>
   </button>;
 }
@@ -559,12 +561,12 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
             {session.request.textTracks?.map((track, index) => <Track key={`${track.src}:${index}`} src={track.src} kind="subtitles" label={track.label} lang={track.lang} default={track.default} />)}
           </MediaProvider>
           <DefaultVideoLayout
-            icons={defaultLayoutIcons}
+            icons={playerIcons}
             seekStep={10}
             slots={{
               beforePlayButton: <SeekControl seconds={-10} />,
               afterPlayButton: <SeekControl seconds={10} />,
-              beforeSettingsMenu: <button type="button" className="vds-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowShortcuts(true)}>?</button>,
+              beforeSettingsMenu: <button type="button" className="vds-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowShortcuts(true)}><Glyph name="keyboard" className="vds-icon" /></button>,
               settingsMenuEndItems: <SubtitleMenuEntry onOpen={() => setShowSubtitleAppearance(true)} />,
               googleCastButton: null,
               fullscreenButton: (

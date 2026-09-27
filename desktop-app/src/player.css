@@ -32,7 +32,33 @@
   --media-font-family: var(--font);
   --video-font-family: var(--font);
   --video-border: 0; --video-border-radius: 0;
+  /* Controls use the app's line icons (src/playerIcons.tsx) at 24px, one 1.5px line like every icon in the app. */
+  --media-button-icon-size: 24px;
+  --media-menu-item-icon-size: 18px;
+  /* Menus take the app's raised surface with a hairline, not Vidstack's near-black panel. */
+  --media-menu-bg: var(--raised);
+  --media-menu-border: 1px solid var(--rule);
+  --media-menu-border-radius: var(--radius);
+  --media-menu-box-shadow: none;
+  --media-menu-text-color: var(--text);
+  --media-menu-text-secondary-color: var(--muted);
+  --media-menu-hint-color: var(--muted);
+  --media-menu-font-weight: 500;
+  --media-menu-top-bar-bg: var(--raised);
+  --media-menu-section-bg: var(--raised2);
+  --media-menu-section-border: 0;
+  --media-menu-section-border-radius: var(--radius-sm);
+  --media-menu-divider: 1px solid var(--rule);
+  --media-menu-item-border-radius: var(--radius-sm);
+  --media-menu-item-hover-bg: var(--raised2);
+  --media-menu-radio-icon-color: var(--cursor);
+  --media-menu-checkbox-bg-active: var(--cursor);
+  --media-menu-slider-track-bg: var(--rule);
+  --media-menu-slider-track-fill-bg: var(--cursor);
 }
+.media-player .glyph :is(path, circle, rect) { vector-effect: non-scaling-stroke; stroke-width: var(--icon-stroke); }
+/* Captions on is a checked state, so it takes the highlight (kept visible on black). */
+.media-player .vds-button[data-active] .vds-cc-on-icon { color: var(--theme-video-brand, #fff); }
 .media-player [data-media-provider] {
   position: absolute; inset: 0; width: 100%; height: 100%;
   min-width: 0; min-height: 0; aspect-ratio: auto;
@@ -95,7 +121,7 @@
 .player-seek-button:focus-visible,
 .player-fullscreen-button:focus-visible { outline: 2px solid var(--theme-video-brand, #fff); outline-offset: -2px; }
 .player-seek-button .vds-icon,
-.player-fullscreen-button .vds-icon { width: 28px; height: 28px; }
+.player-fullscreen-button .vds-icon { width: 24px; height: 24px; }
 .player-fullscreen-button:disabled { cursor: wait; opacity: .55; }
 
 /* Overlays on the video keep the black surface. */

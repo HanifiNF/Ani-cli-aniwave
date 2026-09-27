@@ -1,0 +1,161 @@
+<!doctype html><meta charset="utf-8"><title>Player icons · mockup</title>
+<!--
+  The full player's controls in the app's one icon set: 24px grid, 1.8 stroke, round caps and joins, drawn at 1.5 screen
+  pixels at every size. "Now" rows use Vidstack's own filled glyphs (player-icons-vidstack.js) for comparison.
+  Font and the still come from design/shots/ (ignored by Git).
+-->
+<style>
+@font-face { font-family: "Inter"; src: url("../shots/fonts/inter.woff2") format("woff2"); font-weight: 100 900; }
+:root { --bg: #1F2023; --text: #EDEDEE; --cursor: #EDEDEE; --brand: #EDEDEE;
+  --raised: color-mix(in oklab, var(--bg), var(--text) 6%); --raised2: color-mix(in oklab, var(--bg), var(--text) 10%);
+  --rule: color-mix(in oklab, var(--bg), var(--text) 12%); --muted: color-mix(in oklab, var(--bg), var(--text) 60%); --dim: color-mix(in oklab, var(--bg), var(--text) 36%); }
+body.gruvbox { --bg: #282828; --text: #EBDBB2; --cursor: #FABD2F; --brand: #FABD2F; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px 32px 40px; width: 1240px; background: var(--bg); color: var(--text); font: 400 14px/1.45 Inter, sans-serif; letter-spacing: -0.005em; -webkit-font-smoothing: antialiased; }
+h2 { margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+p.note { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+section + section { margin-top: 34px; }
+.tag { display: inline-block; margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.ln { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.ln :is(path, circle, rect, line) { vector-effect: non-scaling-stroke; stroke-width: 1.5px; }
+.ln .dot { fill: currentColor; stroke: none; }
+.vds { width: 24px; height: 24px; fill: currentColor; }
+
+/* the bottom of a playing video, with the control bar */
+.frame { position: relative; height: 150px; border-radius: 10px; overflow: hidden; background: #000 url("../shots/nekos/3295.webp") center 75% / cover; }
+.frame::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 38%); }
+.bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 0 12px 10px; color: #fff; }
+.scrub { position: relative; height: 4px; margin: 0 8px 8px; border-radius: 999px; background: rgb(255 255 255 / 30%); }
+.scrub i { position: absolute; inset: 0 62% 0 0; border-radius: 999px; background: var(--brand); }
+.scrub b { position: absolute; left: 38%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--brand); }
+.row { display: flex; align-items: center; gap: 2px; }
+.row .btn { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; color: #fff; }
+.row .btn.hover { background: rgb(255 255 255 / 12%); }
+.row .btn.on { color: var(--brand); }
+.row .time { margin: 0 10px 0 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.row .title { color: rgb(255 255 255 / 70%); font-size: 13px; }
+.row .grow { flex: 1; }
+.row .q { font-size: 15px; font-weight: 700; }
+.row .vds { width: 26px; height: 26px; }
+.row .ln { width: 24px; height: 24px; }
+
+/* settings menu over the video */
+.menus { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.menu { width: 100%; padding: 6px; border-radius: 10px; background: rgb(16 16 16 / 94%); color: #fff; }
+.menu.proposed { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--rule); }
+.menu .item { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; }
+.menu .item.hover { background: rgb(255 255 255 / 8%); }
+.menu.proposed .item.hover { background: var(--raised2); }
+.menu .item .lab { flex: 1; font-weight: 500; }
+.menu .item .val { color: rgb(255 255 255 / 60%); font-size: 13px; }
+.menu.proposed .item .val { color: var(--muted); }
+.menu .ln, .menu .vds { width: 18px; height: 18px; }
+.menu .sub { color: var(--muted); }
+.menu .chev { width: 16px; height: 16px; opacity: .7; }
+.menu .check { color: var(--cursor); }
+
+/* the sheet */
+.sheet { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.cell { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; padding: 12px 14px; border-radius: 10px; background: var(--raised); }
+.cell .name { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-weight: 500; }
+.cell .now { color: var(--dim); display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.cell .new { display: flex; align-items: end; gap: 12px; }
+.cell .new .ln:nth-child(1) { width: 32px; height: 32px; }
+.cell .new .ln:nth-child(2) { width: 20px; height: 20px; }
+.cell .new .ln:nth-child(3) { width: 16px; height: 16px; }
+.cell .on { color: var(--cursor); }
+.legend { display: flex; gap: 18px; margin: 0 0 10px; color: var(--dim); font-size: 12px; }
+</style>
+
+<section>
+  <h2>Control bar</h2>
+  <p class="note">The full player's bar over a playing episode. Same buttons, same places; only the glyphs change. Captions on takes the highlight, as every checked state does.</p>
+  <div class="tag">Now · Vidstack's filled glyphs</div>
+  <div class="frame"><div class="bar"><div class="scrub"><i></i><b></b></div><div class="row" id="barNow"></div></div></div>
+  <div class="tag" style="margin-top:14px">Proposed · the app's line set</div>
+  <div class="frame"><div class="bar"><div class="scrub"><i></i><b></b></div><div class="row" id="barNew"></div></div></div>
+  <div class="tag" style="margin-top:14px">Proposed · with a coloured highlight (Gruvbox): progress and captions on take it</div>
+  <div class="frame" style="--brand:#FABD2F"><div class="bar"><div class="scrub"><i></i><b></b></div><div class="row" id="barNew2"></div></div></div>
+</section>
+
+<section>
+  <h2>Settings menu</h2>
+  <p class="note">Menu rows use the same set at 18px. The proposed menu also takes the app's raised surface and hairline instead of Vidstack's near-black panel.</p>
+  <div class="menus"><div><div class="tag">Now</div><div class="menu" id="menuNow"></div></div><div><div class="tag">Proposed</div><div class="menu proposed" id="menuNew"></div></div></div>
+</section>
+
+<section>
+  <h2>Every glyph the player uses</h2>
+  <div class="legend"><span>Left: now (Vidstack)</span><span>Right: proposed at 32, 20 and 16px, one 1.5px line throughout</span></div>
+  <div class="sheet" id="sheet"></div>
+</section>
+
+<script src="player-icons-vidstack.js"></script>
+<script>
+/* The app's line set on the 24px grid; the first ones are already in src/icons.tsx. */
+const L = {
+  play: '<path d="M8 5.5v13l11-6.5z"/>',
+  pause: '<path d="M9 5.5v13M15 5.5v13"/>',
+  // One arc on a circle of radius 8 about the centre; the arrowhead's point sits on the arc's end, its arms 40° either side of the way the arc runs.
+  replay: '<path d="M4.27 14.07A8 8 0 1 0 6.34 6.34"/><path d="M9.53 6.06 6.34 6.34 6.62 3.16"/>',
+  seekBack: '<path d="M4.27 14.07A8 8 0 1 0 6.34 6.34"/><path d="M9.53 6.06 6.34 6.34 6.62 3.16"/><path d="M10 9.5v5"/><rect x="12.5" y="9.5" width="3" height="5" rx="1.5"/>',
+  seekForward: '<path d="M19.73 14.07A8 8 0 1 1 17.66 6.34"/><path d="M14.47 6.06 17.66 6.34 17.38 3.16"/><path d="M9.5 9.5v5"/><rect x="12" y="9.5" width="3" height="5" rx="1.5"/>',
+  volumeHigh: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+  volumeLow: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/>',
+  mute: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M16 10l4 4M20 10l-4 4"/>',
+  captions: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10.5 10.2a2 2 0 1 0 0 3.6M17 10.2a2 2 0 1 0 0 3.6"/>',
+  captionsOff: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10.5 10.2a2 2 0 1 0 0 3.6M17 10.2a2 2 0 1 0 0 3.6"/><path d="M4 20 20 4"/>',
+  pipEnter: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="12" width="6" height="4" rx="1"/>',
+  pipExit: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M8 9l4.5 4.5M8 13V9h4"/>',
+  fullscreen: '<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/>',
+  fullscreenExit: '<path d="M9 4v3a2 2 0 0 1-2 2H4M20 9h-3a2 2 0 0 1-2-2V4M15 20v-3a2 2 0 0 1 2-2h3M4 15h3a2 2 0 0 1 2 2v3"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  keyboard: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8.5 14h7"/>',
+  chevronLeft: '<path d="m15 6-6 6 6 6"/>',
+  chevronRight: '<path d="m9 6 6 6-6 6"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  accessibility: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5h.01M8 10.5l4 1 4-1M12 11.5v3l-2 3.5M12 14.5l2 3.5"/>',
+  audio: '<path d="M4.5 11v2M8 8v8M11.5 5v14M15 8v8M18.5 10.5v3"/>',
+  chapters: '<path d="M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01"/>',
+  speed: '<path d="M4.3 16.5a8.5 8.5 0 1 1 15.4 0"/><path d="M12 15l3.5-4.5"/>',
+  quality: '<path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/>',
+  fontUp: '<path d="M4 18.5 8.5 6h1L14 18.5M5.6 14h6.8M17.5 7v6M14.5 10h6"/>',
+  fontDown: '<path d="M4 18.5 8.5 6h1L14 18.5M5.6 14h6.8M14.5 10h6"/>',
+  opacityUp: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M12 7.5h5.5M12 12h8.5M12 16.5h5.5"/>',
+  opacityDown: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M12 9.75h4M12 14.25h4"/>',
+  download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+};
+const ln = (name, cls = "") => `<svg class="ln ${cls}" viewBox="0 0 24 24" aria-hidden="true">${L[name]}</svg>`;
+const vds = (id) => `<svg class="vds" viewBox="0 0 32 32" aria-hidden="true">${VDS[id]}</svg>`;
+
+// Control bar, in the app's order: seek back, play, seek forward, volume, time · title … shortcuts, captions, settings, PiP, fullscreen.
+const bar = (make, shortcuts) => [
+  make("seekBack", 77), make("pause", 59), make("seekForward", 81), make("volumeHigh", 104),
+  `<span class="time">8:10 / 24:00</span><span class="title">• Frieren: Beyond Journey's End · Episode 13</span><span class="grow"></span>`,
+  shortcuts, make("captions", 26, "on"), make("gear", 88, "hover"), make("pipEnter", 61), make("fullscreen", 40),
+].join("");
+document.getElementById("barNow").innerHTML = bar((_, id, cls = "") => `<span class="btn ${cls === "hover" ? "hover" : ""}">${vds(id)}</span>`, `<span class="btn q">?</span>`);
+document.getElementById("barNew").innerHTML = document.getElementById("barNew2").innerHTML = bar((name, _, cls = "") => `<span class="btn ${cls}">${ln(name)}</span>`, `<span class="btn">${ln("keyboard")}</span>`);
+
+// Settings menu
+const rows = [["speed", 63, "Playback", "Normal"], ["accessibility", 0, "Accessibility", ""], ["audio", 53, "Audio", "Default"], ["captions", 27, "Captions", "English"], ["quality", 86, "Quality", "Auto · 1080p"]];
+document.getElementById("menuNow").innerHTML = rows.map(([, id, lab, val], i) => `<div class="item ${i === 3 ? "hover" : ""}">${vds(id)}<span class="lab">${lab}</span><span class="val">${val}</span><svg class="vds chev" viewBox="0 0 32 32">${VDS[22]}</svg></div>`).join("")
+  + `<div class="item"><span style="width:18px"></span><span class="lab">Subtitle appearance</span></div>`;
+document.getElementById("menuNew").innerHTML = rows.map(([name, , lab, val], i) => `<div class="item ${i === 3 ? "hover" : ""}">${ln(name)}<span class="lab">${lab}</span><span class="val">${val}</span>${ln("chevronRight", "chev")}</div>`).join("")
+  + `<div class="item">${ln("captions")}<span class="lab">Subtitle appearance</span></div>`;
+
+// Sheet
+const SHEET = [
+  ["Play", "play", 62], ["Pause", "pause", 59], ["Replay", "replay", 74], ["Seek back 10 s", "seekBack", 77],
+  ["Seek forward 10 s", "seekForward", 81], ["Volume high", "volumeHigh", 104], ["Volume low", "volumeLow", 105], ["Mute", "mute", 54],
+  ["Captions on", "captions", 26, "on"], ["Captions off", "captionsOff", 27], ["Picture in picture", "pipEnter", 61], ["Leave picture in picture", "pipExit", 60],
+  ["Fullscreen", "fullscreen", 40], ["Leave fullscreen", "fullscreenExit", 39], ["Settings", "gear", 88], ["Shortcuts (was “?”)", "keyboard", null],
+  ["Menu back", "chevronLeft", 11], ["Menu open", "chevronRight", 22], ["Chosen option", "check", 19], ["Accessibility", "accessibility", 0],
+  ["Audio track", "audio", 53], ["Chapters", "chapters", 16], ["Playback speed", "speed", 63], ["Quality", "quality", 86],
+  ["Larger text", "fontUp", 13], ["Smaller text", "fontDown", 8], ["More opaque", "opacityUp", 33], ["Less opaque", "opacityDown", 56],
+];
+document.getElementById("sheet").innerHTML = SHEET.map(([label, name, id, cls = ""]) => `<div class="cell"><span class="name">${label}</span>
+  <span class="now">${id === null ? '<span style="font:700 18px Inter;width:24px;text-align:center">?</span>' : vds(id)}</span>
+  <span class="new ${cls}">${ln(name)}${ln(name)}${ln(name)}</span></div>`).join("");
+if (location.hash === "#gruvbox") document.body.classList.add("gruvbox");
+</script>

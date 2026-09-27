@@ -16,7 +16,10 @@ records the real renderer, both at true speed.
 - Type: Inter only (bundled, `@fontsource-variable/inter`), weights 400, 500 and 700, letter spacing −0.005em everywhere.
   Small labels are sentence case at 500, never tracked capitals.
 - Icons: one set (`src/icons.tsx`) on a 24px grid with a 1.8 stroke and round caps and joins, drawn at 1.5 screen pixels at
-  every size. Vidstack's own control icons in the full player are not yet part of the set.
+  every size. The full player uses it too (`src/playerIcons.tsx` fills Vidstack's icon slots, at 24px in the bar and 18px
+  in menus); seek and replay are one arc with the arrowhead's point on the arc's end, captions on takes the highlight, and
+  the shortcuts button is a keyboard instead of "?". The player's menus use the raised surface and hairline. Mockup:
+  `design/variants/player-icons.html` (with Vidstack's glyphs beside them, from `player-icons-vidstack.js`).
 - Motion (`src/motion.ts`): springs on everything, three presets. Snap (0.25 s, damping 1) moves controls; glide (0.4 s,
   0.95) moves layout and shared elements; stretch moves indicator edges (leading 0.2 s, trailing 0.32 s), so an indicator
   runs ahead and gathers up as it lands. Every spring is launched: a new target from rest starts at distance × ω, so about a
