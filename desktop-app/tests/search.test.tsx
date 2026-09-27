@@ -151,9 +151,9 @@ describe("release update checks", () => {
     await click("settings, update available");
     expect(container.querySelector(".update-notice")?.textContent).toContain("v1.1.0 available");
     expect(container.querySelector(".settings-section-nav .rail-dot")).not.toBeNull();
-    await click("View release");
+    await click("Version 1.1.0 is available");
     expect(api.openLatestRelease).toHaveBeenCalledOnce();
-    await click("skip this version");
+    await click("skip");
     expect(api.dismissUpdate).toHaveBeenCalledWith("1.1.0");
     expect(container.querySelector(".update-notice")).toBeNull();
     expect(container.querySelector(".rail-dot")).toBeNull();
@@ -162,10 +162,10 @@ describe("release update checks", () => {
   });
 
   it("offers a forced check from the Updates row", async () => {
-    vi.mocked(api.checkForUpdates).mockResolvedValue(available);
+    vi.mocked(api.checkForUpdates).mockResolvedValue({ currentVersion: "1.0.0", latestVersion: "1.0.0", state: "current" });
     await advance(1_500);
-    await click("settings, update available");
-    await click("check again");
+    await click("settings");
+    await click("check now");
     expect(api.checkForUpdates).toHaveBeenLastCalledWith(true);
   });
 });

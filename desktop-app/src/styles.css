@@ -566,6 +566,10 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .update-settings .v-row .link { color: var(--muted); font-size: 13px; }
 .update-settings .v-row .link:hover:not(:disabled) { color: var(--text); }
 .update-settings .v-row .link:disabled { opacity: .5; }
+.update-settings .update-title { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font: inherit; text-align: left; }
+.update-settings .update-title .icon { width: 14px; height: 14px; color: var(--muted); transition: color var(--t-snap); }
+.update-settings .update-title:hover .icon, .update-settings .update-title:focus-visible .icon { color: var(--text); }
+.update-settings .btn .icon { width: 16px; height: 16px; }
 /* Silent at rest: "Saving…" while a change is written, "Saved" for two seconds after, and a refusal that stays with a retry. */
 .save-state { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 18px; color: var(--dim); font-size: 12px; }
 .save-word { display: inline-flex; align-items: center; }

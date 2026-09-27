@@ -1,4 +1,5 @@
 import type { UpdateStatus, UpdateInstallStatus } from "../shared/contracts";
+import { Icon } from "./icons";
 
 /** A newer release the user has yet to skip. It lights the dot on the gear, the dot in the rail, and the link beside the Settings heading. */
 export const updatePending = (status?: UpdateStatus): status is UpdateStatus & { latestVersion: string } =>
@@ -31,20 +32,23 @@ export function UpdatePanel({ status, checking, onCheck, onOpen, onSkip, install
   const title = available ? `Version ${status?.latestVersion} is available`
     : status?.state === "current" ? "ANIdesktop is up to date"
     : "Application updates";
+  const installing = Boolean(canDownload || ready || busy);
   const detail = !status ? "ANIdesktop will check shortly after startup."
     : status.state === "development" ? "Automatic checks are disabled while running from source."
     : available ? `You have ${status.currentVersion} · ${checked(status.checkedAt)}${status.dismissed ? " · skipped" : ""}`
     : status.state === "current" ? `Version ${status.currentVersion} · ${checked(status.checkedAt)}`
     : `${status.error ?? "Could not check for updates."} Installed v${status.currentVersion}.`;
   return <div className="group update-settings"><h3 id="settings-updates" tabIndex={-1}>Updates</h3><div className="box">
-    <div className="r"><span className="k">{title}<small>{detail}{status?.stale ? " Showing the last valid result." : ""}</small></span>
+    {/* An available version is one line and one action: its title opens the release notes, a quiet skip sits beside the button. */}
+    <div className="r"><span className="k">{available
+      ? <button type="button" className="update-title" title="View release notes" onClick={onOpen}>{title}<Icon name="external" /></button>
+      : title}<small>{detail}{status?.stale ? " Showing the last valid result." : ""}</small></span>
       <span className="v-row">
-        {updatePending(status) && <button type="button" className="link" disabled={busy} onClick={onSkip}>skip this version</button>}
-        {available
-          ? <button type="button" className="link" disabled={checking || busy} onClick={onCheck}>{checking ? "checking…" : "check again"}</button>
-          : <button type="button" className="btn small" disabled={checking || busy} onClick={onCheck}>{checking ? "checking…" : "check now"}</button>}
-        {available && <button type="button" className={canDownload || ready || busy ? "link" : "btn small primary"} onClick={onOpen}>View release</button>}
-        {(canDownload || ready || busy) && <button type="button" className="btn small primary" disabled={checking || busy} onClick={ready ? onInstall : onDownload}>
+        {updatePending(status) && <button type="button" className="link" disabled={busy} aria-label={`Skip version ${status.latestVersion}`} onClick={onSkip}>skip</button>}
+        {!available && <button type="button" className="btn small" disabled={checking || busy} onClick={onCheck}>{checking ? "checking…" : "check now"}</button>}
+        {available && !installing && <button type="button" className="btn small primary" onClick={onOpen}>View release</button>}
+        {installing && <button type="button" className="btn small primary" disabled={checking || busy} onClick={ready ? onInstall : onDownload}>
+          {!ready && !busy && <Icon name="download" />}
           {installStatus?.phase === "installing" ? "Opening update…" : installStatus?.phase === "downloading" ? `Downloading ${Math.floor(installStatus.percent ?? 0)}%`
             : ready ? installStatus?.mode === "automatic" ? "Install and restart" : "Open download" : installStatus?.mode === "native" ? "Install update…" : "Download update"}
         </button>}
@@ -52,7 +56,8 @@ export function UpdatePanel({ status, checking, onCheck, onOpen, onSkip, install
     </div>
   </div>
     {status?.error && status.state !== "error" && <div className="group-note">{status.error}</div>}
-    {(available || ready || busy) && installStatus && <div className="group-note" role="status">
+    {/* How to finish installing appears once there is something to install, not beside the offer. */}
+    {(ready || busy || installStatus?.error) && installStatus && <div className="group-note" role="status">
       {ready ? `Version ${installStatus.version} is ready. ` : ""}{installStatus.detail}
       {installStatus.error && <div role="alert">{installStatus.error}</div>}
     </div>}

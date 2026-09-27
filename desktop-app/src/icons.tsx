@@ -49,6 +49,7 @@ const PATHS = {
   opacityUp: <><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5v17M12 7.5h5.5M12 12h8.5M12 16.5h5.5" /></>,
   opacityDown: <><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5v17M12 9.75h4M12 14.25h4" /></>,
   download: <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" />,
+  external: <path d="M14 4.5h5.5V10M19.5 4.5 11 13M17 14v4.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1H10" />,
   airplay: <path d="M6 17H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-1M12 15l4 5H8z" />,
   cast: <path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01" />
 } as const;
