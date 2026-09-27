@@ -8,7 +8,7 @@ import SettingsScreen, { type SettingsSaveState } from "./SettingsScreen";
 import LibrarySection from "./LibrarySection";
 import EmptyLibrary from "./EmptyLibrary";
 import { Backdrop, type BackdropPage, type BackdropVariant } from "./Backdrop";
-import ScheduleSection from "./ScheduleSection";
+import ScheduleSection, { type ScheduleMemory } from "./ScheduleSection";
 import { asAnime, libraryEntry, libraryEntryAllWatched, type Row, type LibraryKind } from "./library";
 import { shortcut } from "./keys";
 import { episodeValue, episodeRowsOf, nextUpIndex, providerList, type EpisodeFilter, type EpisodeSort } from "./episodes";
@@ -58,6 +58,13 @@ import BrowseDetail from "./BrowseDetail";
 import EpisodeUpdatesPanel, { EpisodeUpdatesPage, usePanelPresence } from "./EpisodeUpdatesPanel";
 
 type Screen = "home" | "browse" | "catalog-detail" | "series" | "opening" | "saved" | "recent" | "notifications" | "settings" | "player";
+interface OpenedCard { group: string; id: string }
+/** Pages a series can be opened from and returned to. */
+type ReturnPage = "home" | "browse" | "saved" | "recent" | "notifications";
+const isReturnPage = (screen: Screen): screen is ReturnPage => screen === "home" || screen === "browse" || screen === "saved" || screen === "recent" || screen === "notifications";
+const BACK_LABELS: Partial<Record<ReturnPage, string>> = { browse: "Browse", saved: "Saved", recent: "Recent", notifications: "Notifications" };
+/** Elements that enter with a rise or fade; on a return they are shown as they were instead. */
+const ENTRANCES = ".card, .hit-row, .src-wrap, .status, .notice, .empty, .schedule-state, .section-empty, .browse-none, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .notification-card, .notifications-page-head, .notification-empty";
 // Vidstack and hls.js load with the first playback, not at startup.
 const loadPlayerScreen = () => import("./PlayerScreen");
 const PlayerScreen = lazy(loadPlayerScreen);
@@ -129,15 +136,31 @@ function App() {
   const listRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
   const playbackRequest = useRef<string | undefined>(undefined);
-  const seriesOrigin = useRef<"home" | "browse" | "notifications">("home");
+  // The page a series was opened from, and how far down it was scrolled, so going back returns to it as it was left.
+  const seriesOrigin = useRef<ReturnPage>("home");
+  const originScroll = useRef(0);
+  const returning = useRef<{ screen: Screen; top: number; card?: OpenedCard }>(undefined);
+  // The card that opened the series (its group and id), so the keyboard cursor comes back to it too.
+  const openedCard = useRef<OpenedCard>(undefined);
+  const returnCard = useRef<OpenedCard>(undefined);
+  // The return commit still carries the old cursor; revealing it would scroll the restored page away.
+  const skipReveal = useRef(false);
+  const noteOpenedCard = (element: Element | null | undefined) => {
+    const card = element?.closest<HTMLElement>("[data-origin]");
+    const group = card?.closest<HTMLElement>("[data-origin-group]")?.dataset.originGroup;
+    openedCard.current = card?.dataset.origin && group ? { group, id: card.dataset.origin } : undefined;
+  };
+  const keepBackdrop = useRef(false);
+  const scheduleMemory = useRef<ScheduleMemory>({});
   useEffect(() => () => { if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current); }, []);
   useEffect(() => installPressDip(), []);
   // A card or search row that opens a title lends its poster to the series page (src/flight.ts).
   useEffect(() => {
     const launch = (event: MouseEvent) => {
-      const hit = event.target instanceof Element ? event.target.closest(".card .hit, .hit-row .hit") : null;
+      const hit = event.target instanceof Element ? event.target.closest(".card .hit, .hit-row .hit, .notification-card button") : null;
       if (!hit) return;
-      const poster = hit.querySelector(".poster, .thumb");
+      const poster = hit.closest(".card, .hit-row, .notification-card")?.querySelector(".poster, .thumb, .notification-poster");
+      noteOpenedCard(hit);
       launchFrom(poster);
       // A card that resumes playback is also where the player grows from.
       if (hit.matches(".card .hit")) setPlayOrigin(poster);
@@ -318,8 +341,13 @@ function App() {
   const backdropPage: BackdropPage | undefined = screen === "home" || screen === "browse" || screen === "saved" || screen === "recent" ? screen : undefined;
   const backdropsOn = stateLoaded && appState.settings.emptyBackdrop !== false;
   const [backdrop, setBackdrop] = useState<{ page: BackdropPage; variant: BackdropVariant; art: BackdropArt }>();
+  const backdropRef = useRef(backdrop);
+  backdropRef.current = backdrop;
   useEffect(() => {
-    if (!backdropPage || !backdropsOn) { setBackdrop(undefined); return; }
+    if (!backdropsOn) { setBackdrop(undefined); return; }
+    // Pages without art keep the last one in hand, so returning to its page shows the same illustration.
+    if (!backdropPage) return;
+    if (keepBackdrop.current) { keepBackdrop.current = false; if (backdropRef.current?.page === backdropPage) return; }
     const variant: BackdropVariant = backdropPage === "home" || Math.random() < 0.5 ? "wash" : "corner";
     let current = true;
     void window.aniDesktop.backdropArt(variant === "wash" ? "wide" : "portrait")
@@ -363,11 +391,21 @@ function App() {
     }
     previousResults.current = results;
   }, [results]);
-  useEffect(() => { if ((screen !== "series" || seriesSearch) && screen !== "player") setCursor(0); }, [screen, seriesSearch, filter]);
+  // A new page starts its keyboard cursor on the first card; a page returned to puts it back on the card that opened the
+  // series, or on none when that card is not one the keyboard moves through, so the restored scroll is not pulled away.
+  useEffect(() => {
+    if ((screen === "series" && !seriesSearch) || screen === "player") return;
+    const card = returnCard.current;
+    returnCard.current = undefined;
+    if (!card) { setCursor(0); return; }
+    const kind = card.group === "search" ? "results" : card.group;
+    setCursor(rows.findIndex((row) => row.kind === kind && (row.entry?.animeId ?? row.anime?.id) === card.id));
+  }, [screen, seriesSearch, filter]);
   useEffect(() => { if (screen !== "series") setSeriesSearch(false); }, [screen]);
   // Library navigation follows its cursor; series jumps are explicit scroll commands.
   const cursorKey = rows[cursor]?.anime?.id ?? rows[cursor]?.entry?.animeId;
   useEffect(() => {
+    if (skipReveal.current) { skipReveal.current = false; return; }
     if (screen === "series" && !seriesSearch) return;
     const selected = document.querySelector<HTMLElement>('[data-cursor="true"]');
     if (!selected) return;
@@ -484,10 +522,17 @@ function App() {
     if (screen === "browse" && browseOpening) { cancelSeries(); setBrowseOpening(undefined); return; }
     if (screen === "catalog-detail") { cancelSeries(); go("browse"); return; }
     if (screen === "series") {
-      // The poster flies back to its card when the page going back to shows one.
+      // Back is a return, not a visit: the page comes back as it was left (its scroll, its filter, its backdrop, no
+      // entrance), and the poster flies home to the card that opened the series, or to another card for the title.
       const entry = selectedAnime && [...appState.history, ...appState.bookmarks].find((item) => overlaps(item, selectedAnime));
-      if (entry) returnTo(document.querySelector(".series .side .poster"), `.card[data-anime="${CSS.escape(entry.animeId)}"] .poster`);
-      setSelectedAnime(undefined); go(seriesOrigin.current); return;
+      returnTo(document.querySelector(".series .side .poster"), entry ? `.card[data-anime="${CSS.escape(entry.animeId)}"] .poster` : undefined);
+      const origin = seriesOrigin.current;
+      returning.current = { screen: origin, top: originScroll.current, card: openedCard.current };
+      keepBackdrop.current = true;
+      setSelectedAnime(undefined); setEpisodeInboxOpen(false); setError(undefined); setNotice(undefined);
+      if (origin !== "home" && origin !== "saved" && origin !== "recent") setQuery("");
+      setScreen(origin);
+      return;
     }
     go("home");
   }
@@ -563,7 +608,10 @@ function App() {
     cancelSeries();
     if (seriesSearch) closeSeriesSearch();
     const replacing = !options.refresh || screen !== "series" || !selectedAnime || !overlaps(selectedAnime, anime);
-    if (replacing) seriesOrigin.current = options.returnTo ?? "home";
+    if (replacing && screen !== "series") {
+      seriesOrigin.current = options.returnTo ?? (isReturnPage(screen) ? screen : "home");
+      originScroll.current = document.querySelector<HTMLElement>(".page")?.scrollTop ?? 0;
+    }
     const token = openToken.current;
     const animeProgress = appState.history.find((entry) => overlaps(entry, anime));
     const preferred = animeProgress?.lastProvider ?? (provider === "auto" ? options.preferredProvider ?? anime.provider : provider);
@@ -915,7 +963,7 @@ function App() {
       if (searchHere && query.trim() && (!catalogSearch.ready && (catalogSearch.pending || target === fieldRef.current))) {
         catalogSearch.searchNow(); return;
       }
-      if (rows[cursor]) { launchFrom(document.querySelector('[data-cursor="true"] .poster, [data-cursor="true"] .thumb')); void activate(rows[cursor]); }
+      if (rows[cursor]) { const poster = document.querySelector('[data-cursor="true"] .poster, [data-cursor="true"] .thumb'); launchFrom(poster); noteOpenedCard(poster); void activate(rows[cursor]); }
       return;
     }
     if (typing) return;
@@ -930,7 +978,18 @@ function App() {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  useLayoutEffect(() => resolveReturn(), [screen]);
+  // Returning to a page: what was on it stays still (no fade, no rise), its scroll comes back, and the poster lands.
+  useLayoutEffect(() => {
+    const back = returning.current?.screen === screen ? returning.current : undefined;
+    returning.current = undefined;
+    if (back) {
+      returnCard.current = back.card;
+      skipReveal.current = true;
+      const page = document.querySelector<HTMLElement>(".page");
+      for (const element of [page, document.querySelector(".backdrop"), ...(page?.querySelectorAll(ENTRANCES) ?? []), ...document.querySelectorAll(".palette .hit-row")]) element?.setAttribute("data-still", "");
+    }
+    resolveReturn(back ? () => { const page = document.querySelector<HTMLElement>(".page"); if (page) page.scrollTop = back.top; } : undefined);
+  }, [screen]);
 
   const placeholder = screen === "saved" ? "Filter saved titles" : screen === "recent" ? "Filter recent titles" : "Search anime";
   const searching = catalogSearch.loading;
@@ -1082,7 +1141,7 @@ function App() {
                 {cardSection("continue", "Continue watching", "recent")}
                 {cardSection("saved", "Saved", "saved")}
               </>}
-            <ScheduleSection settings={appState.settings} library={[...appState.history, ...appState.bookmarks]}
+            <ScheduleSection memory={scheduleMemory.current} settings={appState.settings} library={[...appState.history, ...appState.bookmarks]}
               metadataFor={scheduleMetadata} onMetadata={loadScheduleMetadata}
               onOpen={(anime, episode, audio) => void openAnime(expandWithLinks(anime, appState.providerLinks ?? []), { mode: audio, focusEpisodeId: episode.id })} />
           </>
@@ -1108,7 +1167,7 @@ function App() {
             : cardSection("recent", "Recent"))}
 
         {screen === "series" && selectedAnime && (
-          <SeriesScreen anime={selectedAnime} progress={progress} isSaved={isSaved} player={player} backLabel={seriesOrigin.current === "browse" ? "Browse" : undefined}
+          <SeriesScreen anime={selectedAnime} progress={progress} isSaved={isSaved} player={player} backLabel={BACK_LABELS[seriesOrigin.current]}
             mode={mode} quality={quality} lastQuery={lastQuery} busy={busy ?? (episodesLoading ? "loading episodes" : undefined)} resolving={resolving}
             pendingSources={pendingSources} sourceErrors={sourceErrors} episodeGroups={episodeGroups} episodeRows={episodeRows}
             episodeCount={episodeCount} seriesMetadata={seriesMetadata.get(selectedAnime)} info={workInfo.get(linkedAnime(selectedAnime))} infoLoading={appState.settings.animeInfo !== false && workInfo.loading(linkedAnime(selectedAnime))} nextUp={nextUp} episodeFilter={episodeFilter}

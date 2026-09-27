@@ -37,6 +37,10 @@ records the real renderer, both at true speed.
 - Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
   indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
   that can be dragged, stretches past either end, and springs from its release speed.
+- Back is a return, not a visit: going back from a series lands on the page it was opened from (Home, Saved, Recent,
+  Browse, Notifications; the back link names it), with its scroll, filter, backdrop art, schedule day, and keyboard
+  cursor as they were, and without the page fade or the cards' rise. Posters already shown this session appear at once
+  (`src/Art.tsx`) instead of fading in again.
 - Stable layout: nothing appears above content to announce work. Progress, confirmations, and errors float in a status
   pill at the bottom of the page (confirmations pass after 4 s, errors stay until the next action); quick actions whose
   control shows the result (save, ticks, mark all watched, removing a card) say nothing at all. Episode loading is shown

@@ -2,42 +2,86 @@ import { Spring, motionAllowed } from "./motion";
 
 /*
   Shared posters. Opening a title from a card or a search row flies that poster to the series page's poster; going
-  back flies the series poster to its card. The flyer is a copy of the image on the four glide springs of its rectangle;
-  a new destination mid-flight (Escape while it is still moving) turns it from where it is, at its speed.
+  back flies the series poster home to the very card that opened it (the Saved card stays the Saved card, even when
+  the title also sits in Continue watching). The flyer is a copy of the image on the four glide springs of its
+  rectangle; a new destination mid-flight (Escape while it is still moving) turns it from where it is, at its speed.
+
+  Cards take part by carrying data-origin (unique within their group) inside an element with data-origin-group
+  (a section, the Browse grid, the search results, the notifications list).
 */
 
 interface Rect { x: number; y: number; w: number; h: number }
 const KEYS = ["x", "y", "w", "h"] as const;
 const FRESH = 1_500; // A launch that finds no destination this soon is dropped.
+const WAIT = 700; // How long a return waits for its card on a page that fills in asynchronously.
+const POSTER = ":is(.poster, .thumb, .notification-poster)";
 
-let origin: { rect: Rect; src?: string; at: number } | undefined;
+let origin: { rect: Rect; src?: string; at: number; back?: string } | undefined;
+/** Where the open series came from, as a selector for its card; set when the series poster receives a launch. */
+let cameFrom: string | undefined;
 let flight: { node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement; settled: number } | undefined;
-let waiting: { selector: string; at: number } | undefined;
+let waiting: { selectors: string[]; at: number } | undefined;
 
 const rectOf = (element: Element): Rect => { const r = element.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
 const imageOf = (element: Element) => (element instanceof HTMLImageElement ? element : element.querySelector("img"))?.currentSrc || undefined;
 
+/** The selector that finds this card again after its page is rebuilt. */
+function cardSelector(element: Element): string | undefined {
+  const card = element.closest<HTMLElement>("[data-origin]");
+  if (!card?.dataset.origin) return undefined;
+  const group = card.closest<HTMLElement>("[data-origin-group]")?.dataset.originGroup;
+  const own = `[data-origin="${CSS.escape(card.dataset.origin)}"]`;
+  return group ? `[data-origin-group="${CSS.escape(group)}"] ${own}` : own;
+}
+
 /** Records the poster that is about to open a title, before the page changes. */
 export function launchFrom(element: Element | null | undefined): void {
   if (!element || !motionAllowed()) return;
-  origin = { rect: rectOf(element), src: imageOf(element), at: performance.now() };
+  origin = { rect: rectOf(element), src: imageOf(element), at: performance.now(), back: cardSelector(element) };
 }
 
-/** Records the page's own poster before going back, and the card it should land on once the next page renders. */
-export function returnTo(from: Element | null | undefined, selector: string): void {
-  if (!from || !motionAllowed()) return;
+/**
+  Called by the series page when a title opens there: lands a pending launch on its poster, and remembers the card it
+  came from for the way back. A title opened without a card (a key, a notification) forgets any earlier card.
+*/
+export function landSeries(target: HTMLElement | null): void {
+  const fresh = origin && performance.now() - origin.at < FRESH;
+  // A repeat call for the same opening (the poster already in flight to this page) keeps the card it came from.
+  if (fresh) cameFrom = origin!.back;
+  else if (!flight) cameFrom = undefined;
+  land(target);
+}
+
+/**
+  Records the page's own poster before going back. The poster will land on the card that opened the series, or failing
+  that on `fallback` (another card for the same title), once the page going back to renders.
+*/
+export function returnTo(from: Element | null | undefined, fallback?: string): void {
+  const selectors = [cameFrom && `${cameFrom} ${POSTER}`, fallback].filter((value): value is string => Boolean(value));
+  cameFrom = undefined;
+  if (!from || !motionAllowed() || !selectors.length) { waiting = undefined; return; }
   if (!flight) origin = { rect: rectOf(from), src: imageOf(from), at: performance.now() };
-  waiting = { selector, at: performance.now() };
+  waiting = { selectors, at: performance.now() };
 }
 
-/** Called after a render: lands a pending return on its card when that card is on the page now. */
-export function resolveReturn(): void {
-  if (!waiting) return;
-  const { selector, at } = waiting;
+/**
+  Called after a render: lands a pending return on its card. A page that fills in asynchronously (Browse) gets a short
+  wait for the card to appear. `restore` runs first, once the card is there (or the wait is over), so a restored scroll
+  position is in place before the landing spot is measured.
+*/
+export function resolveReturn(restore?: () => void): void {
+  const pending = waiting;
   waiting = undefined;
-  if (performance.now() - at > FRESH) { origin = undefined; return; }
-  const target = document.querySelector<HTMLElement>(selector);
-  if (target) land(target); else { origin = undefined; flight?.node.remove(); flight = undefined; }
+  if (!pending) { restore?.(); return; }
+  const find = () => { for (const selector of pending.selectors) { const found = document.querySelector<HTMLElement>(selector); if (found) return found; } return null; };
+  const attempt = () => {
+    const target = find();
+    if (target) { restore?.(); land(target); return; }
+    if (performance.now() - pending.at < WAIT && typeof requestAnimationFrame === "function") { requestAnimationFrame(attempt); return; }
+    restore?.();
+    origin = undefined; flight?.node.remove(); flight = undefined;
+  };
+  attempt();
 }
 
 /** Lands the pending or moving poster on `target`, which stays hidden until the flyer arrives. */

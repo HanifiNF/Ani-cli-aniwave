@@ -43,13 +43,20 @@ interface Props {
   onOpen: (anime: AnimeResult, episode: Episode, mode: TranslationMode) => void;
   metadataFor?: (anime: AnimeResult) => SeriesMetadataCatalog | undefined;
   onMetadata?: (anime: AnimeResult) => void;
+  /** Kept by the page's owner across visits, so Home comes back with the same day and cards at full height. */
+  memory?: ScheduleMemory;
 }
 
-export default function ScheduleSection({ settings, library, onOpen, metadataFor = () => undefined, onMetadata = () => undefined }: Props) {
+/** What the schedule last showed: the chosen day and audio, the day's entries, and artwork found for them. */
+export interface ScheduleMemory { date?: string; mode?: TranslationMode; loaded?: { identity: string; value: ScheduleResult }; artwork?: Record<string, ScheduleArtwork> }
+
+export default function ScheduleSection({ settings, library, onOpen, metadataFor = () => undefined, onMetadata = () => undefined, memory }: Props) {
+  const memo = useRef<ScheduleMemory>(memory ?? {}).current;
   const [now, setNow] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
-  const [loaded, setLoaded] = useState<{ identity: string; value: ScheduleResult }>();
-  const [artwork, setArtwork] = useState<Record<string, ScheduleArtwork>>({});
+  // A remembered day is kept while the rolling strip still shows it.
+  const [selectedDate, setSelectedDate] = useState(() => memo.date && scheduleDays(new Date()).some((day) => day.date === memo.date) ? memo.date : localDateKey(new Date()));
+  const [loaded, setLoaded] = useState<{ identity: string; value: ScheduleResult } | undefined>(memo.loaded);
+  const [artwork, setArtwork] = useState<Record<string, ScheduleArtwork>>(memo.artwork ?? {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -57,13 +64,17 @@ export default function ScheduleSection({ settings, library, onOpen, metadataFor
   const todayRef = useRef(localDateKey(now));
   const days = useMemo(() => scheduleDays(now), [localDateKey(now)]);
   const { utcStart, utcEnd } = scheduleDayBounds(selectedDate);
-  const [mode, setMode] = useState<TranslationMode>(settings.preferredMode);
+  const [mode, setMode] = useState<TranslationMode>(memo.mode ?? settings.preferredMode);
+  useEffect(() => { memo.date = selectedDate; memo.mode = mode; memo.loaded = loaded; memo.artwork = artwork; }, [selectedDate, mode, loaded, artwork]);
   const sourceScope = `${settings.aniwaveBaseUrl}|${(settings.disabledSources ?? []).includes("aniwave")}`;
   const requestIdentity = `${sourceScope}|${selectedDate}|${utcStart}|${utcEnd}|${mode}`;
   const result = loaded?.identity === requestIdentity ? loaded.value : undefined;
 
-  useEffect(() => setMode(settings.preferredMode), [settings.preferredMode]);
-  useEffect(() => setArtwork({}), [sourceScope]);
+  // A change of preferred audio applies; mounting again keeps the audio the strip was left on.
+  const preferred = useRef(settings.preferredMode);
+  useEffect(() => { if (preferred.current !== settings.preferredMode) { preferred.current = settings.preferredMode; setMode(settings.preferredMode); } }, [settings.preferredMode]);
+  const scope = useRef(sourceScope);
+  useEffect(() => { if (scope.current !== sourceScope) { scope.current = sourceScope; setArtwork({}); } }, [sourceScope]);
   useEffect(() => {
     const update = () => {
       const value = new Date(), today = localDateKey(value);
@@ -101,7 +112,7 @@ export default function ScheduleSection({ settings, library, onOpen, metadataFor
   const zone = new Intl.DateTimeFormat([], { timeZoneName: "short" }).formatToParts(now).find((part) => part.type === "timeZoneName")?.value;
   const rememberArtwork = useCallback((value: ScheduleArtwork) => setArtwork((current) => current[value.animeId] ? current : { ...current, [value.animeId]: value }), []);
 
-  return <section className="section section-schedule" aria-labelledby="schedule-heading">
+  return <section className="section section-schedule" aria-labelledby="schedule-heading" data-origin-group="schedule">
     <div className="section-head">
       <h2 id="schedule-heading">Schedule</h2>
       <span className="schedule-sub">{seasonLabel(now)} · estimated release times · {zone ?? "local time"}</span>
@@ -127,7 +138,7 @@ export default function ScheduleSection({ settings, library, onOpen, metadataFor
         const time = clock(entry.releaseAt);
         const countdown = releaseCountdown(entry.releaseAt, now);
         const sub = past ? `Aired · ${time}` : countdown ? `${time} · ${countdown}` : time;
-        return <div className={`card schedule-card ${past ? "aired" : "upcoming"}`} key={`${entry.episode.id}:${entry.releaseAt}`} style={stagger(order, 10)}>
+        return <div className={`card schedule-card ${past ? "aired" : "upcoming"}`} key={`${entry.episode.id}:${entry.releaseAt}`} data-origin={`${entry.episode.id}:${entry.releaseAt}`} style={stagger(order, 10)}>
           <button type="button" className="hit" onClick={() => onOpen(anime, entry.episode, mode)}
             aria-label={`Open ${anime.title}, episode ${entry.episode.number}, ${past ? "aired" : "airs"} ${time}`}>
             <LazyScheduleArt anime={anime} src={poster} onArtwork={rememberArtwork} onVisible={onMetadata} />

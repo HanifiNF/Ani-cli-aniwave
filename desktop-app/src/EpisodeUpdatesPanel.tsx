@@ -151,7 +151,7 @@ export function EpisodeUpdatesPage({ status, posterFor, onEpisode, onSeries, onM
     <div className="notifications-page-head"><div><h1 id="notifications-heading">Notifications</h1><span className="notifications-unread-count"><span key={unread}>{unread}</span> new</span></div>
       <button type="button" className="btn" onClick={() => onMarkRead()} disabled={!unread}><Icon name="check" /> Mark all as read</button>
     </div>
-    <div className="notifications-page-list" ref={list}>{status?.updates.length ? status.updates.map((update, index) => <article className={`notification-card${update.readAt ? " read" : " unread"}`} key={update.id} data-id={update.id} style={stagger(index, 8)}>
+    <div className="notifications-page-list" ref={list} data-origin-group="notifications">{status?.updates.length ? status.updates.map((update, index) => <article className={`notification-card${update.readAt ? " read" : " unread"}`} key={update.id} data-id={update.id} data-origin={update.id} style={stagger(index, 8)}>
       <div className="notification-card-head"><Poster update={update} posterFor={posterFor} /><h2>{title(update)}</h2><span className="notification-card-actions">
         {/* Stays mounted once read so it can fold away rather than vanish. */}
         <button type="button" className="notification-mark-read" aria-label={`Mark ${title(update)} as read`} title="Mark as read" disabled={Boolean(update.readAt)} onClick={() => onMarkRead(update.id)}><Icon name="check" /></button>

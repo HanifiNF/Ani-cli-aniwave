@@ -44,6 +44,14 @@ const SEQUENCES = {
     ["await rec.tap('.mini-close')", 600],
     ["await rec.tap('.series .crumb')", 1300],
   ],
+  // Home scrolled to Saved, open a saved title, go back: the page returns as it was and the poster lands on its Saved card.
+  "return": [
+    ["", 600],
+    ["document.querySelector('.page').scrollTop = 350", 700],
+    ["await rec.tap('[data-origin-group=\"saved\"] .card .hit')", 1500],
+    ["await rec.tap('.series .crumb')", 1600],
+    ["", 200],
+  ],
   controls: [
     ["await rec.tap('[title=settings]')", 1000],
     ["await rec.tap('[aria-label=\"Start fullscreen\"]')", 700],
@@ -86,8 +94,12 @@ async function record(name) {
   await wait(300);
   for (const [code, hold] of SEQUENCES[name]) {
     if (code) await js(`(async () => { ${code} })().then(() => true)`);
-    if (process.env.TRACE) console.log(code.slice(0, 60), "→", await js(`document.querySelector(".player-shell")?.className ?? "no player"`));
+    if (process.env.TRACE) console.log(code.slice(0, 60), "→", await js(`(document.querySelector(".player-shell")?.className ?? "no player") + " | flyers " + document.querySelectorAll(".flyer").length`));
     await wait(hold / RATE);
+    // The screencast only sends a frame when something repaints; a one-pixel change at the corner makes sure the
+    // settled state of each step reaches the video.
+    await js(`(() => { let dot = document.getElementById("rec-dot"); if (!dot) { dot = document.createElement("i"); dot.id = "rec-dot"; dot.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;z-index:9999;pointer-events:none"; document.body.append(dot); } dot.style.background = dot.style.background === "rgba(0, 0, 0, 0.01)" ? "rgba(0, 0, 0, 0.02)" : "rgba(0, 0, 0, 0.01)"; return true; })()`);
+    await wait(120);
   }
   await cdp.sendCommand("Page.stopScreencast");
   await Promise.all(writes);

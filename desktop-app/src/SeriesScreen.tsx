@@ -12,7 +12,7 @@ import { Icon } from "./icons";
 import { stagger } from "./transition";
 import { pressProps } from "./press";
 import { useIndicator } from "./useIndicator";
-import { land } from "./flight";
+import { landSeries } from "./flight";
 import { setPlayOrigin } from "./playerMotion";
 import Swap from "./Swap";
 
@@ -49,7 +49,7 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
   const sortRef = useRef<HTMLSpanElement>(null), sortIndicator = useRef<HTMLElement>(null);
   useIndicator(sortRef, sortIndicator, '[aria-checked="true"]', episodeSort);
   // A poster that opened this title lands on this one.
-  useLayoutEffect(() => land(document.querySelector<HTMLElement>(".series .side .poster")), [anime.id]);
+  useLayoutEffect(() => landSeries(document.querySelector<HTMLElement>(".series .side .poster")), [anime.id]);
   const hasEpisodes = episodeGroups.some((group) => group.episodes.length);
   const sources = animeSources(anime);
   const genres = [...new Map([...(seriesMetadata?.genres ?? []), ...(info?.genres ?? [])].map((genre) => [genre.toLocaleLowerCase(), genre])).values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));

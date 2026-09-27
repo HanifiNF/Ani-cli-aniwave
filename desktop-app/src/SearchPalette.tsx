@@ -18,14 +18,14 @@ export default function SearchPalette({ results, query, lastQuery, cursor, ready
         {ready || results.length ? <Swap id={`${results.length}|${lastQuery}`}>{results.length} {results.length === 1 ? "result" : "results"} for "{lastQuery}"</Swap> : pending ? "Searching…" : "Press Enter to search"}
       </div>
       {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"} title={providerErrors.join("; ") || undefined}>{message}{providerErrors.length > 0 && <button type="button" className="link" onClick={onRetry}>Retry search</button>}</div>}
-      <div className="section-results" role="listbox" aria-label="Results">
+      <div className="section-results" role="listbox" aria-label="Results" data-origin-group="search">
         {results.map((anime, index) => {
           const sources = animeSources(anime);
           const alias = sources.find((source) => source.title !== anime.title)?.title;
           // One chip per provider; a provider with several copies of the anime still shows once.
           const providers = [...new Set(sources.map((source) => source.provider))];
           return (
-            <div key={anime.id} className={`hit-row ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor} style={stagger(index, 8)}>
+            <div key={anime.id} className={`hit-row ${index === cursor ? "cur" : ""}`} data-cursor={index === cursor} data-origin={anime.id} style={stagger(index, 8)}>
               <button type="button" className="hit" role="option" aria-selected={index === cursor} onClick={() => onOpen(anime)} onFocus={() => onFocus(index)}>
                 <span className="thumb"><Art src={anime.poster} /></span>
                 <span className="text">
