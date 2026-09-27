@@ -54,6 +54,7 @@ import BrowseDetail from "./BrowseDetail";
 import EpisodeUpdatesPanel, { EpisodeUpdatesPage, usePanelPresence } from "./EpisodeUpdatesPanel";
 import WatchCompanion from "./WatchCompanion";
 import type { CompanionEvent, CompanionEventKind } from "./companion-dialogue";
+import type { CompanionHome, CustomCompanion } from "../shared/companion";
 
 type Screen = "home" | "browse" | "catalog-detail" | "series" | "opening" | "saved" | "recent" | "notifications" | "settings" | "player";
 // Vidstack and hls.js load with the first playback, not at startup.
@@ -62,10 +63,20 @@ const PlayerScreen = lazy(loadPlayerScreen);
 const HOME_CARDS = 8; // maximum titles shown in each home section
 
 const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") || "player";
+const decodeCompanion = (dataUrl: string) => new Promise<void>((resolve, reject) => {
+  const image = new Image();
+  const timeout = window.setTimeout(() => reject(new Error("Could not decode the companion image")), 10_000);
+  image.onload = () => { window.clearTimeout(timeout); image.naturalWidth === 1536 && image.naturalHeight === 1872 ? resolve() : reject(new Error("Companion sheet must be exactly 1536 × 1872 pixels")); };
+  image.onerror = () => { window.clearTimeout(timeout); reject(new Error("Could not decode the companion image")); };
+  image.src = dataUrl;
+});
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [appState, setAppState] = useState<PersistedState>(DEFAULT_STATE);
   const [companionEvent, setCompanionEvent] = useState<CompanionEvent>();
+  const [customCompanions, setCustomCompanions] = useState<CustomCompanion[]>([]);
+  const [customCompanionImage, setCustomCompanionImage] = useState<{ id: string; url: string }>();
+  const [companionIssue, setCompanionIssue] = useState<string>();
   const companionSequence = useRef(0);
   const companionSearchSeen = useRef(false);
   const companionBrowseSeen = useRef(false);
@@ -289,6 +300,35 @@ function App() {
 
   const themeSource = screen === "settings" ? settingsDraft : appState.settings;
   useEffect(() => applyTheme(themeSource.theme, themeSource.customTheme), [themeSource.theme, themeSource.customTheme]);
+  useEffect(() => { if (stateLoaded) void window.aniDesktop.listCompanions().then(setCustomCompanions, () => setCompanionIssue("Custom companions could not be loaded")); }, [stateLoaded]);
+  useEffect(() => {
+    const id = themeSource.companionPetId;
+    if (!id?.startsWith("custom:")) { setCustomCompanionImage(undefined); return; }
+    let active = true;
+    setCustomCompanionImage((current) => current?.id === id ? current : undefined);
+    void window.aniDesktop.companionImage(id).then(async (image) => {
+      if (image) { try { await decodeCompanion(image); } catch { image = undefined; } }
+      if (!active) return;
+      setCustomCompanionImage(image ? { id, url: image } : undefined);
+      if (!image) { setCompanionIssue("The selected custom companion is missing or invalid. Columbinya is shown instead."); changeSettings({ ...themeSource, companionPetId: "columbinya" }); }
+    }, () => { if (active) setCustomCompanionImage(undefined); });
+    return () => { active = false; };
+  }, [themeSource.companionPetId, stateLoaded]);
+  const importCompanion = async (name: string) => {
+    const candidate = await window.aniDesktop.chooseCompanion();
+    if (!candidate) return;
+    await decodeCompanion(candidate.dataUrl);
+    const record = await window.aniDesktop.saveCompanion(candidate.ticket, name);
+    setCustomCompanions(await window.aniDesktop.listCompanions());
+    setCustomCompanionImage({ id: record.id, url: candidate.dataUrl });
+    setCompanionIssue(undefined);
+    changeSettings({ ...settingsDraft, companionPetId: record.id });
+  };
+  const removeCompanion = async (id: string) => {
+    if (!await window.aniDesktop.removeCompanion(id)) return;
+    setCustomCompanions(await window.aniDesktop.listCompanions());
+    if (settingsDraft.companionPetId === id) changeSettings({ ...settingsDraft, companionPetId: "columbinya" });
+  };
 
   const filter = query.trim().toLowerCase();
   const matches = (entry: LibraryEntry) => !filter || entry.title.toLowerCase().includes(filter);
@@ -1095,6 +1135,8 @@ function App() {
 
         {screen === "settings" && (
           <SettingsScreen draft={settingsDraft} setDraft={changeSettings} saved={appState.settings} saveState={settingsSaveState} onRetrySave={retrySettings}
+            customCompanions={customCompanions} companionIssue={companionIssue} customCompanionImage={customCompanionImage && customCompanionImage.id === themeSource.companionPetId ? customCompanionImage.url : undefined}
+            onImportCompanion={importCompanion} onRemoveCompanion={removeCompanion}
             onCompanionHello={() => emitCompanion("hello")}
             subtitleAppearance={subtitleAppearance} onSubtitleAppearance={changeSubtitleAppearance}
             bookmarkCount={appState.bookmarks.length} linkCount={(appState.providerLinks ?? []).length}
@@ -1110,7 +1152,9 @@ function App() {
           onNavigate={(next: FooterScreen) => { setQuery(""); catalogSearch.clear(); go(next); }} />}
       </div>}
       </div>
-      <WatchCompanion settings={themeSource} screen={screen} fullscreen={playerFullscreen && screen === "player"} corner={appState.settings.miniPlayerCorner ?? "bottom-right"} dockedPlayer={Boolean(session && screen !== "player")} event={companionEvent} />
+      <WatchCompanion settings={themeSource} screen={screen} fullscreen={playerFullscreen && screen === "player"} corner={appState.settings.miniPlayerCorner ?? "bottom-right"} dockedPlayer={Boolean(session && screen !== "player")} event={companionEvent}
+        customImage={customCompanionImage && customCompanionImage.id === themeSource.companionPetId ? customCompanionImage.url : undefined} customName={customCompanions.find((item) => item.id === themeSource.companionPetId)?.name}
+        onHomeChange={(companionHome: CompanionHome) => changeSettings({ ...settingsDraft, companionHome })} />
 
       {showHints && screen !== "player" && screen !== "series" && (
         <div className="hints" role="note">

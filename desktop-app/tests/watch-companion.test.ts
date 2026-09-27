@@ -4,8 +4,8 @@ import { CompanionDialogueGate, companionLine } from "../src/companion-dialogue"
 
 describe("watch companion", () => {
   it("defaults and normalizes persisted preferences", () => {
-    expect(normalizeCompanionPreferences({})).toEqual({ companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal" });
-    expect(normalizeCompanionPreferences({ companionEnabled: false, companionPetId: "feibi", companionFrequency: "quiet" })).toEqual({ companionEnabled: false, companionPetId: "feibi", companionFrequency: "quiet" });
+    expect(normalizeCompanionPreferences({})).toMatchObject({ companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal", companionWander: true });
+    expect(normalizeCompanionPreferences({ companionEnabled: false, companionPetId: "feibi", companionFrequency: "quiet" })).toMatchObject({ companionEnabled: false, companionPetId: "feibi", companionFrequency: "quiet" });
     expect(normalizeCompanionPreferences({ companionPetId: "unknown" as never, companionFrequency: "nope" as never }).companionPetId).toBe("columbinya");
   });
 

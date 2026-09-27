@@ -1,5 +1,5 @@
 import type { PlayerDiagnosticRecord } from "./player-diagnostics";
-import type { CompanionPreferences } from "./companion";
+import type { CompanionCandidate, CompanionPreferences, CustomCompanion } from "./companion";
 
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
@@ -480,6 +480,11 @@ export interface AniDesktopApi {
   cancelCatalog(requestId: string): void;
   play(request: PlayRequest): Promise<boolean>;
   getState(): Promise<PersistedState>;
+  listCompanions(): Promise<CustomCompanion[]>;
+  chooseCompanion(): Promise<CompanionCandidate | undefined>;
+  saveCompanion(ticket: string, name: string): Promise<CustomCompanion>;
+  companionImage(id: string): Promise<string | undefined>;
+  removeCompanion(id: string): Promise<boolean>;
   episodeUpdates(): Promise<EpisodeUpdateStatus>;
   checkEpisodeUpdates(force?: boolean): Promise<EpisodeUpdateStatus>;
   dismissEpisodeUpdate(id?: string): Promise<EpisodeUpdateStatus>;

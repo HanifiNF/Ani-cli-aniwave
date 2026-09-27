@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { COMPANION_ANIMATIONS, COMPANION_REGISTRY, companionFrame, companionImageUrl, normalizeCompanionPreferences, type CompanionAnimation } from "../shared/companion";
+import { COMPANION_ANIMATIONS, COMPANION_REGISTRY, companionFrame, companionImageUrl, normalizeCompanionPreferences, type CompanionAnimation, type CompanionHome, type CompanionPetId } from "../shared/companion";
 import type { MiniPlayerCorner, Settings } from "../shared/contracts";
 import { CompanionDialogueGate, companionLine, type CompanionEvent } from "./companion-dialogue";
+import { clampPoint, homeFromPosition, positionFromHome, wanderTarget, PET_HEIGHT, type Bounds, type Point, type Obstacle } from "./companion-motion";
 
 interface Props {
   settings: Settings;
@@ -10,18 +11,30 @@ interface Props {
   corner: MiniPlayerCorner;
   dockedPlayer: boolean;
   event?: CompanionEvent;
+  customImage?: string;
+  customName?: string;
+  onHomeChange?: (home: CompanionHome) => void;
 }
 
-export default function WatchCompanion({ settings, screen, fullscreen, corner, dockedPlayer, event }: Props) {
-  const { companionEnabled: enabled, companionPetId: id, companionFrequency: frequency } = normalizeCompanionPreferences(settings);
-  const pet = COMPANION_REGISTRY[id];
+const initialBounds = (): Bounds => ({ left: 8, top: 76, right: window.innerWidth - 8, bottom: window.innerHeight - 8 });
+export default function WatchCompanion({ settings, screen, fullscreen, corner, dockedPlayer, event, customImage, customName, onHomeChange }: Props) {
+  const { companionEnabled: enabled, companionPetId: selectedId, companionFrequency: frequency, companionWander: wander, companionHome: home } = normalizeCompanionPreferences(settings);
+  const customSelected = selectedId.startsWith("custom:") && Boolean(customImage);
+  const builtInId: CompanionPetId = selectedId.startsWith("custom:") ? "columbinya" : selectedId as CompanionPetId;
+  const pet = customSelected ? { name: customName ?? "Custom companion", image: customImage! } : COMPANION_REGISTRY[builtInId];
+  const [bounds, setBounds] = useState<Bounds>(initialBounds);
+  const [position, setPosition] = useState<Point>(() => positionFromHome(home, initialBounds(), dockedPlayer && corner.endsWith("left")));
+  const positionRef = useRef(position);
+  const drag = useRef<{ pointerId: number; x: number; y: number; origin: Point; moved: boolean } | undefined>(undefined);
+  const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const moveTo = (next: Point) => { positionRef.current = next; setPosition(next); };
   const gate = useRef(new CompanionDialogueGate());
   const priorScreen = useRef(screen);
   const lastEventId = useRef<number>(undefined);
   const [line, setLine] = useState<string>();
   const [animation, setAnimation] = useState<CompanionAnimation>("idle");
   const [frame, setFrame] = useState(0);
-  const [footerVisible, setFooterVisible] = useState(false);
   const [hidden, setHidden] = useState(document.hidden);
   const [reduced, setReduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const bubbleTimer = useRef<number | undefined>(undefined);
@@ -32,6 +45,7 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   const animationDeadline = useRef(0);
   const lastLine = useRef("");
   const show = (candidate: CompanionEvent) => {
+    moveTo(positionFromHome(home, bounds, dockedPlayer && corner.endsWith("left")));
     const result = companionLine(candidate, companionLine(candidate).text === lastLine.current);
     lastLine.current = result.text;
     setLine(result.text);
@@ -102,25 +116,85 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   useEffect(() => () => { window.clearTimeout(bubbleTimer.current); window.clearTimeout(animationTimer.current); }, []);
   useEffect(() => {
     const page = document.querySelector<HTMLElement>(".page");
-    if (!page) return;
-    const update = () => {
-      const footer = page.querySelector<HTMLElement>(".site-footer");
-      setFooterVisible(Boolean(footer && footer.getBoundingClientRect().top < window.innerHeight - 132));
+    const measure = () => {
+      const rect = page?.getBoundingClientRect();
+      const fallback = initialBounds();
+      const footer = page?.querySelector<HTMLElement>(".site-footer")?.getBoundingClientRect();
+      const next = rect && rect.width > 0 && rect.height > 0 ? {
+        left: rect.left + 8, top: rect.top + 8, right: rect.right - 8,
+        bottom: Math.min(rect.bottom - 8, footer && footer.top > rect.top ? footer.top - 8 : rect.bottom - 8)
+      } : fallback;
+      setBounds(next);
+      if (!drag.current) moveTo(positionFromHome(home, next, dockedPlayer && corner.endsWith("left")));
     };
-    page.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    update();
-    return () => { page.removeEventListener("scroll", update); window.removeEventListener("resize", update); };
-  }, [screen]);
+    page?.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    measure();
+    return () => { page?.removeEventListener("scroll", measure); window.removeEventListener("resize", measure); };
+  }, [screen, corner, dockedPlayer, home?.x, home?.y]);
 
-  if (!enabled || hidden || fullscreen || screen === "opening" || footerVisible) return null;
-  const player = screen === "player";
-  const side = dockedPlayer && corner.endsWith("left") ? "right" : "left";
+  useEffect(() => {
+    if (!enabled || !wander || hidden || reduced || dragging || line || fullscreen || screen === "opening" || screen === "player" || bounds.bottom - bounds.top < PET_HEIGHT + 12) return;
+    let timeout: number | undefined, frameId: number | undefined, stopped = false;
+    const homePoint = positionFromHome(home, bounds, dockedPlayer && corner.endsWith("left"));
+    const obstacles = (): Obstacle[] => {
+      const page = document.querySelector<HTMLElement>(".page");
+      const elements = [...(page?.querySelectorAll<HTMLElement>("button, input, select, textarea, a, [role='button']") ?? [])];
+      const mini = document.querySelector<HTMLElement>(".player-shell.is-docked");
+      if (mini) elements.push(mini);
+      return elements.map((element) => element.getBoundingClientRect()).filter((rect) => rect.width > 0 && rect.height > 0)
+        .map((rect) => ({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }));
+    };
+    const travel = (target: Point, finished: () => void) => {
+      let previous = 0;
+      const step = (now: number) => {
+        if (stopped) return;
+        const current = positionRef.current;
+        const distance = Math.hypot(target.x - current.x, target.y - current.y);
+        if (distance < 1) { moveTo(target); setAnimation("idle"); finished(); return; }
+        const amount = Math.min(distance, Math.min(32, previous ? now - previous : 16) * 0.055);
+        previous = now;
+        setAnimation(target.x >= current.x ? "run-right" : "run-left");
+        moveTo({ x: current.x + (target.x - current.x) / distance * amount, y: current.y + (target.y - current.y) / distance * amount });
+        frameId = window.requestAnimationFrame(step);
+      };
+      frameId = window.requestAnimationFrame(step);
+    };
+    const schedule = () => {
+      timeout = window.setTimeout(() => {
+        const target = wanderTarget(homePoint, bounds, obstacles(), Math.random);
+        if (!target) { schedule(); return; }
+        travel(target, () => { timeout = window.setTimeout(() => travel(homePoint, schedule), 3_000 + Math.random() * 5_000); });
+      }, 8_000 + Math.random() * 7_000);
+    };
+    schedule();
+    return () => { stopped = true; window.clearTimeout(timeout); if (frameId !== undefined) window.cancelAnimationFrame(frameId); setAnimation((current) => current.startsWith("run-") ? "idle" : current); };
+  }, [enabled, wander, hidden, reduced, dragging, line, fullscreen, screen, bounds.left, bounds.top, bounds.right, bounds.bottom, home?.x, home?.y, corner, dockedPlayer]);
+
+  const finishDrag = (pointerId: number) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== pointerId) return;
+    drag.current = undefined;
+    setDragging(false);
+    if (current.moved) {
+      suppressClick.current = true;
+      setAnimation("idle");
+      onHomeChange?.(homeFromPosition(positionRef.current, bounds));
+    }
+  };
+  const talk = () => { const hello = gate.current.accept({ id: Date.now(), kind: "hello" }, frequency, Date.now()); if (hello) show(hello); };
+  if (!enabled || hidden || fullscreen || screen === "opening" || screen === "player" || bounds.bottom - bounds.top < PET_HEIGHT + 12) return null;
   const { x, y } = companionFrame(animation, frame);
-  const sprite = { backgroundImage: `url(${companionImageUrl(id, import.meta.env.BASE_URL)})`, backgroundPosition: `${-x / 2}px ${-y / 2}px` };
-  return <aside className={`watch-companion ${player ? "in-player" : "in-page"} side-${side}`} aria-label={`${pet.name} watch companion`}>
-    {line && <div className="companion-bubble" role="status"><span>{line}</span><button type="button" aria-label="Dismiss companion message" onClick={() => setLine(undefined)}>×</button></div>}
-    <button type="button" className="companion-pet" style={sprite} title={`Talk to ${pet.name}`} aria-label={`Talk to ${pet.name}`}
-      onClick={() => { const hello = gate.current.accept({ id: Date.now(), kind: "hello" }, frequency, Date.now()); if (hello) show(hello); }} />
+  const image = customSelected ? customImage! : companionImageUrl(builtInId, import.meta.env.BASE_URL);
+  const sprite = { backgroundImage: `url(${image})`, backgroundPosition: `${-x / 2}px ${-y / 2}px` };
+  const bubbleLeft = Math.max(8 - position.x, Math.min(0, window.innerWidth - position.x - 248));
+  return <aside className="watch-companion" style={{ left: position.x, top: position.y }} aria-label={`${pet.name} watch companion`}>
+    {line && <div className="companion-bubble" style={position.y < 160 ? { left: bubbleLeft, top: 108, bottom: "auto" } : { left: bubbleLeft }} role="status"><span>{line}</span><button type="button" aria-label="Dismiss companion message" onClick={() => setLine(undefined)}>×</button></div>}
+    <button type="button" className="companion-pet" style={sprite} title={`Talk to or drag ${pet.name}`} aria-label={`Talk to or drag ${pet.name}`}
+      onPointerDown={(pointer) => { if (pointer.button !== 0) return; drag.current = { pointerId: pointer.pointerId, x: pointer.clientX, y: pointer.clientY, origin: positionRef.current, moved: false }; pointer.currentTarget.setPointerCapture?.(pointer.pointerId); setDragging(true); }}
+      onPointerMove={(pointer) => { const current = drag.current; if (!current || pointer.pointerId !== current.pointerId) return; const dx = pointer.clientX - current.x, dy = pointer.clientY - current.y; if (Math.hypot(dx, dy) < 6 && !current.moved) return; current.moved = true; moveTo(clampPoint({ x: current.origin.x + dx, y: current.origin.y + dy }, bounds)); setAnimation(dx >= 0 ? "run-right" : "run-left"); }}
+      onPointerUp={(pointer) => finishDrag(pointer.pointerId)} onPointerCancel={(pointer) => finishDrag(pointer.pointerId)}
+      onKeyDown={(key) => { const amount = key.shiftKey ? 32 : 16; const offset = key.key === "ArrowLeft" ? [-amount, 0] : key.key === "ArrowRight" ? [amount, 0] : key.key === "ArrowUp" ? [0, -amount] : key.key === "ArrowDown" ? [0, amount] : undefined; if (!offset) return; key.preventDefault(); const next = clampPoint({ x: positionRef.current.x + offset[0], y: positionRef.current.y + offset[1] }, bounds); moveTo(next); onHomeChange?.(homeFromPosition(next, bounds)); }}
+      onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } talk(); }} />
   </aside>;
 }

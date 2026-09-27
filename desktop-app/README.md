@@ -8,6 +8,26 @@ ANIdesktop is an Electron desktop client built on the ani-cli v5 workflow. It su
 
 The footer looks for square creator photos at `public/creators/hanifi.webp` and `public/creators/pascal.webp`. It shows each creator's initial when a photo is absent. Add an optimized square WebP image at either path to replace that fallback without changing the component; JPEG files may also be used after updating the corresponding filename in `src/creators.ts`.
 
+## Custom watch companions
+
+Open **Settings → Appearance → Watch companion**, enter a name, then choose **Import image**. Use a transparent PNG or WebP spritesheet no larger than 8 MB, exactly **1536 × 1872 pixels**. The sheet has 8 columns and 9 rows; each cell is **192 × 208 pixels**. Frames run left to right. The three bundled sheets in `public/pets/` are examples.
+
+| Row (top to bottom) | Animation | Frames |
+| --- | --- | ---: |
+| 1 | Idle | 6 |
+| 2 | Run right | 8 |
+| 3 | Run left | 8 |
+| 4 | Wave | 4 |
+| 5 | Jump | 5 |
+| 6 | Failed | 8 |
+| 7 | Waiting | 6 |
+| 8 | Working | 6 |
+| 9 | Review | 6 |
+
+Keep unused cells transparent. ANIdesktop checks the image dimensions and decoding before copying it into app data. Up to 20 custom companions can be stored, selected, or removed; removing one never alters your original file. Imports are local to that computer, so share the original PNG/WebP with a friend who wants the same companion. Imported companions use the app's existing preset speech. If an image fails to import, check its file type, size, dimensions, and whether it opens in another image viewer.
+
+Drag the companion within the app content to set its home, or focus it and use the arrow keys (Shift for larger steps). It occasionally walks nearby and returns home. **Reset position** and **Allow wandering** are in the same Settings group. Reduced-motion mode prevents wandering and frame animation.
+
 ## Requirements
 
 - Node.js 22 or newer

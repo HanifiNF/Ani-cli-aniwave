@@ -1,21 +1,31 @@
 export const COMPANION_PETS = ["columbinya", "endminguga", "feibi"] as const;
 export type CompanionPetId = typeof COMPANION_PETS[number];
+export type CompanionSelectionId = CompanionPetId | `custom:${string}`;
+export interface CompanionHome { x: number; y: number }
+export interface CustomCompanion { id: `custom:${string}`; name: string; mime: "image/png" | "image/webp"; available?: boolean }
+export interface CompanionCandidate { ticket: string; dataUrl: string; mime: CustomCompanion["mime"] }
 export const COMPANION_FREQUENCIES = ["quiet", "normal", "chatty"] as const;
 export type CompanionFrequency = typeof COMPANION_FREQUENCIES[number];
 
 export interface CompanionPreferences {
   companionEnabled?: boolean;
-  companionPetId?: CompanionPetId;
+  companionPetId?: CompanionSelectionId;
   companionFrequency?: CompanionFrequency;
+  companionWander?: boolean;
+  companionHome?: CompanionHome;
 }
 
-export const COMPANION_DEFAULTS = { companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal" } as const;
+export const COMPANION_DEFAULTS = { companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal", companionWander: true } as const;
 
-export function normalizeCompanionPreferences(value: CompanionPreferences): Required<CompanionPreferences> {
+export function normalizeCompanionPreferences(value: CompanionPreferences): Required<Omit<CompanionPreferences, "companionHome">> & Pick<CompanionPreferences, "companionHome"> {
+  const home = value.companionHome;
   return {
     companionEnabled: value.companionEnabled !== false,
-    companionPetId: COMPANION_PETS.includes(value.companionPetId as CompanionPetId) ? value.companionPetId! : "columbinya",
-    companionFrequency: COMPANION_FREQUENCIES.includes(value.companionFrequency as CompanionFrequency) ? value.companionFrequency! : "normal"
+    companionPetId: COMPANION_PETS.includes(value.companionPetId as CompanionPetId) || /^custom:[0-9a-f-]{36}$/i.test(value.companionPetId ?? "") ? value.companionPetId! : "columbinya",
+    companionFrequency: COMPANION_FREQUENCIES.includes(value.companionFrequency as CompanionFrequency) ? value.companionFrequency! : "normal",
+    companionWander: value.companionWander !== false,
+    companionHome: home && Number.isFinite(home.x) && Number.isFinite(home.y)
+      ? { x: Math.max(0, Math.min(1, home.x)), y: Math.max(0, Math.min(1, home.y)) } : undefined
   };
 }
 

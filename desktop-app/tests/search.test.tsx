@@ -78,6 +78,8 @@ beforeEach(async () => {
       logDiagnostic: vi.fn(), saveStorage: vi.fn().mockResolvedValue(undefined), setFullscreen: vi.fn(async (fullscreen: boolean) => fullscreen),
       openExternal: vi.fn().mockResolvedValue(true), setActive: vi.fn().mockResolvedValue(undefined)
     },
+    listCompanions: vi.fn().mockResolvedValue([]), chooseCompanion: vi.fn().mockResolvedValue(undefined),
+    saveCompanion: vi.fn(), companionImage: vi.fn().mockResolvedValue(undefined), removeCompanion: vi.fn().mockResolvedValue(false),
     discoverBrowse: vi.fn(async (anime) => ({ anime: { ...result(anime.title)[0], refs: anime.refs }, errors: {} })),
     search, browseGenres: vi.fn().mockResolvedValue([]), browseTags: vi.fn().mockResolvedValue([]), browse: vi.fn(async (query) => ({ query, entries: [], hasNextPage: false, fetchedAt: Date.now() })), resolveSources: vi.fn(async (anime) => anime), clearSourceLinks: vi.fn(), getState: vi.fn().mockResolvedValue(state),
     workInfo: vi.fn().mockResolvedValue(undefined), identityIndexStatus: vi.fn().mockResolvedValue({ enabled: false, entries: 0, updating: false }), updateIdentityIndex: vi.fn(), splitSource: vi.fn(), episodes: vi.fn().mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [{ id: "ep-1", number: "1", provider: "aniwave" }] }] }),
