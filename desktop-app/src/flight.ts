@@ -163,6 +163,16 @@ export function resolveReturn(restore?: () => void): void {
   attempt();
 }
 
+/** Drops any poster in the air and any pending landing, showing the destination as it is (the player took the screen). */
+export function cancelFlight(): void {
+  origin = undefined; waiting = undefined; returnScrolls = undefined;
+  const current = flight;
+  flight = undefined;
+  if (!current) return;
+  if (current.target) { current.target.style.visibility = ""; current.target.closest(".card")?.removeAttribute("data-shared"); }
+  current.node.remove();
+}
+
 /**
   Lands the pending or moving poster on `target`, which stays hidden until the flyer arrives. The landing spot is read
   again every frame, so a page that scrolls or shifts while the poster is in the air carries the landing spot with it.

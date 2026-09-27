@@ -49,7 +49,7 @@ import { Icon } from "./icons";
 import { installPressDip, pressProps } from "./press";
 import { useIndicator } from "./useIndicator";
 import { useSearchMorph } from "./useSearchMorph";
-import { launchFrom, resolveReturn, returnTo } from "./flight";
+import { cancelFlight, launchFrom, resolveReturn, returnTo } from "./flight";
 import { capturePlayer, notePlayOrigin, setPlayOrigin } from "./playerMotion";
 import { SiteFooter, type FooterScreen } from "./SiteFooter";
 import { updatePending } from "./UpdateUI";
@@ -57,14 +57,14 @@ import BrowseScreen, { DEFAULT_BROWSE_STATE, type BrowseViewState } from "./Brow
 import BrowseDetail from "./BrowseDetail";
 import EpisodeUpdatesPanel, { EpisodeUpdatesPage, usePanelPresence } from "./EpisodeUpdatesPanel";
 
-type Screen = "home" | "browse" | "catalog-detail" | "series" | "opening" | "saved" | "recent" | "notifications" | "settings" | "player";
+type Screen = "home" | "browse" | "catalog-detail" | "series" | "saved" | "recent" | "notifications" | "settings" | "player";
 interface OpenedCard { group: string; id: string }
 /** Pages a series can be opened from and returned to. */
 type ReturnPage = "home" | "browse" | "saved" | "recent" | "notifications";
 const isReturnPage = (screen: Screen): screen is ReturnPage => screen === "home" || screen === "browse" || screen === "saved" || screen === "recent" || screen === "notifications";
 const BACK_LABELS: Partial<Record<ReturnPage, string>> = { browse: "Browse", saved: "Saved", recent: "Recent", notifications: "Notifications" };
 /** Elements that enter with a rise or fade; on a return they are shown as they were instead. */
-const ENTRANCES = ".card, .hit-row, .src-wrap, .status, .notice, .empty, .schedule-state, .section-empty, .browse-none, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .notification-card, .notifications-page-head, .notification-empty";
+const ENTRANCES = ".card, .hit-row, .src-wrap, .notice, .empty, .schedule-state, .section-empty, .browse-none, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .notification-card, .notifications-page-head, .notification-empty";
 // Vidstack and hls.js load with the first playback, not at startup.
 const loadPlayerScreen = () => import("./PlayerScreen");
 const PlayerScreen = lazy(loadPlayerScreen);
@@ -93,6 +93,8 @@ function App() {
   const [status, setStatus] = useState<PlayStatus>();
   const { session, setSession, fullscreen: playerFullscreen, setFullscreen: setPlayerFullscreen } = usePlayerSession(() => {
     notePlayOrigin();
+    // A poster still flying to the series page would otherwise finish its flight over the player.
+    cancelFlight();
     setScreen("player"); setStatus(undefined); setError(undefined); setNotice(undefined);
   });
   const [nowPlaying, setNowPlaying] = useState<NowPlaying>();
@@ -117,6 +119,8 @@ function App() {
   const [browseResolving, setBrowseResolving] = useState(false);
   // A title opened from the browse grid is checked in place; the token tells one attempt from the next.
   const [browseOpening, setBrowseOpening] = useState<{ id: number; token: number }>();
+  // A Continue watching or Recent card finding its next episode in place (by its origin group and id).
+  const [resuming, setResuming] = useState<OpenedCard>();
   const [browseResolveError, setBrowseResolveError] = useState<string>();
   const updateInstall = useUpdateInstall(setError);
 
@@ -164,8 +168,6 @@ function App() {
       const poster = hit.closest(".card, .hit-row, .notification-card")?.querySelector(".poster, .thumb, .notification-poster");
       noteOpenedCard(hit);
       launchFrom(poster);
-      // A card that resumes playback is also where the player grows from.
-      if (hit.matches(".card .hit")) setPlayOrigin(poster);
     };
     document.addEventListener("click", launch, true);
     return () => document.removeEventListener("click", launch, true);
@@ -533,8 +535,11 @@ function App() {
   function goBack() {
     if (screen === "player") { dockPlayer(); return; }
     if (screen === "notifications") { go(notificationsOrigin.current === "notifications" ? "home" : notificationsOrigin.current); return; }
+    if (resuming) { stopResuming(); return; }
     if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series" && seriesSearch) { closeSeriesSearch(); return; }
+    // Escape while Play is finding a stream stops that first, as it stops a Browse card's check.
+    if (screen === "series" && (status?.phase === "finding" || status?.phase === "opening")) { cancelPlay(); return; }
     if (screen === "browse" && browseOpening) { cancelSeries(); setBrowseOpening(undefined); return; }
     if (screen === "catalog-detail") { cancelSeries(); returnFrom("browse"); return; }
     if (screen === "series") {
@@ -560,6 +565,9 @@ function App() {
 
   const openToken = useRef(0);
   const catalogTasks = useRef(new Set<string>());
+  const stopResuming = () => { cancelSeries(); cancelPlay(); setResuming(undefined); };
+  // Leaving the page drops a card's check (the effect below cancels its work).
+  useEffect(() => setResuming(undefined), [screen]);
   const cancelSeries = () => {
     openToken.current += 1;
     if (playbackRequest.current) {
@@ -570,7 +578,7 @@ function App() {
     catalogTasks.current.clear();
   };
   useEffect(() => {
-    if (screen !== "series" && screen !== "player" && screen !== "opening" && screen !== "catalog-detail") { cancelSeries(); setBrowseOpening(undefined); setBusy(undefined); setResolving(false); setEpisodesLoading(false); }
+    if (screen !== "series" && screen !== "player" && screen !== "catalog-detail") { cancelSeries(); setBrowseOpening(undefined); setBusy(undefined); setResolving(false); setEpisodesLoading(false); }
   }, [screen, sourceScope]);
   useEffect(() => () => cancelSeries(), []);
 
@@ -625,7 +633,7 @@ function App() {
     }
   }
 
-  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; preferredProvider?: ProviderName; mode?: TranslationMode; autoPlay?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string; returnTo?: "browse" | "notifications"; discovery?: BrowseDiscoveryResult } = {}): Promise<boolean> {
+  async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; preferredProvider?: ProviderName; mode?: TranslationMode; autoPlay?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string; returnTo?: "browse" | "notifications"; discovery?: BrowseDiscoveryResult; inPlace?: OpenedCard } = {}): Promise<boolean> {
     cancelSeries();
     if (seriesSearch) closeSeriesSearch();
     const replacing = !options.refresh || screen !== "series" || !selectedAnime || !overlaps(selectedAnime, anime);
@@ -643,7 +651,19 @@ function App() {
     if (replacing || options.focusEpisodeId) { setSelectedEpisodeId(options.focusEpisodeId); seriesScroll.begin(options.focusEpisodeId); }
     if (replacing) setEpisodeGroups([]);
     setStatus(undefined); setJump(""); setSourceErrors(options.discovery?.errors ?? {});
-    setScreen(options.autoPlay ? "opening" : "series");
+    // Resuming from a card stays on the card while the next episode is found (the travelling arc) and the player grows
+    // out of it; only a title with nothing to play goes on to its series page. Everything else opens the series page.
+    const cardPoster = () => options.inPlace ? document.querySelector(`[data-origin-group="${CSS.escape(options.inPlace.group)}"] [data-origin="${CSS.escape(options.inPlace.id)}"] .poster`) : null;
+    let shown = !options.inPlace;
+    if (options.inPlace) { setResuming(options.inPlace); setPlayOrigin(cardPoster()); }
+    else setScreen("series");
+    const showSeries = () => {
+      if (shown || token !== openToken.current) return;
+      shown = true;
+      launchFrom(cardPoster());
+      originScroll.current = document.querySelector<HTMLElement>(".page")?.scrollTop ?? 0;
+      setResuming(undefined); setScreen("series");
+    };
     if (options.mode) setMode(options.mode);
     // The skeleton rows show that episodes are loading; no status word joins them.
     setError(undefined); setNotice(undefined);
@@ -685,6 +705,7 @@ function App() {
         if (target && !attempted.has(target.id)) void attempt(target);
       }
     };
+    const settle = () => { if (options.inPlace && finished && !played && !attempting) showSeries(); };
     const attempt = async (target: Episode) => {
       if (token !== openToken.current || played || attempting) return;
       attempting = true; attempted.add(target.id); targetNumber = target.number;
@@ -692,8 +713,13 @@ function App() {
       const succeeded = await playEpisode(target, currentAnime, savedProgress?.mode ?? options.mode ?? mode, groups);
       if (token !== openToken.current) return;
       attempting = false;
-      if (succeeded) { played = true; return; }
-      if (succeeded === false) position(finished);
+      if (succeeded) {
+        played = true;
+        // The built-in player takes the screen; an external one leaves the card where it was, with a word.
+        if (options.inPlace) { setResuming(undefined); if (appState.settings.playbackTarget !== "builtin") setNotice(`Episode ${target.number} opened in ${player}`); }
+        return;
+      }
+      if (succeeded === false) { position(finished); settle(); }
     };
     const accept = (catalog: EpisodeCatalog) => {
       if (token !== openToken.current) return;
@@ -735,7 +761,8 @@ function App() {
       finished = true;
       setEpisodesLoading(false);
       setResolving(false); setPendingSources([]); setBusy(undefined); position(true);
-      if (options.autoPlay && !played && !attempting && !attempted.size) setError("No episode is available to continue. Open Episodes to check the series and its sources.");
+      // Nothing after the last watched episode (caught up), or nothing that plays, opens the series page: no error.
+      settle();
     });
     await initial;
     return token === openToken.current;
@@ -849,7 +876,15 @@ function App() {
 
   async function activate(row: Row) {
     if (row.anime) { await openAnime(row.anime); return; }
-    if (row.entry) await openAnime(asAnime(row.entry), { resumeAfter: row.entry.lastEpisode, preferredProvider: row.entry.lastProvider, mode: row.entry.mode, autoPlay: row.kind !== "saved", refresh: row.kind === "saved" });
+    if (!row.entry) return;
+    const entry = row.entry;
+    const base = { resumeAfter: entry.lastEpisode, preferredProvider: entry.lastProvider, mode: entry.mode };
+    if (row.kind === "saved") { await openAnime(asAnime(entry), { ...base, refresh: true }); return; }
+    // A second press on the card that is finding its episode stops it.
+    const card = openedCard.current;
+    if (resuming && card && resuming.group === card.group && resuming.id === card.id) { stopResuming(); return; }
+    // The card's episode count can be stale, so it always checks; a caught-up title then moves on to its series page.
+    await openAnime(asAnime(entry), { ...base, autoPlay: true, ...(card ? { inPlace: card } : {}) });
   }
 
   async function openRow(row: Row) {
@@ -968,7 +1003,6 @@ function App() {
     if (screen === "settings") { if (event.key === "Escape") goBack(); return; }
     if (event.key === "Escape") { event.preventDefault(); if (showHints) { setShowHints(false); return; } goBack(); return; }
     if (screen === "browse" || screen === "catalog-detail" || screen === "notifications") return;
-    if (screen === "opening") return;
     if (!typing && event.key === "?") { event.preventDefault(); setShowHints((value) => !value); return; }
     if (!typing && event.key === "/") {
       event.preventDefault(); fieldRef.current?.focus(); fieldRef.current?.select(); return;
@@ -1027,6 +1061,7 @@ function App() {
       onMore={more ? () => go(more) : undefined}
       onClearHistory={kind === "recent" && appState.history.length ? () => void clearHistory() : undefined}
       onActivate={(row) => void activate(row)} onRemove={(row) => void removeRow(row)} onFocus={setCursor}
+      resumingId={resuming?.group === kind ? resuming.id : undefined}
       canMerge={(entry) => Boolean(libraryMergeCandidate(entry))} onMerge={(entry) => void manuallyMergeEntry(entry)}
       metadataFor={libraryMetadata} onMetadata={loadLibraryMetadata} freshCounts={episodeUpdateStatus?.counts} />;
   };
@@ -1139,16 +1174,6 @@ function App() {
       {/* Progress, confirmations, and errors float over the page, so they never push its content. */}
       {message && !paletteOpen && screen !== "player" && <div key={displayError ? "error" : message} className={`msg status-pill ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && !displayError && <span className="dots"> ···</span>}</div>}
       {screen !== "player" && <div key={screen} className={`page page-${screen}`}>
-        {screen === "opening" && selectedAnime && <div className="empty" role="status">
-          <b>{selectedAnime.title}</b>
-          <span>{status?.phase === "failed" ? `Episode ${status.episode.number}: ${status.detail}`
-            : status?.phase === "opened" ? `Opened in ${player}`
-            : status ? `Opening episode ${status.episode.number} · ${status.detail}` : "Finding your next episode…"}</span>
-          <div className="acts-row">
-            <button type="button" className="btn" onClick={() => { cancelSeries(); go("home"); }}>Cancel</button>
-            <button type="button" className="btn" onClick={() => void openAnime(selectedAnime, { focusEpisodeId: status?.episode.id })}>Episodes</button>
-          </div>
-        </div>}
 
         {screen === "notifications" && <EpisodeUpdatesPage status={episodeUpdateStatus} posterFor={notificationPoster}
           onEpisode={(id) => openEpisodeUpdate(id, true)} onSeries={(id) => openEpisodeUpdate(id, false)}
@@ -1215,9 +1240,9 @@ function App() {
             onOpenLogs={() => { void run("opening player logs", () => window.aniDesktop.openPlayerLogs()); }} />
         )}
 
-        {screen !== "opening" && <SiteFooter current={screen === "home" || screen === "browse" || screen === "saved" || screen === "recent" || screen === "settings" ? screen : undefined}
+        <SiteFooter current={screen === "home" || screen === "browse" || screen === "saved" || screen === "recent" || screen === "settings" ? screen : undefined}
           backdrop={backdrop && backdrop.page === backdropPage ? backdrop.art : undefined}
-          onNavigate={(next: FooterScreen) => { setQuery(""); catalogSearch.clear(); go(next); }} />}
+          onNavigate={(next: FooterScreen) => { setQuery(""); catalogSearch.clear(); go(next); }} />
       </div>}
       </div>
 

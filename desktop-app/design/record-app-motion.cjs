@@ -63,6 +63,11 @@ const SEQUENCES = {
     ["await rec.tap('[title^=settings]')", 1000],
     ["await rec.tap('.settings [role=switch]')", 2900],
   ],
+  // Continue watching finds the next episode on the card (the travelling arc), then the player grows out of the card.
+  resume: [
+    ["", 600],
+    ["await rec.tap('.page-home .card .hit')", 3400],
+  ],
   controls: [
     ["await rec.tap('[title=settings]')", 1000],
     ["await rec.tap('[aria-label=\"Start fullscreen\"]')", 700],

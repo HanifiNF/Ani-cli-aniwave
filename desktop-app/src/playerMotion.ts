@@ -21,6 +21,11 @@ const rectOf = (element: Element): Rect | undefined => {
   return r.width && r.height ? { x: r.left, y: r.top, w: r.width, h: r.height } : undefined;
 };
 
+/** Whether a recent origin that is still on screen is waiting to be used. */
+export function hasPlayOrigin(): boolean {
+  return Boolean(origin && origin.element.isConnected && Date.now() - origin.at <= ORIGIN_LIFETIME);
+}
+
 /** Notes where the origin is drawn now; called just before the player takes the screen and the origin's page goes. */
 export function notePlayOrigin(): void {
   if (origin?.element.isConnected) origin.rect = rectOf(origin.element) ?? origin.rect;

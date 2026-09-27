@@ -13,7 +13,8 @@ import { stagger } from "./transition";
 import { pressProps } from "./press";
 import { useIndicator } from "./useIndicator";
 import { landSeries } from "./flight";
-import { setPlayOrigin } from "./playerMotion";
+import { hasPlayOrigin, setPlayOrigin } from "./playerMotion";
+import Reveal from "./Reveal";
 import Swap from "./Swap";
 
 const SKELETON_ROWS = 6;
@@ -47,6 +48,14 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
   onJump, onWatched, onWatchedAll, onDismissStatus, reorder, onRefreshInfo, onSplitSource, onBrowse }: Props) {
   const [showAll, setShowAll] = useState(false);
   const sortRef = useRef<HTMLSpanElement>(null), sortIndicator = useRef<HTMLElement>(null);
+  // Play reports its own work: the button names the episode being found, and a note under it says what is happening.
+  const playButton = useRef<HTMLButtonElement>(null);
+  const pending = status?.phase === "finding" || status?.phase === "opening";
+  const lastStatus = useRef(status);
+  if (status) lastStatus.current = status;
+  const note = status ?? lastStatus.current; // kept while the note closes
+  // Playback started without a press here (a Continue watching card) grows the player out of this button.
+  useLayoutEffect(() => { if (pending && !hasPlayOrigin()) setPlayOrigin(playButton.current); }, [pending, status?.episode.id]);
   useIndicator(sortRef, sortIndicator, '[aria-checked="true"]', episodeSort);
   // A poster that opened this title lands on this one.
   useLayoutEffect(() => landSeries(document.querySelector<HTMLElement>(".series .side .poster"), anime.id), [anime.id]);
@@ -87,7 +96,22 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
       <aside className="side">
         <Art src={anime.poster ?? info?.cover} className="poster" />
         <div className="stack">
-          <button type="button" className="btn primary" disabled={!nextUp} onClick={(event) => { if (!nextUp) return; setPlayOrigin(event.currentTarget); onPlay(nextUp.episode); }}><Swap id={nextUp?.number ?? "…"}>Play Ep {nextUp?.number ?? "…"}</Swap><Icon name="play" /></button>
+          <div className="play-slot">
+            <button type="button" ref={playButton} className="btn primary" disabled={!nextUp && !pending} aria-busy={pending || undefined}
+              onClick={(event) => { if (pending || !nextUp) return; setPlayOrigin(event.currentTarget); onPlay(nextUp.episode); }}>
+              <Swap id={pending ? `${status!.phase}:${status!.episode.number}` : `play:${nextUp?.number ?? "…"}`}>{pending ? `${status!.phase === "finding" ? "Finding" : "Opening"} Ep ${status!.episode.number}` : `Play Ep ${nextUp?.number ?? "…"}`}</Swap>
+              <Swap id={pending ? "turning" : "play"}>{pending ? <Icon name="progress" className="turning" /> : <Icon name="play" />}</Swap>
+            </button>
+            <Reveal open={Boolean(status)}>{note && <p className={`play-note ${note.phase === "failed" ? "err" : ""}`} role={note.phase === "failed" ? "alert" : "status"}>
+              {note.phase === "finding" && `Choosing a stream · ${note.detail}`}
+              {note.phase === "opening" && `Opening ${player} · ${note.detail}`}
+              {note.phase === "opened" && `Opened in ${player} · ${note.detail}`}
+              {note.phase === "failed" && `Episode ${note.episode.number} · ${note.detail}`}
+              {note.phase === "failed"
+                ? <button type="button" className="link" onClick={() => { setPlayOrigin(playButton.current); onPlay(note.episode); }}>Try again</button>
+                : <button type="button" className="link" onClick={onDismissStatus}>{note.phase === "opened" ? "Dismiss" : "Cancel"}</button>}
+            </p>}</Reveal>
+          </div>
           <button type="button" className="btn" onClick={() => onBookmark()} aria-pressed={isSaved}><Swap id={isSaved ? "saved" : "save"}>{isSaved ? "Saved" : "Save"}</Swap><Icon name="bookmark" className={isSaved ? "fill" : undefined} /></button>
           <button type="button" className="btn" disabled={!hasEpisodes || allWatched} onClick={() => onWatchedAll()} title="Record every episode on every source as watched"><Swap id={allWatched ? "all" : "mark"}>{allWatched ? "All watched" : "Mark all watched"}</Swap><Icon name="check" /></button>
         </div>
@@ -175,19 +199,6 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
             );
           })}
         </div>
-        {status && (
-          <div className={`status ${status.phase === "failed" ? "err" : ""}`} role="status">
-            <b>Episode {status.episode.number}</b>
-            <span>
-              {status.phase === "finding" && <>Finding a stream<span className="dots"> ···</span></>}
-              {status.phase === "opening" && <>Opening {player}<span className="dots"> ···</span></>}
-              {status.phase === "opened" && `Opened in ${player}`}
-              {status.phase === "failed" && status.detail}
-            </span>
-            {status.phase !== "failed" && <span className="detail">{status.detail}</span>}
-            <button type="button" className="link" onClick={onDismissStatus}>{status.phase === "finding" || status.phase === "opening" ? "Cancel" : "Dismiss"}</button>
-          </div>
-        )}
       </div>
     </div>
   );

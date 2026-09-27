@@ -373,12 +373,12 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .browse-grid .card { transition: opacity var(--t-snap); }
 .browse-grid.is-opening .card { opacity: .45; }
 .browse-grid.is-opening .card.is-resolving { opacity: 1; }
-.browse .card .poster img { transition: opacity var(--t-snap), filter var(--t-snap); }
+.card .poster img { transition: opacity var(--t-snap), filter var(--t-snap); }
 .card.is-resolving .poster img { filter: brightness(.78); }
 /* The selection ring is the indicator: a bright arc travels around the poster's edge. */
 @property --trace { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
-.browse .card.is-resolving .hit::before { content: ""; position: absolute; inset: -2px; border-radius: calc(var(--radius) + 2px); background: conic-gradient(from var(--trace), var(--rule) 0 70%, var(--cursor) 70% 100%); animation: card-trace 1.6s linear infinite, fade var(--t-snap) both; }
-.browse .card.is-resolving .poster, .browse .card.is-resolving .hit:is(:hover, :focus-visible) .poster { box-shadow: none; }
+.card.is-resolving .hit::before { content: ""; position: absolute; inset: -2px; border-radius: calc(var(--radius) + 2px); background: conic-gradient(from var(--trace), var(--rule) 0 70%, var(--cursor) 70% 100%); animation: card-trace 1.6s linear infinite, fade var(--t-snap) both; }
+.card.is-resolving .poster, .card.is-resolving .hit:is(:hover, :focus-visible) .poster { box-shadow: none; }
 @keyframes card-trace { to { --trace: 360deg; } }
 .browse-ghosts { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 18px 16px; margin-top: 18px; -webkit-mask-image: linear-gradient(#000 10%, transparent 90%); mask-image: linear-gradient(#000 10%, transparent 90%); }
 .browse-more { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 30px; margin-top: 28px; color: var(--dim); font-size: 12.5px; }
@@ -483,6 +483,12 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .series .side .poster { width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius); }
 .series .side .stack { display: grid; gap: 6px; margin-top: 12px; }
 .series .side .stack .btn { width: 100%; justify-content: space-between; height: 40px; }
+/* What Play is doing, under the button: it opens (and the buttons below glide down) only while there is news. */
+.series .side .play-slot { display: grid; }
+.play-note { margin: 0; padding: 7px 2px 1px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.play-note.err { color: var(--danger); }
+.play-note .link { display: block; margin-top: 2px; color: var(--text); font-size: 12.5px; text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
+.play-note .link:hover { text-decoration-color: var(--text); }
 /* A finished state stays legible: muted text instead of a faded button. */
 .series .side .stack .btn:disabled:not(.primary) { opacity: 1; color: var(--muted); }
 .genre-bubbles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
@@ -547,11 +553,6 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .src .chk .icon { width: 12px; height: 12px; }
 .src.w .t, .src.w .t small, .src.w .q { color: var(--dim); }
 .src.w .chk { background: var(--cursor); box-shadow: none; }
-.status { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding: 12px 16px; border-radius: 10px; background: var(--raised); font-size: 13px; }
-.status b { font-weight: 500; }
-.status.err span:first-of-type { color: var(--danger); }
-.status .detail { color: var(--muted); }
-.status .link { margin-left: auto; }
 
 /* ---- settings --------------------------------------------------------- */
 .page-settings { container: settings-page / inline-size; }
@@ -585,8 +586,9 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .save-text > *, .save-text::before { grid-area: 1 / 1; }
 .save-word .swap > * { display: inline-flex; align-items: center; }
 .save-word .icon { width: 13px; height: 13px; }
-.save-turn { animation: save-turn .9s linear infinite; }
-@keyframes save-turn { to { rotate: 1turn; } }
+/* The small arc that turns while something is being worked on (the save indicator, the Play button). */
+.turning { animation: turning .9s linear infinite; }
+@keyframes turning { to { rotate: 1turn; } }
 @keyframes word-in { from { opacity: 0; filter: blur(3px); } }
 .save-state[data-state="error"] { color: var(--danger); }
 .save-retry { color: var(--text); font-size: 12px; text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
@@ -701,7 +703,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 @keyframes pop { from { opacity: 0; transform: scale(.98); } }
 @keyframes shimmer { 50% { opacity: .4; } }
 .src-wrap, .hit-row, .card { animation: rise var(--enter) both; animation-delay: calc(var(--i, 0) * var(--stagger)); }
-.status, .notice, .msg, .hints, .empty, .schedule-state { animation: rise var(--enter) both; }
+.notice, .msg, .hints, .empty, .schedule-state { animation: rise var(--enter) both; }
 .page { animation: fade var(--t-snap) both; }
 .browse-none, .browse-reading, .browse-line .token, .studio-token, .browse-clear, .browse-more > * { animation: rise var(--enter) both; }
 .browse-sort button, .browse-search .clear { animation: fade var(--enter) both; }
@@ -746,12 +748,12 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 /* Cards, buttons and tiles dip under the pointer, so a press answers at once (src/press.ts). */
 .pressing { scale: var(--press, .98); }
 @media (prefers-reduced-motion: reduce) {
-  .dots, .browse-reading .track i, .search-throbber > span, .src-wrap, .hit-row, .card, .status, .notice, .msg, .hints, .empty, .schedule-state, .page, .palette, .dim, .src .q, .src .audio-availability, .src .metadata-status, .src .t em, .src-wrap.skel .t, .backdrop { animation: none; }
+  .dots, .browse-reading .track i, .search-throbber > span, .src-wrap, .hit-row, .card, .notice, .msg, .hints, .empty, .schedule-state, .page, .palette, .dim, .src .q, .src .audio-availability, .src .metadata-status, .src .t em, .src-wrap.skel .t, .backdrop { animation: none; }
   .schedule-days button, .schedule-days button.today::after, .schedule-audio button, .schedule-card .poster { transition: none; }
   .art img { transition: none; }
-  .browse .card.is-resolving .hit::before { animation: none; background: var(--cursor); }
+  .card.is-resolving .hit::before { animation: none; background: var(--cursor); }
   .browse-none, .browse-reading, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .typeahead-list, .browse-ghosts .ghost { animation: none; }
-  .browse-search, .browse-search .clear, .browse-suggest button, .browse-sort, .browse-steps, .token button, .browse-grid, .browse-grid .card, .browse .card .poster img, .browse-toggle .icon { transition: none; }
+  .browse-search, .browse-search .clear, .browse-suggest button, .browse-sort, .browse-steps, .token button, .browse-grid, .browse-grid .card, .card .poster img, .browse-toggle .icon { transition: none; }
   .browse .reveal[data-open="true"] > .reveal-inner { overflow: visible; }
   .reveal, .reveal-inner, .chips button, .settings-section-nav button, .subtitle-sample, .subtitle-sample > span, .subtitle-chevron, .subtitle-editor .r :is(.stepper, .subtitle-swatch), .colour-dots button { transition: none !important; }
   .settings > .group, .settings-section-nav, .stepper-value, .update-notice, .nav-badge { animation: none; }
@@ -762,7 +764,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
   .swap-out, .swap-in { animation-name: fade-out-plain; animation-duration: 120ms; animation-delay: 0s; }
   .swap-in { animation-name: fade; }
   .pressing { scale: none; }
-  .save-turn { animation: none; }
+  .turning { animation: none; }
   /* Without the fade, the tick and the bright heading simply stay while the heading holds focus. */
   .settings .group h3.jump-hit, .settings .group h3.jump-hit::before { animation: none; }
   .settings .group h3:focus { color: var(--text); }

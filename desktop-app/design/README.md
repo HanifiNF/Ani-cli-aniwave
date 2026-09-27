@@ -53,6 +53,14 @@ records the real renderer, both at true speed.
 - Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
   indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
   that can be dragged, stretches past either end, and springs from its release speed.
+- Resuming (a Continue watching or Recent card) goes straight into the episode: the card finds it in place, dimmed with
+  the travelling arc Browse cards use (a second press or Escape stops it), and the player grows out of the card. Only a
+  title with nothing to play (caught up, or no stream) goes on to its series page, the poster flying there, where a
+  failure shows its reason and "Try again" under Play. The card's episode count can be stale, so it always checks.
+  Play on a series page reports its own work: it reads "Finding Ep 13" with a turning arc and a note slides open under
+  it ("Choosing a stream · sub from aniwave", then "Opening …", with Cancel; Escape cancels too). There is no separate
+  "opening" page, and a poster still in the air when the player takes the screen is dropped (`cancelFlight`).
+  `design/shots/motion/app-resume.mp4` records the card resume.
 - Back is a return, not a visit: going back from a series lands on the page it was opened from (Home, Saved, Recent,
   Browse, Notifications; the back link names it), with its scroll, filter, backdrop art, schedule day, and keyboard
   cursor as they were, and without the page fade or the cards' rise. Posters already shown this session appear at once

@@ -780,6 +780,7 @@ describe("live catalog search", () => {
       { id: "aniwave:frieren-1", provider: "aniwave", title: "frieren", aliases: ["frieren"] },
       { id: "hianime:frieren-x", provider: "hianime", title: "frieren", aliases: ["frieren"] }
     ] }));
+    // Resuming stays on the card while the episode is found; the player takes the screen from there.
     expect(container.querySelector(".series")).toBeNull();
     const request = vi.mocked(api.play).mock.calls[0][0];
     await act(async () => load({ id: "continued", request, preferences: {}, fullscreen: false, canOpenExternal: false }));
@@ -1021,12 +1022,14 @@ describe("progressive catalog navigation", () => {
     vi.mocked(api.streams).mockReturnValue(pending.promise);
     await act(async () => root.render(<StrictMode><App key="cancel-direct" /></StrictMode>));
     await press("Enter");
-    expect(container.querySelector(".page-opening")).not.toBeNull(); expect(container.querySelector(".series")).toBeNull();
+    // The card finds its episode in place, carrying the travelling arc; Escape stops it and Home stays as it was.
+    expect(container.querySelector(".page-home .card.is-resolving")).not.toBeNull(); expect(container.querySelector(".series")).toBeNull();
     const request = vi.mocked(api.streams).mock.calls[0][2]!;
-    await click("Cancel");
+    await press("Escape");
     expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
     await act(async () => pending.resolve([{ quality: "720p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]));
     expect(api.play).not.toHaveBeenCalled(); expect(container.querySelector(".page-home")).not.toBeNull();
+    expect(container.querySelector(".card.is-resolving")).toBeNull();
   });
 
   it("tries the same episode on another source after direct resolution fails", async () => {
@@ -1038,6 +1041,28 @@ describe("progressive catalog navigation", () => {
     await press("Enter");
     expect(api.streams).toHaveBeenNthCalledWith(2, "hianime:two", "sub", expect.any(Object));
     expect(api.play).toHaveBeenCalledOnce();
+  });
+
+  it("goes on to the series page from the card when a stream cannot be found", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed: true }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2].map((number) => ({ id: `aniwave:1:${number}`, number: String(number), provider: "aniwave" })) }] });
+    vi.mocked(api.streams).mockRejectedValue(new Error("no stream was found"));
+    await act(async () => root.render(<StrictMode><App key="resume-failed" /></StrictMode>));
+    await press("Enter");
+    expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
+    expect(container.querySelector(".play-note")?.textContent).toContain("no stream was found");
+    expect(container.querySelector(".play-note")?.textContent).toContain("Try again");
+  });
+
+  it("opens the series page without an error when the viewer is caught up", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "2", mode: "sub", updatedAt: "", completed: true }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2].map((number) => ({ id: `aniwave:1:${number}`, number: String(number), provider: "aniwave" })) }] });
+    await act(async () => root.render(<StrictMode><App key="caught-up" /></StrictMode>));
+    await press("Enter");
+    expect(api.streams).not.toHaveBeenCalled();
+    expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector(".status-pill")).toBeNull();
   });
 
   it("waits for a new episode instead of replaying the last cached completed episode", async () => {
