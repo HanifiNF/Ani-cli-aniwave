@@ -20,6 +20,15 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 describe("StateStore", () => {
+  it("persists companion choices and falls back from unknown saved IDs without touching history", async () => {
+    expect(store.snapshot().settings).toMatchObject({ companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal" });
+    await store.saveSettings({ ...store.snapshot().settings, companionEnabled: false, companionPetId: "feibi", companionFrequency: "chatty" });
+    await store.load();
+    expect(store.snapshot().settings).toMatchObject({ companionEnabled: false, companionPetId: "feibi", companionFrequency: "chatty" });
+    await store.saveSettings({ ...store.snapshot().settings, companionPetId: "removed" as never });
+    expect(store.snapshot().settings.companionPetId).toBe("columbinya");
+    expect(store.snapshot().history).toEqual([]);
+  });
   it("persists subtitle appearance separately from playback preferences and history", async () => {
     const appearance = { ...store.snapshot().subtitleAppearance!, font: "mono" as const, size: 130, bottomInset: 12 };
     await store.saveSubtitleAppearance(appearance);

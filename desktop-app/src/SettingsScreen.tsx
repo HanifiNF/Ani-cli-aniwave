@@ -13,6 +13,7 @@ import IdentityIndexPanel from "./IdentityIndexPanel";
 import { UpdateNotice, UpdatePanel, updatePending } from "./UpdateUI";
 import { SubtitleAppearanceEditor, SubtitleAppearanceRow } from "./SubtitleAppearanceEditor";
 import Reveal from "./Reveal";
+import { COMPANION_PETS, COMPANION_FREQUENCIES, COMPANION_REGISTRY, companionImageUrl, normalizeCompanionPreferences } from "../shared/companion";
 
 /** Every row applies as it changes; this is the page's word on how that went. Idle says nothing. */
 export type SettingsSaveState = "idle" | "saved" | "saving" | "error";
@@ -25,6 +26,7 @@ interface Props {
   episodeUpdateStatus?: EpisodeUpdateStatus; onCheckEpisodes: () => void;
   updateInstall?: UpdateInstallStatus; onDownloadUpdate?: () => void; onInstallUpdate?: () => void;
   subtitleAppearance: SubtitleAppearance; onSubtitleAppearance: (value: SubtitleAppearance) => void;
+  onCompanionHello: () => void;
 }
 
 interface Section { id: string; label: string }
@@ -115,7 +117,7 @@ function useSectionNavigation() {
 const SAVE_WORDS: Record<SettingsSaveState, string> = { idle: "", saved: "Saved", saving: "Saving…", error: "Not saved" };
 
 export default function SettingsScreen({ draft, setDraft, saved, saveState, onRetrySave, bookmarkCount, linkCount, onOpenLogs, onClearLinks,
-  updateStatus, updateChecking, onCheckUpdates, onOpenUpdate, onSkipUpdate, episodeUpdateStatus, onCheckEpisodes, updateInstall, onDownloadUpdate, onInstallUpdate, subtitleAppearance, onSubtitleAppearance }: Props) {
+  updateStatus, updateChecking, onCheckUpdates, onOpenUpdate, onSkipUpdate, episodeUpdateStatus, onCheckEpisodes, updateInstall, onDownloadUpdate, onInstallUpdate, subtitleAppearance, onSubtitleAppearance, onCompanionHello }: Props) {
   const { formRef, sections, active, jump } = useSectionNavigation();
   const [subtitlesOpen, setSubtitlesOpen] = useState(false);
   return (
@@ -163,6 +165,16 @@ export default function SettingsScreen({ draft, setDraft, saved, saveState, onRe
           </span></div>
         </Reveal>
         <div className="r"><span className="k">Backdrop art<small>An illustration behind the home, browse, saved, and recent pages, from a hand-picked set on nekosapi.com. Off keeps them plain and fetches nothing</small></span><Switch checked={draft.emptyBackdrop !== false} label="Backdrop art" onChange={(emptyBackdrop) => setDraft({ ...draft, emptyBackdrop })} /></div>
+        <div className="r"><span className="k">Watch companion<small>A little animated friend with preset comments while you browse and watch</small></span><Switch checked={draft.companionEnabled !== false} label="Watch companion" onChange={(companionEnabled) => setDraft({ ...draft, companionEnabled })} /></div>
+        {draft.companionEnabled !== false && <>
+          <div className="r stack"><span className="k">Choose your companion</span><div className="companion-choices" role="radiogroup" aria-label="Watch companion character">
+            {COMPANION_PETS.map((id) => <button type="button" role="radio" aria-checked={normalizeCompanionPreferences(draft).companionPetId === id} className={`companion-choice ${normalizeCompanionPreferences(draft).companionPetId === id ? "on" : ""}`} key={id} onClick={() => setDraft({ ...draft, companionPetId: id })}>
+              <span className="companion-choice-art" style={{ backgroundImage: `url(${companionImageUrl(id, import.meta.env.BASE_URL)})` }} aria-hidden="true" /><span>{COMPANION_REGISTRY[id].name}</span>
+            </button>)}
+          </div></div>
+          <div className="r"><span className="k">Chattiness<small>Preset comments are rate-limited; clicking the companion always makes it talk</small></span><Chips value={normalizeCompanionPreferences(draft).companionFrequency} options={COMPANION_FREQUENCIES} onChange={(companionFrequency) => setDraft({ ...draft, companionFrequency })} /></div>
+          <div className="r"><span className="k">Preview<small>Say hello without changing your settings</small></span><button type="button" className="btn small" onClick={onCompanionHello}>Say hello</button></div>
+        </>}
       </div></div>
       <IdentityIndexPanel saved={saved} draft={draft} onChange={setDraft} />
       <BookmarkMetadataPanel count={bookmarkCount} saved={saved} draft={draft} />

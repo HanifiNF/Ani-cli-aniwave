@@ -1,4 +1,5 @@
 import type { PlayerDiagnosticRecord } from "./player-diagnostics";
+import type { CompanionPreferences } from "./companion";
 
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
@@ -319,7 +320,7 @@ export interface CustomTheme {
   highlight: string;
 }
 
-export interface Settings {
+export interface Settings extends CompanionPreferences {
   playerPath: string;
   playbackTarget: PlaybackTarget;
   startPlayerFullscreen: boolean;

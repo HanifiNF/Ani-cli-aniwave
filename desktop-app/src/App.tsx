@@ -52,6 +52,8 @@ import { updatePending } from "./UpdateUI";
 import BrowseScreen, { DEFAULT_BROWSE_STATE, type BrowseViewState } from "./BrowseScreen";
 import BrowseDetail from "./BrowseDetail";
 import EpisodeUpdatesPanel, { EpisodeUpdatesPage, usePanelPresence } from "./EpisodeUpdatesPanel";
+import WatchCompanion from "./WatchCompanion";
+import type { CompanionEvent, CompanionEventKind } from "./companion-dialogue";
 
 type Screen = "home" | "browse" | "catalog-detail" | "series" | "opening" | "saved" | "recent" | "notifications" | "settings" | "player";
 // Vidstack and hls.js load with the first playback, not at startup.
@@ -63,6 +65,12 @@ const playerName = (path: string): string => path.split(/[\\/]/).pop()?.replace(
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [appState, setAppState] = useState<PersistedState>(DEFAULT_STATE);
+  const [companionEvent, setCompanionEvent] = useState<CompanionEvent>();
+  const companionSequence = useRef(0);
+  const companionSearchSeen = useRef(false);
+  const companionBrowseSeen = useRef(false);
+  const emitCompanion = (kind: CompanionEventKind, title?: string, episode?: string, key?: string) =>
+    setCompanionEvent({ id: ++companionSequence.current, kind, title, episode, key });
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
@@ -115,6 +123,16 @@ function App() {
     [appState.settings.aniwaveBaseUrl, appState.settings.anidbBaseUrl, appState.settings.hianimeBaseUrl, enabledProviders(appState.settings).join(",")], searchHere && !composing);
   const { results, lastQuery } = catalogSearch;
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
+  useEffect(() => {
+    if (!catalogSearch.ready || !unifiedResults.length || !lastQuery || companionSearchSeen.current) return;
+    companionSearchSeen.current = true;
+    emitCompanion("discover", undefined, undefined, lastQuery);
+  }, [catalogSearch.ready, unifiedResults.length, lastQuery]);
+  useEffect(() => {
+    if (screen !== "browse" || !browseState.pages.length || companionBrowseSeen.current) return;
+    companionBrowseSeen.current = true;
+    emitCompanion("discover");
+  }, [screen, browseState.filters, browseState.pages.length]);
 
   const fieldRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -517,6 +535,7 @@ function App() {
   }
 
   async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; preferredProvider?: ProviderName; mode?: TranslationMode; autoPlay?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string; returnTo?: "browse" | "notifications"; discovery?: BrowseDiscoveryResult } = {}): Promise<boolean> {
+    if (!options.refresh && !options.autoPlay) emitCompanion("series", anime.title, undefined, anime.id);
     cancelSeries();
     if (seriesSearch) closeSeriesSearch();
     const replacing = !options.refresh || screen !== "series" || !selectedAnime || !overlaps(selectedAnime, anime);
@@ -589,7 +608,7 @@ function App() {
     };
     const load = async (target: AnimeResult) => {
       try { accept(await request("episodes", (req) => window.aniDesktop.episodes(target, req, accept))); }
-      catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+      catch (error) { if (token === openToken.current) { setNotice(messageFrom(error)); emitCompanion("error", anime.title, undefined, anime.id); } }
     };
     if (options.autoPlay && resumeEpisode) void attempt(resumeEpisode);
     const initial = load(anime);
@@ -614,7 +633,7 @@ function App() {
           acceptSources({ value: resolved, pending: [], errors: discoveryErrors });
           refreshState();
         }
-      } catch (error) { if (token === openToken.current) setNotice(messageFrom(error)); }
+      } catch (error) { if (token === openToken.current) { setNotice(messageFrom(error)); emitCompanion("error", anime.title, undefined, anime.id); } }
       await Promise.all(extra);
     })() : Promise.resolve();
     void Promise.all([initial, discovery]).then(() => {
@@ -657,9 +676,10 @@ function App() {
         ? await window.aniDesktop.getState()
         : await window.aniDesktop.recordHistory(libraryEntry(anime, episode, playMode)));
       setStatus({ episode, phase: "opened", detail });
+      emitCompanion("play", anime.title, episode.number, episode.id);
       return true;
     } catch (reason) {
-      if (token === playToken.current) { setStatus({ episode, phase: "failed", detail: messageFrom(reason) }); return false; }
+      if (token === playToken.current) { setStatus({ episode, phase: "failed", detail: messageFrom(reason) }); emitCompanion("error", anime.title, episode.number, episode.id); return false; }
     }
   }
 
@@ -688,7 +708,7 @@ function App() {
       ? { ...progress, title: selectedAnime.title, poster: selectedAnime.poster ?? progress.poster, sources: animeSources(selectedAnime) }
       : { ...libraryEntry(selectedAnime, first, mode), completed: false };
     const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(entry));
-    if (state) setAppState(state);
+    if (state) { setAppState(state); if (!isSaved && state.bookmarks.some((item) => overlaps(item, selectedAnime))) emitCompanion("save", selectedAnime.title, undefined, selectedAnime.id); }
   }
 
   // The checkbox on a row records progress through that episode on its provider.
@@ -981,6 +1001,7 @@ function App() {
             session={session}
             subtitleAppearance={subtitleAppearance}
             onSubtitleAppearance={changeSubtitleAppearance}
+            onCompanionEvent={(kind) => emitCompanion(kind, current?.anime.title, current?.episodes.find((item) => item.id === current.episodeId)?.number, current?.episodeId)}
             fullscreen={playerFullscreen}
             onFullscreenChange={setPlayerFullscreen}
             docked={screen !== "player"}
@@ -1074,6 +1095,7 @@ function App() {
 
         {screen === "settings" && (
           <SettingsScreen draft={settingsDraft} setDraft={changeSettings} saved={appState.settings} saveState={settingsSaveState} onRetrySave={retrySettings}
+            onCompanionHello={() => emitCompanion("hello")}
             subtitleAppearance={subtitleAppearance} onSubtitleAppearance={changeSubtitleAppearance}
             bookmarkCount={appState.bookmarks.length} linkCount={(appState.providerLinks ?? []).length}
             onClearLinks={() => void clearSourceLinks()}
@@ -1088,6 +1110,7 @@ function App() {
           onNavigate={(next: FooterScreen) => { setQuery(""); catalogSearch.clear(); go(next); }} />}
       </div>}
       </div>
+      <WatchCompanion settings={themeSource} screen={screen} fullscreen={playerFullscreen && screen === "player"} corner={appState.settings.miniPlayerCorner ?? "bottom-right"} dockedPlayer={Boolean(session && screen !== "player")} event={companionEvent} />
 
       {showHints && screen !== "player" && screen !== "series" && (
         <div className="hints" role="note">
