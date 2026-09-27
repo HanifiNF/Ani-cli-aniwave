@@ -1,0 +1,23 @@
+/* Option A: shape follows size and role.
+   10px for containers, content, and large buttons; pills for every small inline control or label; circles for icon-only
+   buttons, dots, avatars, and swatches. Checkboxes keep square boxes (small corners), since a circle reads as "pick one".
+   Only radii change; the motion and behaviour are untouched. */
+:focus-visible { border-radius: revert; }
+/* icon-only buttons become circles, and so does the nav fill behind them */
+.icons > button, .nav-ind, .copy-title, .mini-bar button, .creator-socials a, .creator-socials button, .src .play,
+.stepper button, .player-seek-button, .player-fullscreen-button, .series .meta .src-tag .split,
+.notification-card-actions button { border-radius: 999px; }
+.media-player[data-media-player] { --media-button-border-radius: 999px; }
+/* small buttons, text buttons, and their indicators */
+.btn.small, .now .now-acts button, .metadata-retry, .mini-act, .notification-panel-actions button,
+.settings-section-nav button, .rail-pill, .player-notice button, .player-error button, .player-next button,
+.player-shortcuts button { border-radius: 999px; }
+/* labels */
+.badge, .copied-tip, .copy-title::after { border-radius: 999px; }
+/* fields */
+.browse-field input, .group .r > input, .typeahead-box, .stepper, .swatch, kbd, .subtitle-thumb { border-radius: 999px; }
+@container settings-page (max-width: 979px) { .settings-jump select { border-radius: 999px; } }
+/* rows inside panels are containers */
+.typeahead-list button { border-radius: 10px; }
+/* checkboxes: clearly square */
+.src .chk { border-radius: 5px; }

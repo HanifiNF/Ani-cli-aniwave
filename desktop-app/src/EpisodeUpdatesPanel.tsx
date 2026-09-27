@@ -3,6 +3,7 @@ import type { EpisodeUpdate, EpisodeUpdateStatus } from "../shared/contracts";
 import Art from "./Art";
 import { Icon } from "./icons";
 import { play, stagger } from "./transition";
+import { springCurve } from "./motion";
 
 interface Actions {
   status?: EpisodeUpdateStatus;
@@ -36,7 +37,9 @@ export function notificationAge(time: number, now: number): string {
 const title = (update: EpisodeUpdate) => `Episode ${update.episodeNumber} of ${update.title}`;
 const message = (update: EpisodeUpdate) => `Episode ${update.episodeNumber} is now available!`;
 
-const EASE = "cubic-bezier(.2, .7, .2, 1)";
+// Each step of these sequences eases on the glide spring; the panel closes on the quick "out" spring.
+const EASE = springCurve("glide").easing;
+const OUT = springCurve("out");
 
 // A row's box, and the same box flattened to nothing; the negative margin takes up the list's gap.
 function box(row: HTMLElement): Keyframe {
@@ -52,7 +55,7 @@ function flat(row: HTMLElement): Keyframe {
 function leave(row: HTMLElement, delay: number) {
   const from = box(row);
   const run = play(row, [
-    { ...from, opacity: getComputedStyle(row).opacity, transform: "none", easing: "ease-out" },
+    { ...from, opacity: getComputedStyle(row).opacity, transform: "none", easing: EASE },
     { ...from, opacity: 0, transform: "translateX(14px)", offset: .4, easing: EASE },
     { ...flat(row), opacity: 0, transform: "translateX(14px)" }
   ], { duration: 380, delay, fill: "forwards" });
@@ -108,7 +111,7 @@ export function usePanelPresence(open: boolean) {
   const [shown, setShown] = useState(open);
   useLayoutEffect(() => {
     if (open) { setShown(true); return; }
-    const run = play(ref.current, [{ opacity: 0, transform: "scale(.98)" }], { duration: 120, easing: "ease-in", fill: "forwards" });
+    const run = play(ref.current, [{ opacity: 0, transform: "scale(.98)" }], { duration: OUT.ms, easing: OUT.easing, fill: "forwards" });
     if (!run) { setShown(false); return; }
     void run.finished.then(() => setShown(false), () => undefined);
     return () => run.cancel();
@@ -148,7 +151,7 @@ export function EpisodeUpdatesPage({ status, posterFor, onEpisode, onSeries, onM
     <div className="notifications-page-head"><div><h1 id="notifications-heading">Notifications</h1><span className="notifications-unread-count"><span key={unread}>{unread}</span> new</span></div>
       <button type="button" className="btn" onClick={() => onMarkRead()} disabled={!unread}><Icon name="check" /> Mark all as read</button>
     </div>
-    <div className="notifications-page-list" ref={list}>{status?.updates.length ? status.updates.map((update, index) => <article className={`notification-card${update.readAt ? " read" : " unread"}`} key={update.id} data-id={update.id} style={stagger(index, 8)}>
+    <div className="notifications-page-list" ref={list} data-origin-group="notifications">{status?.updates.length ? status.updates.map((update, index) => <article className={`notification-card${update.readAt ? " read" : " unread"}`} key={update.id} data-id={update.id} data-origin={update.id} style={stagger(index, 8)}>
       <div className="notification-card-head"><Poster update={update} posterFor={posterFor} /><h2>{title(update)}</h2><span className="notification-card-actions">
         {/* Stays mounted once read so it can fold away rather than vanish. */}
         <button type="button" className="notification-mark-read" aria-label={`Mark ${title(update)} as read`} title="Mark as read" disabled={Boolean(update.readAt)} onClick={() => onMarkRead(update.id)}><Icon name="check" /></button>

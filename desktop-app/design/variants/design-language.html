@@ -1,0 +1,1135 @@
+<!doctype html><meta charset="utf-8"><title>Design language · mockup</title>
+<!--
+  The current screens (home, search, series T2, player with the corner mini player, settings) redrawn in the Ani Desktop
+  design language: three theme colours mixed in oklab, 10/8px corners and pills, Inter 400/500/700, one icon stroke, and
+  springs on every movement. Everything in the frame is live: click, type, drag and use the keys.
+  Inter comes from design/shots/fonts/inter.woff2 (ignored by Git; `npm pack @fontsource-variable/inter` holds it);
+  posters come from design/shots/schedule-posters/.
+-->
+<style>
+@font-face { font-family: "Inter"; src: url("../shots/fonts/inter.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+@property --bg { syntax: "<color>"; inherits: true; initial-value: #1F2023; }
+@property --text { syntax: "<color>"; inherits: true; initial-value: #EDEDEE; }
+@property --cursor { syntax: "<color>"; inherits: true; initial-value: #EDEDEE; }
+
+/* ---- tokens: three theme colours, everything else mixed from them ------------------------------ */
+:root {
+  --bg: #1F2023; --text: #EDEDEE; --cursor: #EDEDEE;
+  --cursor-text: var(--bg);
+  --raised: color-mix(in oklab, var(--bg), var(--text) 6%);
+  --raised2: color-mix(in oklab, var(--bg), var(--text) 10%);
+  --rule: color-mix(in oklab, var(--bg), var(--text) 12%);
+  --muted: color-mix(in oklab, var(--bg), var(--text) 60%);
+  --dim: color-mix(in oklab, var(--bg), var(--text) 36%);
+  --radius: 10px; --radius-sm: 8px; --pill: 999px;
+  --stroke: 1.5px;
+  --video-brand: #EDEDEE;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #121212; color: #d6d6d6; font: 400 14px/1.45 Inter, system-ui, sans-serif; letter-spacing: -0.005em; -webkit-font-smoothing: antialiased; padding: 32px 0 80px; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+input { background: none; border: 0; outline: 0; padding: 0; }
+
+/* ---- doc chrome (outside the design) --------------------------------------------------------- */
+.doc { width: 1240px; margin: 0 auto; }
+.doc h1 { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: #f0f0f0; }
+.doc p { margin: 0 0 14px; color: #8d8d8d; font-size: 13px; max-width: 900px; line-height: 1.55; }
+.doc p b { color: #d6d6d6; font-weight: 500; }
+.doc kbd { font: 500 11px/1 Inter; padding: 3px 6px; border-radius: 6px; background: #262626; color: #cfcfcf; }
+.knobs { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin: 14px 0 18px; font-size: 12px; color: #8d8d8d; }
+.knobs > span { display: inline-flex; gap: 4px; align-items: center; }
+.knobs > span > i { font-style: normal; margin-right: 4px; }
+.knobs button { padding: 5px 10px; border-radius: 8px; background: #232323; color: #bdbdbd; font-size: 12px; }
+.knobs button[aria-pressed="true"] { background: #e6e6e6; color: #151515; }
+.doc h2 { margin: 56px 0 6px; font-size: 16px; font-weight: 700; color: #f0f0f0; }
+
+/* ---- the app frame --------------------------------------------------------------------------- */
+.app { position: relative; width: 1240px; height: 800px; margin: 0 auto; overflow: hidden; border-radius: 10px; background: var(--bg); color: var(--text); font: 400 14px/1.45 Inter, sans-serif; letter-spacing: -0.005em; box-shadow: 0 0 0 1px #2a2a2a; isolation: isolate; }
+.app :focus-visible { outline: 2px solid var(--cursor); outline-offset: 2px; border-radius: var(--radius-sm); }
+.app ::selection { background: var(--cursor); color: var(--cursor-text); }
+.app ::placeholder { color: var(--dim); }
+.icon { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+/* One weight at every size: the stroke is drawn in screen pixels, so a 14px icon and a 24px icon share a line. */
+.icon :is(path, circle, rect) { vector-effect: non-scaling-stroke; stroke-width: var(--stroke); }
+.icon .dot { fill: currentColor; stroke: none; }
+.icon.scaled :is(path, circle, rect) { vector-effect: none; stroke-width: 1.8; }
+kbd { display: inline-grid; place-items: center; height: 22px; padding: 0 7px; border-radius: var(--radius-sm); background: var(--bg); color: var(--muted); font: 500 11px/1 Inter; letter-spacing: -0.005em; }
+
+/* top bar */
+.bar { position: absolute; z-index: 30; inset: 0 0 auto; height: 68px; display: grid; grid-template-columns: 1fr 420px 1fr; align-items: center; padding: 0 60px; }
+.logo { font-weight: 700; font-size: 19px; }
+.logo em { font-style: normal; font-weight: 500; color: var(--muted); }
+.icons { position: relative; justify-self: end; display: flex; gap: 4px; }
+.icons button { position: relative; z-index: 1; display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--radius-sm); color: var(--muted); }
+.icons button:hover { color: var(--text); }
+.ind { position: absolute; top: 0; left: 0; border-radius: var(--radius-sm); background: var(--raised); will-change: transform, width; }
+.icons .ind { height: 38px; }
+.lit { position: absolute; inset: 0; z-index: 2; display: flex; gap: 4px; pointer-events: none; color: var(--text); }
+.icons .lit span { display: grid; place-items: center; width: 38px; height: 38px; }
+
+/* search pill, which is also the palette */
+.omni { position: absolute; z-index: 40; top: 0; left: 0; overflow: hidden; background: var(--raised); will-change: transform, width, height; box-shadow: 0 0 0 1px color-mix(in oklab, transparent, var(--rule) calc(var(--open, 0) * 100%)); }
+.omni .field { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 16px; color: var(--muted); cursor: text; }
+.omni input { flex: 1; min-width: 0; font-size: 15px; color: var(--text); }
+.omni .field kbd { opacity: calc(1 - var(--open, 0) * 3); }
+.omni .clear { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--muted); }
+.omni .clear:hover { color: var(--text); background: var(--raised2); }
+.pal { position: absolute; top: 44px; left: 0; width: 520px; padding: 0 10px 10px; opacity: calc(var(--open, 0) * 1.6 - .6); }
+.pal .found { position: relative; height: 30px; padding: 6px 8px 0; color: var(--muted); font-size: 12px; border-top: 1px solid var(--rule); margin: 0 -10px; padding-inline: 18px; }
+.pal .list { position: relative; }
+.hit { position: relative; z-index: 1; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; width: 100%; height: 66px; padding: 0 10px 0 8px; border-radius: var(--radius); }
+.hit .thumb { width: 36px; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--raised2); }
+.hit .thumb img, .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hit b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.hit .icon { color: var(--dim); width: 16px; height: 16px; }
+.hit.cur .icon { color: var(--text); }
+.pal .sel { position: absolute; left: 0; right: 0; top: 0; border-radius: var(--radius); background: var(--raised2); box-shadow: inset 0 0 0 1.5px var(--cursor); }
+.pal .hints { display: flex; gap: 16px; padding: 10px 8px 0; color: var(--dim); font-size: 11.5px; }
+.pal .hints b { color: var(--muted); font-weight: 500; }
+.pal .none { padding: 18px 8px 8px; color: var(--muted); }
+.scrim { position: absolute; z-index: 35; inset: 68px 0 0; background: color-mix(in oklab, var(--bg), transparent 28%); opacity: 0; pointer-events: none; }
+.scrim.on { pointer-events: auto; }
+
+/* body and pages */
+.body { position: absolute; z-index: 1; inset: 68px 0 0; overflow: auto; scrollbar-gutter: stable; }
+.body::-webkit-scrollbar { width: 10px; }
+.body::-webkit-scrollbar-thumb { border: 3px solid var(--bg); border-radius: var(--pill); background: var(--rule); }
+.page { position: relative; padding: 8px 55px 40px 60px; }
+.leaving { position: absolute; inset: 0 0 auto; pointer-events: none; z-index: 2; }
+.fly { position: absolute; z-index: 20; inset: 0; pointer-events: none; }
+.flyer { position: absolute; top: 0; left: 0; border-radius: var(--radius); overflow: hidden; background: var(--raised); }
+.flyer img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.sec + .sec { margin-top: 30px; }
+.sec-head { display: flex; align-items: center; gap: 14px; margin: 10px 0 16px; }
+.sec-head h2 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 22px; font-weight: 700; }
+.sec-head h2 .icon { color: var(--muted); width: 16px; height: 16px; }
+.sec-head .see { margin-left: auto; color: var(--muted); font-size: 13px; }
+.sec-head .see:hover { color: var(--text); }
+.sec-sub { color: var(--muted); font-size: 13px; }
+.cards { position: relative; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 18px 16px; }
+.card { display: block; min-width: 0; color: var(--text); }
+.poster { position: relative; display: block; aspect-ratio: 2 / 3; border-radius: var(--radius); overflow: hidden; background: var(--raised); }
+.badges { position: absolute; left: 7px; bottom: 7px; display: flex; gap: 4px; }
+.badge { white-space: nowrap; height: 22px; padding: 0 7px; display: inline-grid; place-items: center; border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 11px; font-weight: 700; }
+.badge.prog { background: var(--cursor); color: var(--cursor-text); }
+.card .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 9px; font-weight: 500; line-height: 1.35; min-height: 2.7em; }
+.card .s { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.upcoming .poster img { filter: brightness(.55) saturate(.4); }
+.ring { position: absolute; top: 0; left: 0; z-index: 3; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--cursor); pointer-events: none; opacity: 0; }
+.days { display: flex; gap: 18px; margin-left: auto; }
+.days button { display: grid; justify-items: center; color: var(--muted); font-size: 14px; }
+.days button small { color: var(--dim); font-size: 11px; }
+.days button.on { color: var(--text); }
+.days button.today::after { content: ""; width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; background: var(--cursor); }
+.vr { width: 1px; height: 22px; background: var(--rule); }
+.plain-switch { display: flex; gap: 12px; }
+.plain-switch button { color: var(--muted); font-weight: 500; }
+.plain-switch button.on { color: var(--text); }
+
+/* segmented chips: a pill track with a two-edge indicator; the lit copy of the labels is clipped to the indicator */
+.seg { position: relative; display: inline-flex; padding: 3px; border-radius: var(--pill); background: var(--raised); }
+.seg .ind { top: 3px; height: calc(100% - 6px); border-radius: var(--pill); background: var(--raised2); }
+.seg .row { display: flex; gap: 2px; }
+.seg .row > * { position: relative; z-index: 1; height: 26px; padding: 0 12px; display: inline-grid; place-items: center; border-radius: var(--pill); color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.seg .lit { inset: 3px; }
+.seg .lit > * { color: var(--text); }
+.app[data-chosen="highlight"] .seg .ind { background: var(--cursor); }
+.app[data-chosen="highlight"] .seg .lit > * { color: var(--cursor-text); }
+
+/* switch: the knob is two edges, each on its own spring */
+.switch { position: relative; flex: none; width: 36px; height: 22px; border-radius: var(--pill); background: var(--raised2); touch-action: none; }
+.switch i { position: absolute; top: 3px; left: 0; height: 16px; border-radius: var(--pill); background: var(--muted); }
+
+/* buttons, tags, fields */
+.btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 40px; padding: 0 16px; border-radius: var(--radius); background: var(--raised); font-weight: 500; }
+.btn:hover { background: var(--raised2); }
+.btn.primary { position: relative; background: var(--cursor); color: var(--cursor-text); }
+.btn .icon { width: 16px; height: 16px; }
+.btn.sm { height: 32px; padding: 0 12px; border-radius: var(--radius-sm); font-size: 13px; }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: var(--pill); background: var(--raised); color: var(--muted); font-size: 12.5px; }
+.tag.strong { color: var(--text); font-weight: 500; }
+.field-sm { display: inline-flex; align-items: center; gap: 8px; height: 32px; width: 150px; padding: 0 12px; border-radius: var(--pill); background: var(--raised); color: var(--dim); font-size: 13px; }
+.field-sm .icon { width: 14px; height: 14px; }
+.sw { position: relative; display: inline-block; }
+.sw > .out { position: absolute; left: 0; top: 0; white-space: nowrap; pointer-events: none; }
+
+/* series (T2) */
+.back { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--muted); }
+.back:hover { color: var(--text); }
+.back .icon { width: 16px; height: 16px; }
+.series h1 { display: flex; align-items: center; gap: 12px; margin: 16px 0 10px; font-size: 32px; font-weight: 700; line-height: 1.2; }
+.series h1 .icon { width: 16px; height: 16px; color: var(--dim); }
+.srcs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; margin-top: 24px; }
+.side { display: grid; gap: 8px; align-content: start; }
+.side .poster { margin-bottom: 8px; }
+.side .genres { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.side .lab { margin-top: 12px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.facts { display: flex; flex-wrap: wrap; gap: 16px 36px; }
+.facts small { display: block; margin-bottom: 2px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.syn { margin: 22px 0 0; padding-top: 22px; border-top: 1px solid var(--rule); line-height: 1.55; }
+.ep-head { display: flex; align-items: center; gap: 12px; margin: 26px 0 14px; padding-top: 22px; border-top: 1px solid var(--rule); }
+.ep-head h2 { margin: 0 6px 0 0; font-size: 20px; font-weight: 700; }
+.ep-head .sort { margin-left: auto; display: flex; gap: 2px; padding: 3px; border-radius: var(--radius-sm); background: var(--raised); }
+.ep-head .sort button { display: grid; place-items: center; width: 28px; height: 26px; border-radius: 6px; color: var(--muted); }
+.ep-head .sort button.on { color: var(--text); background: var(--raised2); }
+.ep-head .sort .icon { width: 15px; height: 15px; }
+.eps { position: relative; display: grid; gap: 8px; }
+.ep { border-radius: var(--radius); background: var(--raised); padding: 8px 12px 6px 14px; }
+.ep .gh { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 500; }
+.ep .gh em { font-style: normal; color: var(--text); }
+.ep .row { display: flex; align-items: center; gap: 12px; height: 38px; }
+.ep .row b { font-weight: 500; }
+.ep .row .vr { height: 14px; }
+.ep .row .p { color: var(--muted); font-size: 13px; }
+.ep .row .a { margin-left: auto; color: var(--muted); font-size: 12px; }
+.ep .row .q { height: 22px; padding: 0 8px; display: inline-grid; place-items: center; border-radius: var(--pill); background: var(--bg); font-size: 11px; font-weight: 700; }
+.ep.seen .row b { color: var(--muted); }
+.chk { position: relative; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1.5px var(--dim); }
+.chk i { position: absolute; inset: 0; border-radius: var(--radius-sm); background: var(--cursor); }
+.chk .icon { position: relative; width: 14px; height: 14px; color: var(--cursor-text); stroke-dasharray: 24; }
+.ghost { position: absolute !important; z-index: 0; pointer-events: none; }
+
+/* settings */
+.settings { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 40px; padding-top: 12px; }
+.rail { position: sticky; top: 16px; align-self: start; display: grid; gap: 2px; margin-top: 62px; }
+.rail button { height: 30px; color: var(--muted); }
+.rail button.on { color: var(--text); }
+.s-head { display: flex; align-items: baseline; justify-content: space-between; margin: 12px 0 8px; }
+.s-head h1 { margin: 0; font-size: 26px; font-weight: 700; }
+.saved-state { color: var(--muted); font-size: 13px; }
+.saved-state .icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.group h3 { margin: 26px 0 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.box { border-radius: var(--radius); background: var(--raised); }
+.r { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; padding: 10px 18px; }
+.r + .r { border-top: 1px solid var(--rule); }
+.r .k b { display: block; font-weight: 500; }
+.r .k small { display: block; color: var(--muted); font-size: 12.5px; }
+.tiles { position: relative; display: flex; gap: 10px; }
+.tiles .ring { opacity: 1; border-radius: 13px; }
+.tile { position: relative; width: 84px; height: 56px; padding: 8px 10px; border-radius: var(--radius); background: var(--t-bg); color: var(--t-text); font-size: 12px; font-weight: 500; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--t-bg), var(--t-text) 12%); }
+.tile b { position: absolute; right: 8px; bottom: 8px; width: 18px; height: 8px; border-radius: var(--pill); background: var(--t-cur); }
+
+/* player: one box that is the Play button, the player, and the corner player in turn */
+.pscreen { position: absolute; z-index: 45; inset: 68px 0 0; background: var(--bg); opacity: 0; pointer-events: none; }
+.pscreen .now { position: absolute; left: 60px; top: 650px; }
+.pscreen .now b { display: block; font-size: 15px; font-weight: 500; }
+.pscreen .now span { color: var(--muted); font-size: 13px; }
+.player { position: absolute; z-index: 50; top: 0; left: 0; display: none; overflow: hidden; border-radius: var(--radius); background: var(--bg); box-shadow: 0 0 0 1px var(--rule); touch-action: none; will-change: transform, width, height; }
+.player .video { position: absolute; left: 0; right: 0; top: 0; overflow: hidden; background: #000; }
+.player .video img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .85; }
+.player .flash { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: var(--cursor); color: var(--cursor-text); font-weight: 500; pointer-events: none; }
+.player .flash .icon { width: 16px; height: 16px; }
+.pctl { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 18px 14px; color: #fff; }
+.pctl .row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.pctl button { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-sm); }
+.pctl button:hover { background: rgb(255 255 255 / 12%); }
+.pctl .icon { width: 20px; height: 20px; }
+.pctl .time { margin-left: 6px; font-size: 13px; font-variant-numeric: tabular-nums; color: rgb(255 255 255 / 80%); }
+.pctl .grow { flex: 1; }
+.scrub { position: relative; height: 18px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.scrub .track { position: relative; width: 100%; height: 4px; border-radius: var(--pill); background: rgb(255 255 255 / 28%); }
+.scrub .fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--pill); background: var(--video-brand); }
+.scrub .knob { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--video-brand); }
+.mbar { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 2px; align-items: center; padding: 0 8px 0 14px; background: var(--bg); cursor: grab; }
+.mbar b { display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbar span { display: block; color: var(--muted); font-size: 12px; }
+.mbar button { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-sm); color: var(--muted); }
+.mbar button:hover { background: var(--raised); color: var(--text); }
+.mbar .icon { width: 16px; height: 16px; }
+.player.dragging, .player.dragging .mbar { cursor: grabbing; }
+
+/* ---- spec sheet ------------------------------------------------------------------------------- */
+.sheet { width: 1240px; margin: 0 auto; padding: 28px 32px 34px; border-radius: 10px; background: var(--bg); color: var(--text); font-family: Inter; }
+.sheet h3 { margin: 26px 0 12px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.sheet h3:first-child { margin-top: 0; }
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
+.swatches div { height: 64px; border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--rule); }
+.swatches p { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.swatches p b { display: block; color: var(--text); font-weight: 500; }
+.shapes { display: flex; gap: 20px; align-items: end; }
+.shapes figure { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.shapes figure > div { margin: 0 auto 8px; background: var(--raised2); }
+.types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.types div { padding: 16px 18px; border-radius: var(--radius); background: var(--raised); }
+.types small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.iconrows { display: grid; gap: 10px; }
+.iconrow { display: flex; align-items: center; gap: 18px; color: var(--text); }
+.iconrow > small { width: 190px; color: var(--muted); font-size: 12px; }
+.plots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.plot { padding: 12px 14px; border-radius: var(--radius); background: var(--raised); }
+.plot b { font-weight: 500; }
+.plot small { display: block; color: var(--muted); font-size: 12px; }
+.plot svg { display: block; width: 100%; height: 90px; margin-top: 8px; }
+.lane { position: relative; height: 56px; margin-top: 12px; border-radius: var(--radius); background: var(--raised); cursor: crosshair; }
+.lane i { position: absolute; top: 16px; left: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--cursor); }
+.lane span { position: absolute; right: 14px; top: 18px; color: var(--dim); font-size: 12px; pointer-events: none; }
+.changes { columns: 2; column-gap: 40px; margin: 0; padding-left: 18px; color: #bdbdbd; font-size: 13px; line-height: 1.55; }
+.changes li { break-inside: avoid; margin-bottom: 6px; }
+.changes b { color: #f0f0f0; font-weight: 500; }
+</style>
+
+<div class="doc">
+  <h1>Ani Desktop design language · mockup</h1>
+  <p>The current screens with the new language applied: same layouts, new tokens and motion. Everything in the frame is live.
+    <b>Try:</b> <kbd>⌘K</kbd> or <kbd>/</kbd> and type · <kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd> · click a poster, then <kbd>Esc</kbd> to go back (press it mid-flight too) ·
+    arrows on Home move the selection · Play, then <kbd>Esc</kbd> docks, drag and fling the corner player, <kbd>`</kbd> expands ·
+    drag the seek bar and the switches past their ends · change filters, tick episodes.</p>
+  <div class="knobs">
+    <span><i>Theme</i><button data-theme="graphite" aria-pressed="true">Graphite</button><button data-theme="gruvbox">Gruvbox</button><button data-theme="nord">Nord</button><button data-theme="mocha">Mocha</button><button data-theme="paper">Paper</button></span>
+    <span><i>Speed</i><button data-rate="1" aria-pressed="true">1×</button><button data-rate="0.25">¼×</button></span>
+    <span><i>Feel</i><button data-profile="responsive" aria-pressed="true">Responsive</button><button data-profile="spedup">Sped up (2.5×)</button><button data-profile="last">Last round</button></span>
+    <span><i>Reduced motion</i><button data-reduced="0" aria-pressed="true">Off</button><button data-reduced="1">On</button></span>
+    <span><i>Chosen chip</i><button data-chosen="quiet" aria-pressed="true">10% surface</button><button data-chosen="highlight">Highlight</button></span>
+    <span><button id="replay">Replay entrance</button></span>
+  </div>
+</div>
+
+<div class="app" id="app" data-chosen="quiet">
+  <header class="bar">
+    <div class="logo">ANI<em>desktop</em></div>
+    <div></div>
+    <nav class="icons" id="nav"><i class="ind"></i></nav>
+  </header>
+  <div class="body" id="body"></div>
+  <div class="fly" id="fly"></div>
+  <div class="scrim" id="scrim"></div>
+  <div class="omni" id="omni">
+    <label class="field"><span data-icon="search"></span><input id="q" placeholder="Search anime" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></label>
+    <div class="pal" id="pal"><div class="found"><span class="sw" id="found"></span></div><div class="list" id="hits"><i class="sel"></i></div><div class="hints"><span><b>↑↓</b> move</span><span><b>↵</b> open</span><span><b>esc</b> close</span></div></div>
+  </div>
+  <div class="pscreen" id="pscreen"><div class="now"><b id="nowTitle"></b><span id="nowSub"></span></div></div>
+  <div class="player" id="player">
+    <div class="video"><img alt=""><div class="pctl"><div class="scrub" id="scrub"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
+      <div class="row"><button id="pp" aria-label="Play or pause"><span class="sw"></span></button><button aria-label="Volume" data-icon="volume"></button><span class="time" id="time"></span><span class="grow"></span><button aria-label="Subtitles" data-icon="captions"></button><button id="dockBtn" aria-label="Dock" data-icon="dock"></button><button aria-label="Fullscreen" data-icon="expand"></button></div></div></div>
+    <div class="mbar"><div><b id="miniTitle"></b><span id="miniSub"></span></div><button id="miniPlay" aria-label="Play or pause"><span class="sw"></span></button><button id="miniExpand" aria-label="Expand" data-icon="expand"></button><button id="miniClose" aria-label="Close" data-icon="x"></button></div>
+    <div class="flash" id="flash"><span id="flashLabel"></span><span data-icon="play"></span></div>
+  </div>
+</div>
+
+<div class="doc"><h2>Spec sheet</h2><p>Drawn with the same tokens, so the theme switch above applies here too.</p></div>
+<div class="sheet" id="sheet">
+  <h3>Colour · three theme colours, every other tone mixed in oklab</h3>
+  <div class="swatches">
+    <div style="background:var(--bg)"></div><div style="background:var(--text)"></div><div style="background:var(--cursor)"></div><div style="background:var(--raised)"></div><div style="background:var(--raised2)"></div><div style="background:var(--rule)"></div><div style="background:var(--muted)"></div><div style="background:var(--dim)"></div>
+  </div>
+  <div class="swatches"><p><b>Background</b>theme</p><p><b>Text</b>theme</p><p><b>Highlight</b>theme</p><p><b>Surface</b>6% text</p><p><b>Surface 2</b>10% text</p><p><b>Hairline</b>12% text</p><p><b>Secondary</b>60% text</p><p><b>Faint</b>36% text</p></div>
+  <h3>Shape</h3>
+  <div class="shapes">
+    <figure><div style="width:96px;height:120px;border-radius:10px"></div>10px · cards, panels</figure>
+    <figure><div style="width:96px;height:40px;border-radius:10px"></div>10px · buttons</figure>
+    <figure><div style="width:38px;height:38px;border-radius:8px"></div>8px · small</figure>
+    <figure><div style="width:220px;height:44px;border-radius:999px"></div>pill · search</figure>
+    <figure><div style="width:72px;height:24px;border-radius:999px"></div>pill · chips</figure>
+    <figure><div style="width:8px;height:8px;border-radius:50%;background:var(--cursor)"></div>circle · dots</figure>
+  </div>
+  <h3>Type · Inter, letter spacing −0.005em</h3>
+  <div class="types">
+    <div><small>400 · body, secondary text</small><span style="font-size:15px">After the party defeated the Demon King…</span></div>
+    <div><small>500 · labels, card titles, buttons</small><span style="font-size:15px;font-weight:500">Continue watching · Play Ep 13</span></div>
+    <div><small>700 · page and section titles, badges</small><span style="font-size:22px;font-weight:700">Episodes</span></div>
+  </div>
+  <h3>Icons · 24px grid, 1.8 stroke, round caps and joins</h3>
+  <div class="iconrows" id="iconrows"></div>
+  <h3>Springs · position over 0.4 s after a new target; the dashed line is the target</h3>
+  <div class="plots" id="plots"></div>
+  <div class="lane" id="lane"><i></i><span>Click anywhere, then click again before it lands: it turns from where it is, at its speed.</span></div>
+</div>
+
+<div class="doc"><h2>What changes against the current app</h2>
+<ul class="changes">
+  <li><b>Search pill</b> becomes a true pill (12px → 22px corners) and grows into the palette in one surface; the palette used to be a separate panel hung under it.</li>
+  <li><b>Chips</b> (segmented controls, source tags, genres, filter tokens) become pills; the chosen chip loses its drop shadow.</li>
+  <li><b>Corners</b> settle on 10px (cards, posters, buttons, panels) and 8px (icon buttons, badges, checkboxes, keys); 5, 6, 7, 12, 14 and 16px go.</li>
+  <li><b>Weights</b>: 600 becomes 700 on titles and 500 on labels. <b>Letter spacing</b> is −0.005em everywhere, so the tracked-out capitals (EP 28, FORMAT, STATUS…) become sentence-case 500 labels and the wordmark loses its tracking.</li>
+  <li><b>Monospace keys</b> (⌘K, the hint pill) switch to Inter. Inter is bundled instead of relying on the system.</li>
+  <li><b>Flat fills</b>: drop shadows go from the palette, panels, poster, the chosen chip and the corner player; a 12% hairline marks raised layers. The blurred badge backing becomes the background colour.</li>
+  <li><b>Scrim</b> is the background at 72%, not black at 55%.</li>
+  <li><b>Highlight</b> stays on Play, the keyboard selection, EP progress badges, ticked episodes, switches that are on and the today dot. The palette's current row gains a highlight ring to match the cards.</li>
+  <li><b>Icons</b> keep their paths; the stroke is drawn in screen pixels so 13–18px icons share one line weight, and the filled play/pause glyphs in the corner player join the line set.</li>
+  <li><b>Motion</b>: one spring engine replaces the cubic-bezier transitions and keyframes. The bell swing and the 1.18× count pop go (too elastic). Nav, chips and switches get two-edge indicators; the poster flies into the series page; Play grows into the player; the corner player follows the pointer and flings to a corner.</li>
+  <li><b>Kept as is</b>: layouts, sizes, the grid, the T2 series header, the corner-player behaviour, Settings apply-on-change, the theme presets. Art masks (backdrop wash, ghost rows) stay: they are on artwork rather than chrome.</li>
+  <li><b>Open question</b>: the source status dots use a fixed green and red, outside the three colours.</li>
+</ul></div>
+
+<script>
+/* ============================================================================================
+   Springs. One integrator; presets by response (seconds) and damping ratio.
+   A new target keeps the current position and velocity, so an interrupted movement just turns.
+   ============================================================================================ */
+/*
+  Feel profiles. "responsive" launches each spring: a new target from rest starts at the speed it would have if it were
+  already heading there (distance × ω), so the first frame covers about a quarter of the way and the rest settles calmly.
+  The others start from rest, as the earlier rounds did, for comparison.
+*/
+const PROFILES = {
+  responsive: { launch: true, swapDelay: 24, snap: [.25, 1], glide: [.4, .95], lead: [.2, .95], trail: [.32, 1], out: [.12, 1] },
+  spedup:     { launch: false, swapDelay: 16, snap: [.064, 1], glide: [.12, .88], lead: [.052, .9], trail: [.096, 1], out: [.036, 1] },
+  last:       { launch: false, swapDelay: 40, snap: [.16, 1], glide: [.3, .88], lead: [.13, .9], trail: [.24, 1], out: [.09, 1] },
+};
+const PRESET = { snap: {}, glide: {}, lead: {}, trail: {}, out: {} };
+function useProfile(name) {
+  const pr = PROFILES[name];
+  for (const k of Object.keys(PRESET)) Object.assign(PRESET[k], { response: pr[k][0], damping: pr[k][1] });
+  motion.launch = pr.launch; motion.swapDelay = pr.swapDelay; motion.profile = name;
+}
+const motion = { rate: 1, reduced: false, launch: true, swapDelay: 24, profile: "responsive", virtual: false, vnow: 0 };
+useProfile("responsive");
+/** The recorder switches to a virtual clock and advances it one frame at a time, so a video frame is exactly 1/60 s. */
+const timers = [];
+let timerId = 0;
+motion.now = () => (motion.virtual ? motion.vnow : performance.now());
+motion.advance = (ms) => {
+  const end = motion.vnow + ms;
+  while (motion.vnow < end - 1e-9) {
+    const step = Math.min(1000 / 240, end - motion.vnow);
+    motion.vnow += step;
+    for (const s of [...live]) s.step(step / 1000);
+    timers.sort((a, b) => a.at - b.at);
+    while (timers.length && timers[0].at <= motion.vnow) timers.shift().f();
+  }
+};
+const live = new Set();
+let raf = 0, last = 0;
+function tick(now) {
+  if (motion.virtual) { raf = 0; return; }
+  // The cap applies to animation time, so slow motion keeps every frame's share even when frames arrive late.
+  const dt = Math.min(1 / 20, (now - last) / 1000 * motion.rate); last = now;
+  for (const s of [...live]) s.step(dt);
+  raf = live.size ? requestAnimationFrame(tick) : 0;
+}
+function wake(s) { live.add(s); if (!raf && !motion.virtual) { last = performance.now(); raf = requestAnimationFrame(tick); } }
+class Spring {
+  constructor(x, preset = "glide", fn = () => {}, eps = .1) { this.x = x; this.v = 0; this.target = x; this.p = PRESET[preset]; this.fn = fn; this.eps = eps; this.done = null; }
+  to(target, o = {}) {
+    if (o.preset) this.p = PRESET[o.preset];
+    if (o.v !== undefined) this.v = o.v;
+    else if (motion.launch) {
+      // Launch: at rest, start at distance × ω; already moving the same way, never slower than that; moving the other way, keep going and turn.
+      const d = target - this.x, l = d * 2 * Math.PI / this.p.response;
+      if (Math.abs(this.v) < 1e-3 || Math.sign(this.v) === Math.sign(d)) this.v = Math.sign(d) * Math.max(Math.abs(this.v), Math.abs(l));
+    }
+    this.target = target; this.done = o.done || null;
+    if (motion.reduced || o.instant) { this.set(target); this.finish(); return this; }
+    wake(this); return this;
+  }
+  /** Direct manipulation: the value is where the pointer puts it. */
+  set(x) { this.x = this.target = x; this.v = 0; live.delete(this); this.fn(x); return this; }
+  finish() { const d = this.done; this.done = null; d && d(); }
+  step(dt) {
+    const { damping: z, response: r } = this.p, k = (2 * Math.PI / r) ** 2, c = 4 * Math.PI * z / r;
+    const n = Math.max(1, Math.ceil(dt * 600)), h = dt / n;
+    for (let i = 0; i < n; i++) { this.v += (-k * (this.x - this.target) - c * this.v) * h; this.x += this.v * h; }
+    if (Math.abs(this.x - this.target) < this.eps && Math.abs(this.v) < this.eps * 10) { this.x = this.target; this.v = 0; live.delete(this); this.fn(this.x); this.finish(); return; }
+    this.fn(this.x);
+  }
+}
+/** Waits scale with the speed control so slow motion slows the staggers too. */
+const later = (ms, f) => { if (!motion.virtual) return setTimeout(f, ms / motion.rate); timers.push({ id: ++timerId, at: motion.vnow + ms, f }); return -timerId; };
+const cancel = (id) => { if (id > 0) clearTimeout(id); else { const i = timers.findIndex((t) => t.id === -id); if (i >= 0) timers.splice(i, 1); } };
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+/** Past a limit a dragged value keeps moving with resistance, towards (never beyond) `dim` pixels. */
+const rubber = (over, dim) => Math.sign(over) * dim * (1 - 1 / (Math.abs(over) * .55 / dim + 1));
+
+/** A rectangle whose four sides glide; retargeting mid-flight continues from where it is. */
+class Box {
+  constructor(el, rect, preset = "glide", onApply) {
+    this.el = el; this.onApply = onApply; this.s = {};
+    for (const k of ["x", "y", "w", "h"]) this.s[k] = new Spring(rect[k], preset, () => this.apply(), .2);
+    this.apply();
+  }
+  get v() { return { x: this.s.x.x, y: this.s.y.x, w: this.s.w.x, h: this.s.h.x }; }
+  apply() { const { x, y, w, h } = this.v; this.el.style.transform = `translate(${x}px, ${y}px)`; this.el.style.width = `${w}px`; this.el.style.height = `${h}px`; this.onApply?.(this.v); }
+  to(rect, done, o = {}) {
+    let left = 4; const each = () => { if (--left === 0) done?.(); };
+    for (const k of ["x", "y", "w", "h"]) this.s[k].to(rect[k], { ...o, v: o.v?.[k], done: each });
+  }
+  jump(rect) { for (const k of ["x", "y", "w", "h"]) this.s[k].set(rect[k]); }
+}
+
+/** An indicator moved by two edges: the edge in front runs on the fast spring, the one behind catches up. */
+class Edges {
+  constructor(el, axis = "x", onApply) {
+    this.el = el; this.axis = axis; this.onApply = onApply; this.placed = false;
+    this.a = new Spring(0, "trail", () => this.apply(), .05);
+    this.b = new Spring(0, "lead", () => this.apply(), .05);
+  }
+  apply() {
+    const a = this.a.x, b = this.b.x;
+    if (this.axis === "x") { this.el.style.transform = `translateX(${a}px)`; this.el.style.width = `${b - a}px`; }
+    else { this.el.style.transform = `translateY(${a}px)`; this.el.style.height = `${b - a}px`; }
+    this.onApply?.(a, b);
+  }
+  to(a, b, o = {}) {
+    if (!this.placed || o.instant) { this.placed = true; this.a.set(a); this.b.set(b); return; }
+    const forward = a + b > this.a.target + this.b.target;
+    this.a.to(a, { preset: forward ? "trail" : "lead", v: o.v, done: o.done });
+    this.b.to(b, { preset: forward ? "lead" : "trail", v: o.v });
+  }
+  hold(a, b) { this.a.set(a); this.b.set(b); }
+}
+
+/** Swaps inner content: the old copy blurs out quickly, the new one blurs in a beat later on its own spring. */
+function swap(el, html) {
+  if (el.dataset.v === html) return;
+  el.dataset.v = html;
+  const incoming = document.createElement("span"); incoming.innerHTML = html;
+  const old = [...el.children];
+  if (motion.reduced || !el.dataset.ready) { el.replaceChildren(incoming); el.dataset.ready = "1"; return; }
+  for (const o of old) {
+    o.classList.add("out");
+    new Spring(0, "out", (p) => { o.style.opacity = 1 - p; o.style.filter = `blur(${p * 4}px)`; }, .01).to(1, { done: () => o.remove() });
+  }
+  incoming.style.opacity = 0; incoming.style.filter = "blur(4px)";
+  el.append(incoming);
+  later(motion.swapDelay, () => new Spring(0, "snap", (p) => { incoming.style.opacity = clamp(p); incoming.style.filter = p < 1 ? `blur(${(1 - p) * 4}px)` : ""; }, .01).to(1));
+}
+
+/** Items rise in turn, 18ms apart. With reduced motion they fade. */
+function rise(els, gap = 18, y = 8) {
+  els.filter((el) => !el.hasAttribute("data-shared")).forEach((el, i) => {
+    if (motion.reduced) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, fill: "backwards" }); return; }
+    el.style.opacity = 0; el.style.transform = `translateY(${y}px)`;
+    later(Math.min(i, 24) * gap, () => new Spring(0, "glide", (p) => { el.style.opacity = clamp(p * 1.6); el.style.transform = p === 1 ? "" : `translateY(${(1 - p) * y}px)`; }, .005).to(1));
+  });
+}
+
+/** Keyed list update: kept items glide to their new places, new ones rise, gone ones fade where they were. */
+function reconcile(container, items, key, make) {
+  const olds = new Map();
+  for (const el of container.querySelectorAll(":scope > [data-k]:not(.ghost)")) olds.set(el.dataset.k, { el, top: el.offsetTop, left: el.offsetLeft, w: el.offsetWidth });
+  const fresh = [], kept = [];
+  const els = items.map((it) => {
+    const k = key(it), o = olds.get(k);
+    if (o) { olds.delete(k); kept.push(o); return o.el; }
+    const el = make(it); el.dataset.k = k; fresh.push(el); return el;
+  });
+  for (const o of olds.values()) {
+    const g = o.el; g.classList.add("ghost"); Object.assign(g.style, { top: `${o.top}px`, left: `${o.left}px`, width: `${o.w}px` });
+    if (motion.reduced) { g.remove(); continue; }
+    new Spring(0, "out", (p) => { g.style.opacity = 1 - p; g.style.filter = `blur(${p * 3}px)`; }, .01).to(1, { done: () => g.remove() });
+  }
+  container.append(...els);
+  for (const o of kept) {
+    const dy = o.top - o.el.offsetTop; if (!dy) continue;
+    o.el.style.transform = `translateY(${dy}px)`;
+    new Spring(dy, "glide", (y) => { o.el.style.transform = y ? `translateY(${y}px)` : ""; }, .2).to(0);
+  }
+  rise(fresh);
+  return els;
+}
+
+/** Acts on press for pointers and on click for keys, once either way. */
+function onPress(root, selector, fn) {
+  root.addEventListener("pointerdown", (e) => { if (e.button) return; const t = e.target.closest(selector); if (!t || !root.contains(t)) return; t.dataset.pressed = "1"; fn(t, e); });
+  root.addEventListener("click", (e) => { const t = e.target.closest(selector); if (!t || !root.contains(t)) return; if (t.dataset.pressed) { delete t.dataset.pressed; return; } fn(t, e); });
+}
+/** Cards, buttons and tiles dip under the pointer, so a press answers at once; they act on release, since a drag may follow. */
+function pressable(root) {
+  const dip = (el, to) => { el._press ??= new Spring(1, "snap", (v) => { el.style.scale = v === 1 ? "" : v; }, .0005); el._press.to(to); };
+  root.addEventListener("pointerdown", (e) => { if (e.button) return; const t = e.target.closest(".card .poster, .btn, .tile"); if (!t) return; dip(t, t.matches(".poster") ? .97 : .98); const up = () => { dip(t, 1); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); }; window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up); });
+}
+
+/* ---- icons: the app's set, plus the player's line glyphs --------------------------------------- */
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  home: '<path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/>',
+  browse: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9z"/>',
+  bookmark: '<path d="M6 4h12v17l-6-4-6 4z"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 9h18c0-1-3-2-3-9zM10 21h4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>', back: '<path d="m15 6-6 6 6 6"/>',
+  play: '<path d="M8 5.5v13l11-6.5z"/>', pause: '<path d="M9 5.5v13M15 5.5v13"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>', down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/>',
+  dock: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="12" width="6" height="4" rx="1"/>',
+  volume: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9a4 4 0 0 1 0 6"/>',
+  captions: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10.5 10.2a2 2 0 1 0 0 3.6M17 10.2a2 2 0 1 0 0 3.6"/>',
+};
+const icon = (n, cls = "") => `<svg class="icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
+for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML("beforeend", icon(el.dataset.icon));
+
+/* ---- data ------------------------------------------------------------------------------------ */
+const P = "../shots/schedule-posters/";
+const SHOWS = [
+  { id: "legend", t: "I Became a Legend After My 10 Year-Long Last Stand.", f: "82683.jpg", eps: 12, seen: 5, audio: "SUB", day: "Fri", g: ["Action", "Adventure", "Fantasy"] },
+  { id: "ladies", t: "Young Ladies Don't Play Fighting Games", f: "82716.jpg", eps: 12, seen: 7, audio: "SUB", day: "Tue", g: ["Comedy", "Girls Love", "School"] },
+  { id: "love", t: "I Want to Love You Till Your Dying Day", f: "82717.jpg", eps: 12, seen: 10, audio: "SUB", day: "Tue", g: ["Fantasy", "Girls Love", "School"] },
+  { id: "frontier", t: "The Frontier Lord Begins with Zero Subjects", f: "82690.jpg", eps: 12, seen: 9, audio: "DUB", day: "Fri", g: ["Fantasy"] },
+  { id: "prince", t: "Saved by the Ice Cold Prince's Embrace", f: "82739.jpg", eps: 12, seen: 3, audio: "SUB", day: "Tue", g: ["Fantasy", "Romance"] },
+  { id: "poke", t: "Pokémon Horizons: The Series", f: "75790.jpg", eps: 150, seen: 142, audio: "SUB", day: "Fri", g: ["Action", "Adventure", "Comedy"] },
+  { id: "bey", t: "Beyblade X", f: "81510.jpg", eps: 134, seen: 120, audio: "DUB", day: "Fri", g: ["Adventure", "Sports", "Kids"] },
+];
+const byId = Object.fromEntries(SHOWS.map((s) => [s.id, s]));
+for (const s of SHOWS) s.watched = new Set(Array.from({ length: s.seen }, (_, i) => i + 1));
+const next = (s) => { for (let e = 1; e <= s.eps; e++) if (!s.watched.has(e)) return e; return s.eps; };
+const CONTINUE = ["legend", "ladies", "love", "frontier", "prince", "poke", "bey"];
+const SAVED = ["love", "prince", "frontier", "legend"];
+const DAYS = [["Fri", 25], ["Sat", 26], ["Sun", 27], ["Mon", 28], ["Tue", 29], ["Wed", 30], ["Thu", 1]];
+
+/* ---- app frame ------------------------------------------------------------------------------- */
+const app = document.getElementById("app");
+const body = document.getElementById("body");
+const $ = (s, r = app) => r.querySelector(s);
+const html = (s) => { const t = document.createElement("template"); t.innerHTML = s.trim(); return t.content.firstElementChild; };
+const rectOf = (el) => { const a = app.getBoundingClientRect(), r = el.getBoundingClientRect(); return { x: r.left - a.left, y: r.top - a.top, w: r.width, h: r.height }; };
+
+/* segmented chips and the nav share one pattern: a two-edge indicator and a lit copy of the labels clipped to it */
+function indicator(container, ind, lit, radius) {
+  return new Edges(ind, "x", (a, b) => { lit.style.clipPath = `inset(0 ${lit.clientWidth - b}px 0 ${a}px round ${radius}px)`; });
+}
+function seg(options, value, onChange, label) {
+  const el = html(`<div class="seg" role="radiogroup" aria-label="${label}"><i class="ind"></i><div class="row">${options.map((o) => `<button role="radio" data-v="${o}">${o}</button>`).join("")}</div><div class="row lit" aria-hidden="true">${options.map((o) => `<span>${o}</span>`).join("")}</div></div>`);
+  const edges = indicator(el, $(".ind", el), $(".lit", el), 13);
+  // The lit layer sits at the track's padding; the clip is measured from the track's inner edge.
+  const place = (instant) => { const b = el.querySelector(`[data-v="${value}"]`); edges.to(b.offsetLeft - 3, b.offsetLeft - 3 + b.offsetWidth, { instant }); edges.el.style.left = "3px"; for (const x of el.querySelectorAll("[role=radio]")) { x.setAttribute("aria-checked", x === b); x.tabIndex = x === b ? 0 : -1; } };
+  const pick = (v) => { if (v === value) return; value = v; place(false); onChange?.(v); };
+  onPress(el, "[role=radio]", (b) => pick(b.dataset.v));
+  el.addEventListener("keydown", (e) => {
+    const i = options.indexOf(value), d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0; if (!d) return;
+    e.preventDefault(); e.stopPropagation(); pick(options[clamp(i + d, 0, options.length - 1)]); el.querySelector(`[data-v="${value}"]`).focus();
+  });
+  el.place = () => place(true);
+  return el;
+}
+
+/* switch: tap toggles; the knob follows the pointer exactly, stretches past the ends, and springs from its release speed */
+function makeSwitch(on, onChange, label) {
+  const el = html(`<button class="switch" role="switch" aria-label="${label}"><i></i></button>`);
+  const knob = $("i", el), MIN = 3, MAX = 17, W = 16;
+  const paint = (a, b) => {
+    const p = clamp((a - MIN) / (MAX - MIN));
+    el.style.background = `color-mix(in oklab, var(--raised2), var(--cursor) ${p * 100}%)`;
+    knob.style.background = `color-mix(in oklab, var(--muted), var(--cursor-text) ${p * 100}%)`;
+    knob.style.left = `${a}px`; knob.style.width = `${b - a}px`;
+  };
+  const a = new Spring(on ? MAX : MIN, "trail", () => paint(a.x, b.x), .02), b = new Spring((on ? MAX : MIN) + W, "lead", () => paint(a.x, b.x), .02);
+  paint(a.x, b.x);
+  const go = (next, v) => {
+    on = next; el.setAttribute("aria-checked", on);
+    const to = on ? MAX : MIN, forward = to > a.x;
+    a.to(to, { preset: forward ? "trail" : "lead", v }); b.to(to + W, { preset: forward ? "lead" : "trail", v });
+  };
+  el.setAttribute("aria-checked", on);
+  let drag = null;
+  el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); drag = { x0: e.clientX, a0: a.x, moved: false, vt: tracker() }; drag.vt.add(e.clientX, 0); });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag) return; const dx = e.clientX - drag.x0; if (Math.abs(dx) > 3) drag.moved = true; if (!drag.moved) return;
+    drag.vt.add(e.clientX, 0);
+    let x = drag.a0 + dx; if (x < MIN) x = MIN + rubber(x - MIN, 6); if (x > MAX) x = MAX + rubber(x - MAX, 6);
+    a.set(x); b.set(x + W);
+  });
+  el.addEventListener("pointerup", () => {
+    if (!drag) return; const d = drag; drag = null;
+    if (!d.moved) return; // the click that follows toggles
+    el.dataset.dragged = "1";
+    const v = d.vt.v().x, next = a.x + v * .08 > (MIN + MAX) / 2;
+    const changed = next !== on; go(next, v); if (changed) onChange?.(on);
+  });
+  el.addEventListener("click", () => { if (el.dataset.dragged) { delete el.dataset.dragged; return; } go(!on); onChange?.(on); });
+  return el;
+}
+function tracker() {
+  const pts = [];
+  return {
+    add(x, y) { const t = motion.now(); pts.push({ x, y, t }); while (pts.length > 2 && t - pts[0].t > 90) pts.shift(); },
+    v() { if (pts.length < 2) return { x: 0, y: 0 }; const a = pts[0], b = pts[pts.length - 1], dt = Math.max(.008, (b.t - a.t) / 1000) * motion.rate; return { x: (b.x - a.x) / dt, y: (b.y - a.y) / dt }; },
+  };
+}
+
+/* ---- nav ------------------------------------------------------------------------------------- */
+const NAV = [["home", "home", "Home"], ["browse", "browse", "Browse"], ["saved", "bookmark", "Saved"], ["recent", "clock", "Recent"], ["bell", "bell", "Notifications"], ["settings", "gear", "Settings"]];
+const nav = document.getElementById("nav");
+nav.insertAdjacentHTML("beforeend", NAV.map(([k, i, l]) => `<button data-nav="${k}" aria-label="${l}">${icon(i)}</button>`).join("") + `<div class="lit" aria-hidden="true">${NAV.map(([, i]) => `<span>${icon(i)}</span>`).join("")}</div>`);
+const navEdges = indicator(nav, $(".ind", nav), $(".lit", nav), 8);
+function placeNav(k, instant) { const b = nav.querySelector(`[data-nav="${k}"]`); if (b) navEdges.to(b.offsetLeft, b.offsetLeft + 38, { instant }); }
+onPress(nav, "[data-nav]", (b) => { if (b.dataset.nav !== "bell") go(b.dataset.nav); });
+
+/* ---- search pill → palette ------------------------------------------------------------------- */
+const omni = document.getElementById("omni"), q = document.getElementById("q"), scrim = document.getElementById("scrim");
+const REST = { x: 410, y: 12, w: 420, h: 44 };
+let palOpen = false, hits = [], cur = 0;
+let omniBox = null;
+const omniR = new Spring(22, "glide", () => applyOmni(), .05);
+omniBox = new Box(omni, REST, "glide", () => applyOmni());
+function applyOmni() {
+  if (!omniBox) return;
+  const { w } = omniBox.v, o = clamp((w - 420) / 100, 0, 1.05);
+  omni.style.setProperty("--open", clamp(o));
+  omni.style.borderRadius = `${omniR.x}px`;
+  scrim.style.opacity = clamp(o);
+}
+const selEdges = new Edges($("#hits .sel"), "y");
+function openRect() { const list = hits.length ? hits.length * 66 : 44; return { x: 360, y: 12, w: 520, h: 44 + 30 + list + 38 }; }
+function setPalette(open) {
+  palOpen = open; scrim.classList.toggle("on", open);
+  omniBox.to(open ? openRect() : REST); omniR.to(open ? 10 : 22);
+}
+function filterHits() {
+  const t = q.value.trim().toLowerCase();
+  hits = t ? SHOWS.filter((s) => s.t.toLowerCase().includes(t) || s.g.join(" ").toLowerCase().includes(t)) : [];
+  cur = clamp(cur, 0, Math.max(0, hits.length - 1));
+  swap($("#found"), hits.length ? `${hits.length} result${hits.length === 1 ? "" : "s"} for “${q.value.trim()}”` : `Nothing for “${q.value.trim()}”`);
+  reconcile($("#hits"), hits, (s) => s.id, (s) => html(`<button class="hit" data-id="${s.id}"><span class="thumb"><img src="${P + s.f}" alt=""></span><span><b>${s.t}</b><small>TV · Summer 2026 · ${s.eps} episodes · ${s.g.join(", ")}</small></span>${icon("chevron")}</button>`));
+  placeSel(!palOpen);
+  if (t && !palOpen) setPalette(true); else if (!t && palOpen) setPalette(false); else if (palOpen) omniBox.to(openRect());
+}
+function placeSel(instant) {
+  $("#hits .sel").style.opacity = hits.length ? 1 : 0;
+  const rows = [...$("#hits").querySelectorAll(".hit:not(.ghost)")];
+  rows.forEach((r, i) => r.classList.toggle("cur", i === cur));
+  if (rows[cur]) selEdges.to(cur * 66, cur * 66 + 66, { instant });
+}
+q.addEventListener("input", filterHits);
+q.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!hits.length) return; cur = clamp(cur + (e.key === "ArrowDown" ? 1 : -1), 0, hits.length - 1); placeSel(); }
+  else if (e.key === "Enter" && hits[cur]) { e.preventDefault(); openFromPalette(hits[cur].id); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePalette(state.screen !== "series"); }
+});
+$("#hits").addEventListener("pointermove", (e) => { const h = e.target.closest(".hit:not(.ghost)"); if (!h) return; const i = hits.findIndex((s) => s.id === h.dataset.id); if (i >= 0 && i !== cur) { cur = i; placeSel(); } });
+$("#hits").addEventListener("click", (e) => { const h = e.target.closest(".hit:not(.ghost)"); if (h) openFromPalette(h.dataset.id); });
+scrim.addEventListener("click", () => closePalette(false));
+function closePalette(clear) { if (clear) { q.value = ""; hits = []; } setPalette(false); q.blur(); }
+function openFromPalette(id) {
+  const thumb = $(`#hits .hit[data-id="${id}"] .thumb`);
+  const from = rectOf(thumb);
+  setPalette(false); q.blur();
+  openSeries(id, { from, back: `Results for “${q.value.trim()}”` });
+}
+
+/* ---- screens --------------------------------------------------------------------------------- */
+const state = { screen: "home", prev: "home", series: null, back: "Home", schedDay: "Sun", schedAudio: "SUB", filter: "All", player: "none" };
+let ring = null;
+
+function card(s, sub, cls = "") {
+  return `<button class="card ${cls}" data-id="${s.id}"><span class="poster"><img src="${P + s.f}" alt=""><span class="badges">${sub.badge ?? `<b class="badge prog">EP ${next(s)}/${s.eps}</b><b class="badge">${s.audio}</b>`}</span></span><span class="t">${s.t}</span><span class="s">${sub.s}</span></button>`;
+}
+function homePage() {
+  const cont = CONTINUE.map((id) => card(byId[id], { s: `Watched through ${next(byId[id]) - 1} · ${byId[id].day}` })).join("");
+  const saved = SAVED.map((id) => card(byId[id], { s: `Watched through ${next(byId[id]) - 1}` })).join("");
+  return html(`<div class="page home">
+    <section class="sec"><div class="sec-head"><h2>Continue watching ${icon("chevron")}</h2><button class="see">See all</button></div><div class="cards">${cont}</div></section>
+    <section class="sec"><div class="sec-head"><h2>Saved ${icon("chevron")}</h2><button class="see">See all</button></div><div class="cards">${saved}</div></section>
+    <section class="sec"><div class="sec-head"><h2>Schedule</h2><span class="sec-sub">Summer 2026 · estimated release times · GMT+10</span>
+      <div class="days">${DAYS.map(([d, n]) => `<button data-day="${d}" class="${d === state.schedDay ? "on" : ""} ${d === "Sun" ? "today" : ""}">${d}<small>${n}</small></button>`).join("")}</div><span class="vr"></span>
+      <div class="plain-switch">${["SUB", "DUB"].map((a) => `<button data-audio="${a}" class="${a === state.schedAudio ? "on" : ""}">${a}</button>`).join("")}</div></div>
+      <div class="cards sched"></div></section>
+    <i class="ring"></i></div>`);
+}
+function schedCards(page) {
+  const i = DAYS.findIndex(([d]) => d === state.schedDay);
+  const list = SHOWS.filter((_, k) => (k + i) % 3 !== 0).slice(0, 5 + (i % 2));
+  const future = i > 2;
+  return reconcile($(".sched", page), list, (s) => `${state.schedDay}-${s.id}`, (s) => html(card(s, { badge: `<b class="badge">EP ${s.seen + 1}</b>`, s: future ? `${7 + i}:30 pm · in ${i - 2} day${i - 2 > 1 ? "s" : ""}` : `Aired · ${7 + i}:30 pm` }, future ? "upcoming" : "")));
+}
+function gridPage(title, ids, sub) {
+  return html(`<div class="page"><section class="sec"><div class="sec-head"><h2>${title}</h2><span class="sec-sub">${ids.length} titles</span></div><div class="cards">${ids.map((id) => card(byId[id], { s: sub(byId[id]) })).join("")}</div></section><i class="ring"></i></div>`);
+}
+function seriesPage(s) {
+  const n = next(s);
+  const page = html(`<div class="page series">
+    <button class="back" id="backBtn">${icon("back")}<span>${state.back}</span></button>
+    <h1>${s.t} ${icon("copy")}</h1>
+    <div class="srcs"><span class="tag strong">aniwave</span><span class="tag strong">hianime</span></div>
+    <div class="cols">
+      <aside class="side"><div class="poster big"><img src="${P + s.f}" alt=""></div>
+        <button class="btn primary" id="playBtn"><span class="sw" id="playLabel"></span>${icon("play")}</button>
+        <button class="btn">Saved ${icon("bookmark")}</button><button class="btn">Mark all watched ${icon("check")}</button>
+        <div class="genres">${s.g.map((g) => `<span class="tag">${g}</span>`).join("")}</div>
+        <div class="lab">Audio</div><div class="audio"></div><div class="lab">Quality</div><div class="quality"></div></aside>
+      <main><div class="facts"><div><small>Format</small>TV · Summer 2026</div><div><small>Status</small>Airing</div><div><small>Available episodes</small>aniwave ${s.eps} · hianime ${s.eps}</div><div><small>Progress</small><span class="sw" id="progress"></span></div><div><small>Last source</small>aniwave · ${s.audio.toLowerCase()}</div></div>
+        <p class="syn">A synopsis from AniList sits here, a few lines long, with a More toggle when it runs over.</p>
+        <div class="ep-head"><h2>Episodes</h2><button class="btn sm">Refresh sources</button><span class="filter"></span><label class="field-sm">${icon("search")}Jump to</label><span class="sort"><button aria-label="Oldest first">${icon("up")}</button><button class="on" aria-label="Newest first">${icon("down")}</button></span></div>
+        <div class="eps" id="eps"></div></main></div><i class="ring"></i></div>`);
+  $(".audio", page).append(seg(["sub", "dub"], s.audio.toLowerCase(), null, "Audio"));
+  $(".quality", page).append(seg(["best", "1080p", "720p", "480p"], "best", null, "Quality"));
+  $(".filter", page).append(seg(["All", "Unwatched", "Watched"], state.filter, (v) => { state.filter = v; renderEps(); }, "Show episodes"));
+  return page;
+}
+function epRow(s, e) {
+  const seen = s.watched.has(e);
+  const el = html(`<div class="ep ${seen ? "seen" : ""}"><div class="gh">EP ${e}${e === next(s) ? "<em>Next up</em>" : ""}</div><div class="row"><b>Episode ${e}</b><span class="vr"></span><span class="p">aniwave</span><span class="a">SUB · DUB</span><span class="q">1080P</span><button class="chk" role="checkbox" aria-label="Watched episode ${e}"><i></i>${icon("check")}</button></div></div>`);
+  const chk = $(".chk", el), fill = $("i", chk), mark = $("svg", chk);
+  const paint = (p) => { fill.style.opacity = clamp(p); fill.style.transform = `scale(${.55 + .45 * p})`; mark.style.strokeDashoffset = 24 * (1 - clamp(p)); };
+  const spring = new Spring(seen ? 1 : 0, "snap", paint, .005); paint(spring.x);
+  chk.setAttribute("aria-checked", seen);
+  chk.addEventListener("click", () => {
+    const on = !s.watched.has(e); on ? s.watched.add(e) : s.watched.delete(e);
+    chk.setAttribute("aria-checked", on); el.classList.toggle("seen", on); spring.to(on ? 1 : 0);
+    updateSeriesData(s);
+    if (state.filter !== "All") later(260, renderEps);
+  });
+  return el;
+}
+function renderEps() {
+  const s = byId[state.series];
+  const all = Array.from({ length: Math.min(12, s.eps) }, (_, i) => s.eps - i);
+  const list = all.filter((e) => state.filter === "All" || (state.filter === "Watched") === s.watched.has(e));
+  reconcile($("#eps"), list, (e) => String(e), (e) => epRow(s, e));
+  for (const el of $("#eps").querySelectorAll(".ep:not(.ghost)")) { const e = Number(el.dataset.k); el.querySelector(".gh").innerHTML = `EP ${e}${e === next(s) ? "<em>Next up</em>" : ""}`; }
+}
+function updateSeriesData(s) {
+  swap($("#playLabel"), `Play Ep ${next(s)}`);
+  swap($("#progress"), `Watched through ${next(s) - 1}`);
+  for (const el of $("#eps").querySelectorAll(".ep:not(.ghost)")) { const e = Number(el.dataset.k); el.querySelector(".gh").innerHTML = `EP ${e}${e === next(s) ? "<em>Next up</em>" : ""}`; }
+}
+function settingsPage() {
+  const page = html(`<div class="page"><div class="settings"><nav class="rail"><button class="on">Playback</button><button>Appearance</button><button>Sources</button><button>Updates</button></nav><div>
+    <div class="s-head"><h1>Settings</h1><span class="saved-state sw" id="saved"></span></div>
+    <div class="group"><h3>Playback</h3><div class="box">
+      <div class="r"><div class="k"><b>Player</b><small>Where episodes play</small></div><span data-slot="player"></span></div>
+      <div class="r"><div class="k"><b>Preferred audio</b><small>Used when both are available</small></div><span data-slot="audio"></span></div>
+      <div class="r"><div class="k"><b>Autoplay next episode</b><small>Starts the next one when an episode ends</small></div><span data-slot="autoplay"></span></div>
+      <div class="r"><div class="k"><b>Start fullscreen</b><small>Opens the player in fullscreen</small></div><span data-slot="fullscreen"></span></div></div></div>
+    <div class="group"><h3>Appearance</h3><div class="box">
+      <div class="r"><div class="k"><b>Theme</b><small>Three colours; every other tone is mixed from them</small></div><div class="tiles">${Object.entries(THEMES).map(([k, t]) => `<button class="tile" data-theme="${k}" style="--t-bg:${t.bg};--t-text:${t.text};--t-cur:${t.cursor}">${k[0].toUpperCase() + k.slice(1)}<b></b></button>`).join("")}<i class="ring"></i></div></div>
+      <div class="r"><div class="k"><b>Backdrop art</b><small>Illustrations behind Home, Browse, Saved and Recent</small></div><span data-slot="backdrop"></span></div></div></div>
+    </div></div></div>`);
+  const saved = () => { const el = $("#saved"); swap(el, `${icon("check")}Saved`); cancel(saved.t); saved.t = later(2000, () => swap(el, "")); };
+  $("[data-slot=player]", page).append(seg(["Built-in", "mpv", "IINA"], "Built-in", saved, "Player"));
+  $("[data-slot=audio]", page).append(seg(["Sub", "Dub"], "Sub", saved, "Preferred audio"));
+  $("[data-slot=autoplay]", page).append(makeSwitch(true, saved, "Autoplay next episode"));
+  $("[data-slot=fullscreen]", page).append(makeSwitch(false, saved, "Start fullscreen"));
+  $("[data-slot=backdrop]", page).append(makeSwitch(true, saved, "Backdrop art"));
+  const tiles = $(".tiles", page), tileRing = new Edges($(".ring", tiles), "x");
+  tiles.place = (instant) => { const t = tiles.querySelector(`[data-theme="${state.theme}"]`); tileRing.to(t.offsetLeft - 3, t.offsetLeft + t.offsetWidth + 3, { instant }); tileRing.el.style.top = "-3px"; tileRing.el.style.height = `${t.offsetHeight + 6}px`; };
+  tiles.addEventListener("click", (e) => { const t = e.target.closest(".tile"); if (t) { setTheme(t.dataset.theme); saved(); } });
+  return page;
+}
+
+/** Page swap: the old page blurs out where it was, the new one rises in turn. */
+function mount(page, { keepScroll = false } = {}) {
+  const old = body.querySelector(".page:not(.leaving)");
+  if (old) {
+    old.classList.add("leaving"); old.style.top = `${-body.scrollTop}px`;
+    if (motion.reduced) old.remove();
+    else new Spring(0, "out", (p) => { old.style.opacity = 1 - p; old.style.filter = `blur(${p * 4}px)`; }, .01).to(1, { done: () => old.remove() });
+  }
+  if (!keepScroll) body.scrollTop = 0;
+  body.append(page);
+  ring = new Box(page.querySelector(":scope > .ring") || html("<i></i>"), { x: 0, y: 0, w: 0, h: 0 });
+  ring.cursor = null;
+  for (const el of page.querySelectorAll(".seg")) el.place();
+  return page;
+}
+function riseParts(page) {
+  const parts = page.matches(".series") ? [...page.querySelectorAll(".back, h1, .srcs, .side > :not(.poster), .facts > div, .syn, .ep-head")]
+    : page.querySelector(".settings") ? [...page.querySelectorAll(".rail button, .s-head, .group h3, .r")]
+    : [...page.querySelectorAll(".sec-head, .card")];
+  rise(parts);
+}
+
+function go(screen, shared) {
+  if (palOpen) closePalette(true);
+  q.value = ""; hits = [];
+  if (screen === state.screen && screen !== "series") return;
+  if (state.screen && state.screen !== "series") state.prev = state.screen;
+  state.screen = screen;
+  if (["home", "browse", "saved", "recent", "settings"].includes(screen)) placeNav(screen);
+  let page;
+  if (screen === "home") { page = mount(homePage()); schedCards(page); }
+  else if (screen === "browse") page = mount(gridPage("Browse", SHOWS.map((s) => s.id), (s) => `TV · ${s.eps} episodes`));
+  else if (screen === "saved") page = mount(gridPage("Saved", SAVED, (s) => `Watched through ${next(s) - 1}`));
+  else if (screen === "recent") page = mount(gridPage("Recent", CONTINUE, (s) => `Episode ${next(s) - 1} · ${s.day}`));
+  else if (screen === "settings") { page = mount(settingsPage()); $(".tiles", page).place(true); }
+  if (shared) page.querySelector(`.card[data-id="${shared}"]`)?.setAttribute("data-shared", "");
+  riseParts(page);
+  return page;
+}
+
+/* ---- shared poster: card → series and back ---------------------------------------------------- */
+let flight = null;
+function fly(from, toEl, img) {
+  const to = rectOf(toEl);
+  toEl.style.visibility = "hidden";
+  if (motion.reduced) { toEl.style.visibility = ""; return; }
+  if (!flight) {
+    const el = html(`<div class="flyer"><img alt=""></div>`); document.getElementById("fly").append(el);
+    flight = { el, box: new Box(el, from) };
+  }
+  flight.el.querySelector("img").src = img;
+  const f = flight;
+  f.box.to(to, () => { toEl.style.visibility = ""; f.el.remove(); if (flight === f) flight = null; });
+}
+function openSeries(id, { from, back = "Home" }) {
+  const s = byId[id];
+  if (state.screen && state.screen !== "series") state.prev = state.screen;
+  state.screen = "series"; state.series = id; state.back = back; state.filter = "All";
+  const page = mount(seriesPage(s));
+  renderEps(); updateSeriesData(s);
+  if (from) fly(from, $(".side .poster", page), P + s.f);
+  riseParts(page);
+}
+function goBack() {
+  const s = byId[state.series], from = flight ? null : rectOf($(".side .poster"));
+  const page = go(state.prev, s.id);
+  q.value = ""; hits = [];
+  const target = page?.querySelector(`.card[data-id="${s.id}"] .poster`);
+  if (target && (from || flight)) fly(from, target, P + s.f);
+  else if (flight) { flight.el.remove(); flight = null; }
+}
+body.addEventListener("click", (e) => {
+  const c = e.target.closest(".card"); if (c) { openSeries(c.dataset.id, { from: rectOf($(".poster", c)) }); return; }
+  if (e.target.closest("#backBtn")) { goBack(); return; }
+  if (e.target.closest("#playBtn")) { openPlayer(); return; }
+});
+onPress(body, "[data-day]", (day) => { if (state.schedDay === day.dataset.day) return; state.schedDay = day.dataset.day; for (const b of body.querySelectorAll("[data-day]")) b.classList.toggle("on", b === day); schedCards(body.querySelector(".page:not(.leaving)")); });
+onPress(body, "[data-audio]", (au) => { state.schedAudio = au.dataset.audio; for (const b of body.querySelectorAll("[data-audio]")) b.classList.toggle("on", b === au); });
+pressable(app);
+
+/* keyboard selection on card grids: the highlight ring glides between posters */
+function moveCursor(dx, dy) {
+  const page = body.querySelector(".page:not(.leaving)");
+  const cards = [...page.querySelectorAll(".card")]; if (!cards.length) return;
+  const rects = cards.map((c) => $(".poster", c).getBoundingClientRect());
+  let i = ring.cursor ?? -1;
+  if (i < 0) i = 0;
+  else if (dx) { const r = rects[i], row = rects.map((x, k) => [x, k]).filter(([x]) => Math.abs(x.top - r.top) < 4).map(([, k]) => k); const at = row.indexOf(i); i = row[clamp(at + dx, 0, row.length - 1)]; }
+  else { const r = rects[i]; const rows = [...new Set(rects.map((x) => Math.round(x.top)))].sort((a, b) => a - b); const ri = rows.indexOf(Math.round(r.top)) + dy; if (ri < 0 || ri >= rows.length) return;
+    let best = i, bd = 1e9; rects.forEach((x, k) => { if (Math.round(x.top) === rows[ri]) { const d = Math.abs(x.left - r.left); if (d < bd) { bd = d; best = k; } } }); i = best; }
+  const first = ring.cursor == null; ring.cursor = i;
+  const p = $(".poster", cards[i]), pr = page.getBoundingClientRect(), r = p.getBoundingClientRect();
+  const rect = { x: r.left - pr.left - 4, y: r.top - pr.top - 4, w: r.width + 8, h: r.height + 8 };
+  ring.el.style.opacity = 1;
+  first ? ring.jump(rect) : ring.to(rect);
+  const b = body.getBoundingClientRect();
+  if (r.top < b.top + 20 || r.bottom > b.bottom - 20) body.scrollBy({ top: r.top < b.top + 20 ? r.top - b.top - 40 : r.bottom - b.bottom + 60, behavior: motion.reduced || motion.virtual ? "instant" : "smooth" });
+}
+
+/* ---- player: Play grows into the player, Escape docks it, the corner player drags and flings ---- */
+const player = document.getElementById("player"), pscreen = document.getElementById("pscreen"), flash = document.getElementById("flash");
+const FULL = { x: 60, y: 76, w: 1120, h: 630 };
+const MINI_W = 320, MINI_H = 180 + 48;
+let corner = "br", from0 = null, playing = true, pos = .34, dragging = null;
+const cornerRect = (c) => ({ x: c[1] === "r" ? 1240 - 24 - MINI_W : 24, y: c[0] === "b" ? 800 - 16 - MINI_H : 68 + 16, w: MINI_W, h: MINI_H });
+const pbox = new Box(player, { x: 896, y: 556, w: MINI_W, h: MINI_H }, "glide", ({ w, h }) => {
+  const video = Math.min(h, w * 9 / 16);
+  player.querySelector(".video").style.height = `${video}px`;
+  const full = clamp((w - MINI_W) / (FULL.w - MINI_W));
+  pscreen.style.opacity = full; pscreen.style.pointerEvents = full > .5 ? "auto" : "none";
+  player.querySelector(".pctl").style.opacity = clamp(full * 2 - 1);
+  player.querySelector(".pctl").style.visibility = full > .05 ? "" : "hidden";
+  player.querySelector(".mbar").style.opacity = clamp(1 - full * 2.5);
+  if (from0) flash.style.opacity = clamp(1 - (w - from0.w) / (FULL.w - from0.w) * 2.2);
+});
+function setPlaying(p) { playing = p; for (const b of [$("#pp"), $("#miniPlay")]) swap($(".sw", b), icon(p ? "pause" : "play")); }
+function paintScrub(v, over = 0) {
+  const t = $("#scrub .track"), w = t.clientWidth || 1084;
+  $("#scrub .fill").style.width = `${v * 100}%`; $("#scrub .knob").style.left = `${v * 100}%`;
+  t.style.transformOrigin = over > 0 ? "left" : "right"; t.style.transform = over ? `scaleX(${1 + Math.abs(over) / w})` : "";
+  const total = 24 * 60, sec = Math.round(v * total), f = (x) => `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`;
+  $("#time").textContent = `${f(sec)} / ${f(total)}`;
+}
+const scrubV = new Spring(pos, "snap", (v) => paintScrub(v, scrubOver.x), .001), scrubOver = new Spring(0, "snap", (o) => paintScrub(scrubV.x, o), .1);
+function openPlayer() {
+  const s = byId[state.series], btn = $("#playBtn");
+  $("#nowTitle").textContent = s.t; $("#nowSub").textContent = `Episode ${next(s)} · aniwave · ${s.audio.toLowerCase()}`;
+  $("#miniTitle").textContent = s.t; $("#miniSub").textContent = `Episode ${next(s)}`;
+  // A wide still from the backdrop pool stands in for the video.
+  player.querySelector(".video img").src = "../shots/nekos/3295.webp";
+  $("#flashLabel").textContent = `Play Ep ${next(s)}`;
+  from0 = rectOf(btn); flash.style.display = motion.reduced ? "none" : ""; flash.style.opacity = 1;
+  player.style.display = "block"; player.style.opacity = 1;
+  pbox.jump(from0); pbox.to(FULL, endFlash);
+  state.player = "full"; setPlaying(true); paintScrub(scrubV.x);
+}
+/** The Play button's fill belongs to the opening only; any new target for the player lets it go. */
+function endFlash() {
+  if (!from0) return; from0 = null;
+  const start = Number(flash.style.opacity || 0);
+  new Spring(start, "out", (o) => { flash.style.opacity = o; }, .01).to(0, { done: () => { if (!from0) flash.style.display = "none"; } });
+}
+function dock() { endFlash(); state.player = "mini"; pbox.to(cornerRect(corner)); }
+function expand() { endFlash(); state.player = "full"; pbox.to(FULL); }
+function closePlayer() {
+  endFlash(); state.player = "none";
+  const { x, y, w, h } = pbox.v;
+  pbox.to({ x: x + w * .04, y: y + h * .04, w: w * .92, h: h * .92 });
+  new Spring(1, "out", (o) => { player.style.opacity = o; }, .01).to(0, { done: () => { if (state.player === "none") player.style.display = "none"; } });
+}
+$("#pp").addEventListener("click", () => setPlaying(!playing));
+$("#miniPlay").addEventListener("click", (e) => { e.stopPropagation(); setPlaying(!playing); });
+$("#dockBtn").addEventListener("click", dock);
+$("#miniExpand").addEventListener("click", (e) => { e.stopPropagation(); expand(); });
+$("#miniClose").addEventListener("click", (e) => { e.stopPropagation(); closePlayer(); });
+
+/* seek bar: follows the pointer, stretches past the ends, springs back */
+$("#scrub").addEventListener("pointerdown", (e) => {
+  if (state.player !== "full") return;
+  e.stopPropagation(); $("#scrub").setPointerCapture(e.pointerId);
+  const t = $("#scrub .track").getBoundingClientRect(), vt = tracker();
+  const at = (x) => { const raw = (x - t.left) / t.width, v = clamp(raw), over = raw < 0 ? (x - t.left) : raw > 1 ? x - t.right : 0; scrubV.set(v); scrubOver.set(over ? rubber(over, 14) : 0); vt.add(x, 0); };
+  at(e.clientX);
+  const move = (ev) => at(ev.clientX);
+  const up = () => { $("#scrub").removeEventListener("pointermove", move); $("#scrub").removeEventListener("pointerup", up); scrubOver.to(0, { v: vt.v().x * .15 }); };
+  $("#scrub").addEventListener("pointermove", move); $("#scrub").addEventListener("pointerup", up);
+});
+
+/* corner player: drag anywhere; release projects the throw and picks the nearest corner */
+player.addEventListener("pointerdown", (e) => {
+  if (state.player !== "mini" || e.target.closest("button")) return;
+  player.setPointerCapture(e.pointerId);
+  const { x, y } = pbox.v;
+  dragging = { ox: e.clientX - x, oy: e.clientY - y, x0: e.clientX, y0: e.clientY, moved: false, vt: tracker() };
+  dragging.vt.add(e.clientX, e.clientY);
+});
+player.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  if (Math.hypot(e.clientX - dragging.x0, e.clientY - dragging.y0) > 4) { dragging.moved = true; player.classList.add("dragging"); }
+  if (!dragging.moved) return;
+  dragging.vt.add(e.clientX, e.clientY);
+  let x = e.clientX - dragging.ox, y = e.clientY - dragging.oy;
+  const [x0, x1, y0, y1] = [24, 1240 - 24 - MINI_W, 68 + 16, 800 - 16 - MINI_H];
+  if (x < x0) x = x0 + rubber(x - x0, 40); if (x > x1) x = x1 + rubber(x - x1, 40);
+  if (y < y0) y = y0 + rubber(y - y0, 40); if (y > y1) y = y1 + rubber(y - y1, 40);
+  pbox.s.x.set(x); pbox.s.y.set(y);
+});
+player.addEventListener("pointerup", () => {
+  if (!dragging) return; const d = dragging; dragging = null; player.classList.remove("dragging");
+  if (!d.moved) { expand(); return; }
+  const v = d.vt.v(), { x, y } = pbox.v, px = x + v.x * .22 + MINI_W / 2, py = y + v.y * .22 + MINI_H / 2;
+  corner = (py > (68 + 800) / 2 ? "b" : "t") + (px > 620 ? "r" : "l");
+  pbox.to(cornerRect(corner), null, { v: { x: v.x, y: v.y } });
+});
+
+/* ---- keys: the same motion as the pointer ---------------------------------------------------- */
+window.addEventListener("keydown", (e) => {
+  const typing = e.target.matches?.("input");
+  if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !typing)) { e.preventDefault(); q.focus(); q.select(); if (q.value.trim()) setPalette(true); return; }
+  if (typing) return;
+  if (e.key === "Escape") {
+    if (palOpen) closePalette(false);
+    else if (state.player === "full") dock();
+    else if (state.screen === "series") goBack();
+    else if (ring?.cursor != null) { ring.cursor = null; ring.el.style.opacity = 0; }
+    return;
+  }
+  if (e.key === "`" && state.player === "mini") { expand(); return; }
+  if (state.player === "full") {
+    if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); scrubV.to(clamp(scrubV.target + (e.key === "ArrowRight" ? .05 : -.05))); }
+    return;
+  }
+  if (e.target.closest?.(".seg")) return;
+  const arrows = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
+  if (arrows[e.key] && state.screen !== "series" && state.screen !== "settings") { e.preventDefault(); moveCursor(...arrows[e.key]); return; }
+  if (e.key === "Enter" && ring?.cursor != null && state.screen !== "series") {
+    const c = body.querySelector(".page:not(.leaving)").querySelectorAll(".card")[ring.cursor];
+    if (c) { e.preventDefault(); ring.el.style.opacity = 0; openSeries(c.dataset.id, { from: rectOf($(".poster", c)) }); }
+  }
+});
+
+/* ---- themes and doc controls ------------------------------------------------------------------ */
+const THEMES = {
+  graphite: { bg: "#1F2023", text: "#EDEDEE", cursor: "#EDEDEE" }, paper: { bg: "#F4F4F1", text: "#1E1F22", cursor: "#1E1F22" },
+  nord: { bg: "#2E3440", text: "#ECEFF4", cursor: "#88C0D0" }, gruvbox: { bg: "#282828", text: "#EBDBB2", cursor: "#FABD2F" },
+  mocha: { bg: "#1E1E2E", text: "#CDD6F4", cursor: "#CBA6F7" },
+};
+const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((a, c, i) => a + c * [.2126, .7152, .0722][i], 0); };
+state.theme = "graphite";
+/** A theme change is new data: the three colours glide from wherever they are to the new ones. */
+const themeMix = { from: THEMES_START(), to: null, spring: null };
+function THEMES_START() { return { bg: "#1F2023", text: "#EDEDEE", cursor: "#EDEDEE" }; }
+function paintTheme(p) {
+  const r = document.documentElement.style, { from, to } = themeMix, pc = clamp(p) * 100;
+  for (const k of ["bg", "text", "cursor"]) r.setProperty(`--${k}`, `color-mix(in oklab, ${from[k]}, ${to[k]} ${pc}%)`);
+}
+function setTheme(k) {
+  state.theme = k; const t = THEMES[k], r = document.documentElement.style;
+  const cs = getComputedStyle(document.documentElement);
+  themeMix.from = themeMix.to ? { bg: cs.getPropertyValue("--bg").trim(), text: cs.getPropertyValue("--text").trim(), cursor: cs.getPropertyValue("--cursor").trim() } : t;
+  themeMix.to = t;
+  themeMix.spring = new Spring(0, "glide", paintTheme, .002);
+  paintTheme(0); themeMix.spring.to(1);
+  r.setProperty("--video-brand", lum(t.cursor) >= .18 ? t.cursor : "#ffffff");
+  for (const b of document.querySelectorAll(".knobs [data-theme]")) b.setAttribute("aria-pressed", b.dataset.theme === k);
+  body.querySelector(".page:not(.leaving) .tiles")?.place(false);
+}
+/** A spring's step response, sampled at 60 fps for the plots. */
+function springCurve(preset) {
+  const s = new Spring(0, preset, () => {}, .001); s.target = 1; if (motion.launch) s.v = 2 * Math.PI / s.p.response; const pts = [0]; const dt = 1 / 60;
+  for (let i = 0; i < 180 && !(Math.abs(s.x - 1) < .001 && Math.abs(s.v) < .01); i++) { const { damping: z, response: r } = s.p, k = (2 * Math.PI / r) ** 2, c = 4 * Math.PI * z / r; for (let j = 0; j < 10; j++) { s.v += (-k * (s.x - 1) - c * s.v) * dt / 10; s.x += s.v * dt / 10; } pts.push(+s.x.toFixed(4)); }
+  pts.push(1); return { ease: `linear(${pts.join(", ")})`, dur: `${pts.length / 60}s`, pts };
+}
+let glideCurve;
+function setCurves() { glideCurve = springCurve("glide"); }
+setCurves();
+document.querySelector(".knobs").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.theme) setTheme(b.dataset.theme);
+  if (b.dataset.rate) { motion.rate = Number(b.dataset.rate); press(b, "rate"); }
+  if (b.dataset.reduced) { motion.reduced = b.dataset.reduced === "1"; document.documentElement.classList.toggle("reduced", motion.reduced); press(b, "reduced"); }
+  if (b.dataset.profile) { useProfile(b.dataset.profile); setCurves(); drawPlots(); press(b, "profile"); }
+  if (b.dataset.chosen) { app.dataset.chosen = b.dataset.chosen; press(b, "chosen"); }
+  if (b.id === "replay") { const s = state.screen; state.screen = ""; s === "series" ? openSeries(state.series, {}) : go(s); }
+});
+const press = (b, k) => { for (const x of document.querySelectorAll(`.knobs [data-${k}]`)) x.setAttribute("aria-pressed", x === b); };
+
+/* ---- spec sheet ------------------------------------------------------------------------------- */
+{
+  const names = ["search", "home", "bookmark", "bell", "gear", "play", "check", "expand", "dock", "captions"];
+  const row = (label, cls) => `<div class="iconrow"><small>${label}</small>${[14, 18, 24].map((size) => names.map((n) => `<span style="display:inline-flex">${icon(n, cls).replace('class="icon', `style="width:${size}px;height:${size}px" class="icon`)}</span>`).join("")).join('<span style="width:14px"></span>')}</div>`;
+  document.getElementById("iconrows").innerHTML = row("Now: the stroke scales with the icon", "scaled") + row("Proposed: 1.5px on screen at 14, 18 and 24px", "");
+  const plot = (title, sub, curves) => {
+    const W = 360, H = 90, T = 0.4, pts = (c) => c.pts.map((y, i) => `${(i / 60 / T) * W},${H - 12 - y * (H - 30)}`).join(" ");
+    return `<div class="plot"><b>${title}</b><small>${sub}</small><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line x1="0" x2="${W}" y1="18" y2="18" stroke="var(--rule)" stroke-dasharray="3 4"/>${curves.map(([c, col]) => `<polyline fill="none" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke" points="${pts(c)}"/>`).join("")}</svg></div>`;
+  };
+  const sec = (k) => `${+PRESET[k].response.toFixed(3)} s / ${PRESET[k].damping}`;
+  const how = () => (motion.launch ? "launched" : "from rest");
+  window.drawPlots = () => { document.getElementById("plots").innerHTML =
+    plot("Snap · controls", `response ${sec("snap")}, ${how()}`, [[springCurve("snap"), "var(--text)"]]) +
+    plot("Glide · layout, shared elements", `response ${sec("glide")}, ${how()}`, [[glideCurve, "var(--text)"]]) +
+    plot("Stretch · indicator edges", `leading ${sec("lead")}, trailing ${sec("trail")}`, [[springCurve("lead"), "var(--cursor)"], [springCurve("trail"), "var(--muted)"]]); };
+  drawPlots();
+  const lane = document.getElementById("lane"), dot = lane.querySelector("i");
+  const ds = new Spring(12, "glide", (x) => { dot.style.transform = `translateX(${x - 12}px)`; }, .1);
+  lane.addEventListener("click", (e) => ds.to(e.clientX - lane.getBoundingClientRect().left));
+}
+
+/* ---- start ------------------------------------------------------------------------------------ */
+q.addEventListener("focus", () => { if (q.value.trim() && !palOpen) setPalette(true); });
+state.screen = "";
+placeNav("home", true);
+applyOmni();
+setTheme("graphite");
+// Decode the images ahead of time so the first flight or Play never waits on a decode.
+for (const src of ["../shots/nekos/3295.webp", ...SHOWS.map((x) => P + x.f)]) { const i = new Image(); i.src = src; i.decode?.().catch(() => {}); }
+document.fonts.ready.then(() => go("home"));
+
+/* hooks for the recorder */
+window.mock = { motion, state, pbox, later, go, openSeries, goBack, dock, expand, setTheme, moveCursor, rectOf,
+  /** Presses a key on whatever has focus (or the window). */
+  key(k, o = {}) { const t = document.activeElement && document.activeElement !== document.body ? document.activeElement : window; t.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, ...o })); },
+  type(text) { q.focus(); let i = 0; const step = () => { if (i > text.length) return; q.value = text.slice(0, i++); q.dispatchEvent(new Event("input")); later(70, step); }; step(); },
+  /** Drags an element along a path of [dx, dy, ms] legs with real pointer events, timed by the speed control. */
+  drag(target, legs) {
+    const el = typeof target === "string" ? document.querySelector(target) : target, r = el.getBoundingClientRect();
+    let x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 20);
+    const ev = (type) => el.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, bubbles: true, isPrimary: true }));
+    el.setPointerCapture = () => {}; ev("pointerdown");
+    const run = (i) => { if (i >= legs.length) { ev("pointerup"); if (el.matches(".switch")) el.click(); return; }
+      const [dx, dy, ms] = legs[i], sx = x, sy = y, n = Math.max(1, Math.round(ms / (1000 / 60)));
+      const move = (k) => { x = sx + dx * k / n; y = sy + dy * k / n; ev("pointermove"); k < n ? later(1000 / 60, () => move(k + 1)) : run(i + 1); };
+      later(1000 / 60, () => move(1)); };
+    run(0);
+  },
+  /** A tap: press, a short hold, release, click. Posters inside cards take the press, as a pointer would. */
+  tap(selector, hold = 70) {
+    const el = document.querySelector(selector); if (!el) return false;
+    const r = el.getBoundingClientRect(), at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 1, bubbles: true, isPrimary: true, button: 0 };
+    el.setPointerCapture = () => {};
+    el.dispatchEvent(new PointerEvent("pointerdown", at));
+    later(hold, () => { el.dispatchEvent(new PointerEvent("pointerup", at)); window.dispatchEvent(new PointerEvent("pointerup", at)); el.click(); });
+    return true;
+  },
+  /** One recorded frame: the clock moves 1/60 s, then the page paints. */
+  frame() { motion.advance(1000 / 60); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))); },
+};
+</script>

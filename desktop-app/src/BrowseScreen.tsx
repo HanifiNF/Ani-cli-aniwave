@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { BrowseAnime, BrowseFilters, BrowseProgress, BrowseResult, BrowseSort, BrowseStudio, MediaType } from "../shared/contracts";
 import Art from "./Art";
 import { catalogRequestId } from "./catalog-request";
@@ -8,6 +8,7 @@ import GenreChips from "./GenreChips";
 import { Icon } from "./icons";
 import Reveal from "./Reveal";
 import { stagger } from "./transition";
+import { pressProps } from "./press";
 import TypeAhead from "./TypeAhead";
 
 export const DEFAULT_BROWSE_FILTERS: BrowseFilters = { includeGenres: [], excludeGenres: [], sort: "popularity" };
@@ -137,13 +138,20 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
   useEffect(() => {
     if (enabled && !pages.length) load(1);
   }, [enabled, filters]);
-  useEffect(() => {
+  // The page keeps its scroll across visits. It is recorded as the page scrolls (a page being removed reads 0) and put
+  // back before paint, ahead of anything that measures the grid, such as a poster flying home to its card.
+  const scrolled = useRef(state.scrollTop);
+  useLayoutEffect(() => {
     const page = document.querySelector<HTMLElement>(".page-browse");
     if (page) page.scrollTop = state.scrollTop;
+    const track = () => { if (page) scrolled.current = page.scrollTop; };
+    page?.addEventListener("scroll", track, { passive: true });
     return () => {
+      page?.removeEventListener("scroll", track);
       sequence.current += 1;
       if (request.current) window.aniDesktop.cancelCatalog(request.current);
-      if (page) setState((previous) => ({ ...previous, scrollTop: page.scrollTop }));
+      const top = scrolled.current;
+      setState((previous) => ({ ...previous, scrollTop: top }));
     };
   }, []);
   // Every change applies at once and starts again from the first page.
@@ -229,7 +237,7 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
 
   return <section className="section browse" aria-labelledby="browse-heading" ref={root} onKeyDown={onKeyDown}>
     <div className="section-head"><h2 id="browse-heading">Browse</h2><span className="browse-sub">AniList catalog</span>
-      {enabled && <div className={`browse-sort ${stepBack}`} role="radiogroup" aria-label="Sort">{sorts.map(([value, name]) => <button type="button" key={value} role="radio" aria-checked={filters.sort === value} className={filters.sort === value ? "on" : ""} onClick={() => filters.sort !== value && set("sort", value)}>{name}</button>)}</div>}</div>
+      {enabled && <div className={`browse-sort ${stepBack}`} role="radiogroup" aria-label="Sort">{sorts.map(([value, name]) => <button type="button" key={value} role="radio" aria-checked={filters.sort === value} className={filters.sort === value ? "on" : ""} {...pressProps(() => { if (filters.sort !== value) set("sort", value); })}>{name}</button>)}</div>}</div>
     {!enabled ? <div className="empty"><b>Anime information is disabled</b>Enable it in Settings to browse the AniList catalog.</div> : <>
       <label className="browse-search"><Icon name="search" />
         {filters.studio && <span className="studio-token"><em>Studio</em>{filters.studio.name}<button type="button" aria-label={`Remove studio ${filters.studio.name}`} onClick={dropStudio}>×</button></span>}
@@ -261,12 +269,14 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
       {reading && <div className="browse-reading" role="status"><span className="track"><i /></span>Fetching {reading.studio}'s catalog · {reading.read} so far · filters ready when done</div>}
       {stale && <div className="notice">Showing cached results. {stale.error} <button type="button" className="link" onClick={() => load(stale.query.page, true)}>Retry</button></div>}
       {error && <div className="msg err" role="alert">{error} <button type="button" className="link" onClick={() => load(pages.length + 1, true)}>Retry</button></div>}
-      {shown.length > 0 && <div className={`cards browse-grid ${waiting && !reading ? "is-loading" : ""} ${openingId !== undefined ? "is-opening" : ""}`} aria-busy={loading}>{shown.map((anime, index) => { const opening = anime.anilistId === openingId; return <div className={`card ${opening ? "is-resolving" : ""}`} key={anime.anilistId} style={stagger(index >= earlier ? index - earlier : index, 10)}>
+      {shown.length > 0 && <div data-origin-group="browse" className={`cards browse-grid ${waiting && !reading ? "is-loading" : ""} ${openingId !== undefined ? "is-opening" : ""}`} aria-busy={loading}>{shown.map((anime, index) => { const opening = anime.anilistId === openingId; return <div className={`card ${opening ? "is-resolving" : ""}`} key={anime.anilistId} data-origin={anime.anilistId} style={stagger(index >= earlier ? index - earlier : index, 10)}>
         <button type="button" className="hit" aria-busy={opening} title={opening ? "Checking streaming sources · click to cancel" : undefined} onClick={() => onOpen(anime)}><Art src={anime.cover} className="poster" />
           {anime.score !== undefined && anime.score > 0 && <span className="badges top"><span className="badge">{(anime.score / 10).toFixed(1)}</span></span>}
           {opening && <span className="sr-only" role="status">Checking streaming sources</span>}</button>
         <span className="t">{anime.title}</span><span className="s">{factsOf(anime)}</span><GenreChips genres={anime.genres} /></div>; })}</div>}
-      {loading && !reading && (pages.length > 0 || !shown.length) && <div className="browse-ghosts" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <span className="ghost" key={index} />)}</div>}
+      {/* Ghosts hold a page's place while it loads. Before the first page they are there from the first frame and fill
+          the screen, so the footer starts where the results will leave it instead of being pushed down when they land. */}
+      {(loading || (enabled && !last && !error)) && !reading && (pages.length > 0 || !shown.length) && <div className="browse-ghosts" aria-hidden="true">{Array.from({ length: shown.length ? 8 : 24 }, (_, index) => <span className="ghost" key={index} />)}</div>}
       {!loading && !error && last && !entries.length && (last.hasNextPage
         ? <div className="browse-none"><b>No matches so far</b>The first {pages.length === 1 ? "page" : `${pages.length} pages`} had nothing to show. More of the catalog may match.</div>
         : studios.length > 0 && filters.search ? <div className="browse-none"><b>No titles contain “{filters.search}”</b>It matches {studios.length > 1 ? "studios" : "a studio"}.

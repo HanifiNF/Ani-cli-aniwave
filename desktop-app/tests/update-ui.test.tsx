@@ -22,15 +22,18 @@ describe("update UI", () => {
         installStatus={{ mode, phase, detail: "Platform instructions", version: "1.1.0", percent: 42, ...(phase === "error" ? { error: "Update failed" } : {}) }} />));
     const button = (label: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === label)!;
     await render("idle");
+    // At rest the offer is one line: the install instructions wait until there is something to install.
+    expect(container.textContent).not.toContain("Platform instructions");
     await act(async () => button("Download update").click());
     expect(download).toHaveBeenCalledOnce();
     await render("downloading");
     expect(button("Downloading 42%").disabled).toBe(true);
-    expect(button("check again").disabled).toBe(true);
+    expect(button("skip").disabled).toBe(true);
     await render("ready");
     await act(async () => button("Install and restart").click());
     expect(install).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Version 1.1.0 is ready");
+    expect(container.textContent).toContain("Platform instructions");
     await render("ready", "manual");
     expect(button("Open download")).toBeDefined();
     await render("error");
@@ -57,17 +60,19 @@ describe("update UI", () => {
     expect(updatePending({ currentVersion: "1.0.0", state: "current" })).toBe(false);
   });
 
-  it("offers the release and a skip in the Updates row", async () => {
+  it("opens the release from the version title and offers a quiet skip", async () => {
     const check = vi.fn(), open = vi.fn(), skip = vi.fn();
     const click = (label: string) => act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === label)!.click());
     await act(async () => root.render(<UpdatePanel status={{ currentVersion: "1.0.0", latestVersion: "1.1.0", state: "available", checkedAt: 1 }} checking={false} onCheck={check} onOpen={open} onSkip={skip} />));
     expect(container.textContent).toContain("Version 1.1.0 is available");
     expect(container.textContent).toContain("You have 1.0.0");
-    await click("View release"); await click("skip this version"); await click("check again");
-    expect(open).toHaveBeenCalledOnce(); expect(skip).toHaveBeenCalledOnce(); expect(check).toHaveBeenCalledOnce();
+    await click("Version 1.1.0 is available"); await click("View release"); await click("skip");
+    expect(open).toHaveBeenCalledTimes(2); expect(skip).toHaveBeenCalledOnce();
+    // A known version needs no manual check; the hourly check finds anything newer.
+    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Version 1.1.0 is available", "skip", "View release"]);
 
     await act(async () => root.render(<UpdatePanel status={{ currentVersion: "1.0.0", latestVersion: "1.1.0", state: "available", dismissed: true }} checking={false} onCheck={check} onOpen={open} onSkip={skip} />));
-    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["check again", "View release"]);
+    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Version 1.1.0 is available", "View release"]);
     expect(container.textContent).toContain("skipped");
   });
 

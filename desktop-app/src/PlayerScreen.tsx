@@ -1,5 +1,5 @@
 import type { PlayerDiagnosticRecord } from "../shared/player-diagnostics";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   MediaPlayer,
   MediaProvider,
@@ -11,7 +11,7 @@ import {
   Track,
   type MediaPlayerInstance
 } from "@vidstack/react";
-import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
+import { DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import "./player.css";
@@ -20,6 +20,14 @@ import { shortcut } from "./keys";
 import { observePlayerDiagnostics } from "./player-diagnostics";
 import { clampMiniPlayerWidth, type MiniPlayerCorner, type PlayerCommand, type PlayerSession, type SubtitleAppearance } from "../shared/contracts";
 import { SubtitleAppearanceEditor, SubtitlePreview, subtitleVariables } from "./SubtitleAppearanceEditor";
+import { Glyph, Icon } from "./icons";
+import { playerIcons } from "./playerIcons";
+import Swap from "./Swap";
+import { Spring, rubber, velocityTracker } from "./motion";
+import { takeCapturedPlayer, takePlayOrigin, type Rect } from "./playerMotion";
+
+const SIDES = ["x", "y", "w", "h"] as const;
+type Box = Record<(typeof SIDES)[number], Spring>;
 
 export interface PlayerScreenProps {
   session: PlayerSession;
@@ -66,13 +74,6 @@ function clock(seconds: number): string {
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Icons for the docked bar, drawn in the app's own colours. */
-const icons = {
-  play: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>,
-  pause: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>,
-  expand: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3h-7v2h3.6l-4.3 4.3 1.4 1.4L19 6.4V10h2V3zM3 21h7v-2H6.4l4.3-4.3-1.4-1.4L5 17.6V14H3v7z" /></svg>
-};
-
 function errorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
   if (value && typeof value === "object" && "message" in value && typeof value.message === "string") return value.message;
@@ -82,7 +83,7 @@ function errorMessage(value: unknown): string {
 function SeekControl({ seconds }: { seconds: -10 | 10 }) {
   const backward = seconds < 0;
   const label = backward ? "Rewind 10 seconds" : "Forward 10 seconds";
-  const Icon = backward ? defaultLayoutIcons.SeekButton.Backward : defaultLayoutIcons.SeekButton.Forward;
+  const Icon = backward ? playerIcons.SeekButton.Backward : playerIcons.SeekButton.Forward;
 
   return (
     <SeekButton className="vds-button player-seek-button" seconds={seconds} aria-label={label} title={label}>
@@ -93,7 +94,7 @@ function SeekControl({ seconds }: { seconds: -10 | 10 }) {
 
 function FullscreenControl({ fullscreen, busy, onToggle }: { fullscreen: boolean; busy: boolean; onToggle: () => void }) {
   const label = fullscreen ? "Exit fullscreen" : "Enter fullscreen";
-  const Icon = fullscreen ? defaultLayoutIcons.FullscreenButton.Exit : defaultLayoutIcons.FullscreenButton.Enter;
+  const Icon = fullscreen ? playerIcons.FullscreenButton.Exit : playerIcons.FullscreenButton.Enter;
 
   return (
     <button
@@ -114,6 +115,7 @@ function FullscreenControl({ fullscreen, busy, onToggle }: { fullscreen: boolean
 function SubtitleMenuEntry({ onOpen }: { onOpen: () => void }) {
   const media = useMediaContext();
   return <button type="button" className="vds-menu-item subtitle-menu-entry" role="menuitem" onClick={(event) => { media.activeMenu?.close(event.nativeEvent); onOpen(); }}>
+    <Glyph name="captions" className="vds-icon" />
     <span className="vds-menu-item-label">Subtitle appearance</span>
   </button>;
 }
@@ -165,13 +167,69 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
   const [paused, setPaused] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [drag, setDrag] = useState<{ x: number; y: number }>();
+  const [dragging, setDragging] = useState(false);
   // Pointer events can arrive before React commits the drag state, so the handlers read refs.
-  const dragRef = useRef<{ x: number; y: number } | undefined>(undefined);
-  const dragStart = useRef<{ x: number; y: number; pointer: number } | undefined>(undefined);
+  const dragStart = useRef<{ x: number; y: number; pointer: number; from: { x: number; y: number }; moved: boolean; tracker: ReturnType<typeof velocityTracker> } | undefined>(undefined);
   const [liveWidth, setLiveWidth] = useState<number>();
   const resizeStart = useRef<{ x: number; width: number; max: number; pointer: number } | undefined>(undefined);
   const shell = useRef<HTMLElement>(null);
+  const flash = useRef<HTMLDivElement>(null);
+  /*
+    The box is four glide springs for the rectangle the player is drawn in; its layout (expanded, or docked in a corner)
+    is where they head. Growing from the Play button, docking, expanding, and a thrown corner player all move it, and a
+    new layout mid-flight turns it from where it is. At rest the box is its layout and carries no transform.
+  */
+  const box = useRef<Box>(null);
+  const layout = useRef<Rect>(null);
+  const holding = useRef(false);
+  const growth = useRef<{ from: number; to: number } | null>(null);
+  const release = useRef<{ x: number; y: number } | undefined>(undefined);
+  const applyBox = useCallback(() => {
+    const element = shell.current, target = layout.current, sides = box.current;
+    if (!element || !target || !sides) return;
+    const moving = holding.current || SIDES.some((side) => sides[side].moving);
+    if (!moving) {
+      element.style.transform = ""; element.style.transformOrigin = ""; element.style.borderRadius = ""; element.style.overflow = "";
+      element.style.removeProperty("--chrome");
+      growth.current = null;
+      if (flash.current) flash.current.style.opacity = "0";
+      return;
+    }
+    const sx = sides.w.x / target.w, sy = sides.h.x / target.h;
+    element.style.transformOrigin = "0 0";
+    element.style.transform = `translate(${sides.x.x - target.x}px, ${sides.y.x - target.y}px)${sx === 1 && sy === 1 ? "" : ` scale(${sx}, ${sy})`}`;
+    // Corners stay round at 10px on screen whatever the scale.
+    element.style.borderRadius = `${10 / sx}px / ${10 / sy}px`;
+    element.style.overflow = "hidden";
+    // The title bars only read at their own size: while the box is scaled they fade, and the video carries the move.
+    element.style.setProperty("--chrome", String(Math.max(0, 1 - Math.abs(1 - Math.min(sx, sy)) * 2.5)));
+    const grow = growth.current;
+    if (grow && flash.current) flash.current.style.opacity = String(Math.min(1, Math.max(0, 1 - 2.2 * (sides.w.x - grow.from) / Math.max(1, grow.to - grow.from))));
+  }, []);
+  const measure = useCallback((): Rect | undefined => {
+    const element = shell.current;
+    if (!element) return undefined;
+    const transform = element.style.transform;
+    element.style.transform = "";
+    const r = element.getBoundingClientRect();
+    element.style.transform = transform;
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }, []);
+  /** Heads for the current layout, from `from` when given (a captured rectangle or an origin), else from where the box is. */
+  const morph = useCallback((from?: Rect, velocity?: { x: number; y: number }) => {
+    const target = measure();
+    if (!target || !target.w || !target.h) return;
+    layout.current = target;
+    if (!box.current) {
+      const start = from ?? target;
+      box.current = { x: new Spring(start.x, "glide", applyBox, 0.3), y: new Spring(start.y, "glide", applyBox, 0.3), w: new Spring(start.w, "glide", applyBox, 0.3), h: new Spring(start.h, "glide", applyBox, 0.3) };
+    } else if (from && !holding.current && !SIDES.some((side) => box.current![side].moving)) {
+      for (const side of SIDES) box.current[side].set(from[side]);
+    }
+    holding.current = false;
+    for (const side of SIDES) box.current[side].to(target[side], { velocity: side === "x" || side === "y" ? velocity?.[side] : undefined });
+    applyBox();
+  }, [applyBox, measure]);
   const player = useRef<MediaPlayerInstance>(null);
   const surface = useRef<HTMLDivElement>(null);
   const shortcutsDialog = useRef<HTMLDialogElement>(null);
@@ -339,34 +397,70 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
     void (media.paused ? media.play() : media.pause()).catch(() => undefined);
   }, []);
 
-  // The docked bar is a drag handle. Release snaps to the nearest corner.
+  // The player grows out of whatever started it (the Play button, an episode row, a card) when that is still on screen.
+  useLayoutEffect(() => {
+    const origin = docked || fullscreen ? undefined : takePlayOrigin();
+    if (origin && flash.current) {
+      flash.current.style.background = origin.fill ? "var(--cursor)" : "var(--raised)";
+      flash.current.style.opacity = "1";
+    }
+    const target = measure();
+    if (origin && target) growth.current = { from: origin.rect.w, to: target.w };
+    morph(origin?.rect);
+  }, []);
+  // Docking, expanding, and a new corner move the box from where it was drawn to its new layout.
+  const placed = useRef(false);
+  useLayoutEffect(() => {
+    if (!placed.current) { placed.current = true; return; }
+    const velocity = release.current;
+    release.current = undefined;
+    morph(takeCapturedPlayer(), velocity);
+  }, [docked, corner]);
+
+  // The docked bar is a drag handle: the box follows the pointer exactly, stretches past the window's edges, and on
+  // release flies to the corner it was thrown toward, keeping its speed.
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
-    dragStart.current = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
+    if (!box.current || !layout.current) morph();
+    if (!box.current) return;
+    const tracker = velocityTracker();
+    tracker.add(event.clientX, event.clientY);
+    dragStart.current = { x: event.clientX, y: event.clientY, pointer: event.pointerId, from: { x: box.current.x.x, y: box.current.y.x }, moved: false, tracker };
     try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* synthetic pointers cannot be captured */ }
   };
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const start = dragStart.current;
-    if (!start || start.pointer !== event.pointerId) return;
-    const x = event.clientX - start.x, y = event.clientY - start.y;
-    if (dragRef.current || Math.abs(x) > DRAG_THRESHOLD || Math.abs(y) > DRAG_THRESHOLD) { dragRef.current = { x, y }; setDrag(dragRef.current); }
+    const start = dragStart.current, sides = box.current, target = layout.current;
+    if (!start || start.pointer !== event.pointerId || !sides || !target) return;
+    const dx = event.clientX - start.x, dy = event.clientY - start.y;
+    if (!start.moved && Math.abs(dx) <= DRAG_THRESHOLD && Math.abs(dy) <= DRAG_THRESHOLD) return;
+    if (!start.moved) { start.moved = true; setDragging(true); }
+    start.tracker.add(event.clientX, event.clientY);
+    const parent = shell.current?.parentElement?.getBoundingClientRect();
+    let x = start.from.x + dx, y = start.from.y + dy;
+    if (parent) {
+      const left = parent.left + 24, right = parent.right - 24 - target.w, top = parent.top + 16, bottom = parent.bottom - 16 - target.h;
+      if (x < left) x = left + rubber(x - left, 40); else if (x > right) x = right + rubber(x - right, 40);
+      if (y < top) y = top + rubber(y - top, 40); else if (y > bottom) y = bottom + rubber(y - bottom, 40);
+    }
+    holding.current = true;
+    sides.x.set(x); sides.y.set(y);
   };
   const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const start = dragStart.current;
+    const start = dragStart.current, sides = box.current, target = layout.current;
     if (!start || start.pointer !== event.pointerId) return;
     dragStart.current = undefined;
     try { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* not captured */ }
-    const offset = dragRef.current;
-    if (!offset) return;
-    const box = shell.current?.getBoundingClientRect();
+    if (!start.moved || !sides || !target) return;
+    setDragging(false);
+    const velocity = start.tracker.velocity();
     const parent = shell.current?.parentElement?.getBoundingClientRect();
-    dragRef.current = undefined; setDrag(undefined);
-    if (!box || !parent) return;
-    // The box may not have moved yet if the drag transform is still pending, so apply the offset ourselves.
-    const moved = shell.current?.style.transform ? 0 : 1;
-    const centreX = box.left + moved * offset.x + box.width / 2 - parent.left, centreY = box.top + moved * offset.y + box.height / 2 - parent.top;
+    if (!parent) { morph(undefined, velocity); return; }
+    // Where the throw would carry the box decides the corner.
+    const carry = (speed: number) => Math.max(-600, Math.min(600, speed * 0.2));
+    const centreX = sides.x.x + carry(velocity.x) + target.w / 2 - parent.left, centreY = sides.y.x + carry(velocity.y) + target.h / 2 - parent.top;
     const next: MiniPlayerCorner = `${centreY < parent.height / 2 ? "top" : "bottom"}-${centreX < parent.width / 2 ? "left" : "right"}`;
-    if (next !== corner) onCornerChange(next);
+    if (next !== corner) { release.current = velocity; onCornerChange(next); }
+    else morph(undefined, velocity);
   };
 
   async function openExternal() {
@@ -405,8 +499,9 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
   const dockedSub = [episodeLabel, countdown !== undefined ? "ended" : duration ? `${clock(time)} / ${clock(duration)}` : undefined].filter(Boolean).join(" · ");
 
   return (
-    <main ref={shell} className={`player-shell ${docked ? `is-docked corner-${corner}` : "is-expanded"} ${fullscreen && !docked ? "is-fullscreen" : ""} ${drag ? "is-dragging" : ""} ${liveWidth !== undefined ? "is-resizing" : ""}`}
-      style={docked ? { "--mini-width": `${shownWidth}px`, ...(drag ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : {}) } as React.CSSProperties : undefined} aria-label={docked ? "Now playing" : undefined}>
+    <main ref={shell} className={`player-shell ${docked ? `is-docked corner-${corner}` : "is-expanded"} ${fullscreen && !docked ? "is-fullscreen" : ""} ${dragging ? "is-dragging" : ""} ${liveWidth !== undefined ? "is-resizing" : ""}`}
+      style={docked ? { "--mini-width": `${shownWidth}px` } as React.CSSProperties : undefined} aria-label={docked ? "Now playing" : undefined}>
+      <div className="player-flash" ref={flash} aria-hidden="true" />
       {!docked && <div className="now">
         <span className="now-title">{title}</span>
         {episodeLabel && <span className="now-ep">{episodeLabel}</span>}
@@ -468,12 +563,12 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
             {session.request.textTracks?.map((track, index) => <Track key={`${track.src}:${index}`} src={track.src} kind="subtitles" label={track.label} lang={track.lang} default={track.default} />)}
           </MediaProvider>
           <DefaultVideoLayout
-            icons={defaultLayoutIcons}
+            icons={playerIcons}
             seekStep={10}
             slots={{
               beforePlayButton: <SeekControl seconds={-10} />,
               afterPlayButton: <SeekControl seconds={10} />,
-              beforeSettingsMenu: <button type="button" className="vds-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowShortcuts(true)}>?</button>,
+              beforeSettingsMenu: <button type="button" className="vds-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShowShortcuts(true)}><Glyph name="keyboard" className="vds-icon" /></button>,
               settingsMenuEndItems: <SubtitleMenuEntry onOpen={() => setShowSubtitleAppearance(true)} />,
               googleCastButton: null,
               fullscreenButton: (
@@ -513,9 +608,9 @@ export default function PlayerScreen({ session, subtitleAppearance, onSubtitleAp
       {docked && (
         <div className="mini-bar" onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
           <span className="mini-text"><span className="mini-title">{title}</span><span className="mini-sub">{dockedSub}</span></span>
-          <button type="button" aria-label={paused ? "Play" : "Pause"} title={paused ? "Play" : "Pause"} onClick={togglePaused}>{paused ? icons.play : icons.pause}</button>
-          <button type="button" aria-label="Expand player" title="Expand" onClick={onExpand}>{icons.expand}</button>
-          <button type="button" className="mini-close" aria-label="Stop playback" title="Stop" onClick={onClose}>×</button>
+          <button type="button" aria-label={paused ? "Play" : "Pause"} title={paused ? "Play" : "Pause"} onClick={togglePaused}><Swap id={paused ? "play" : "pause"}><Icon name={paused ? "play" : "pause"} /></Swap></button>
+          <button type="button" aria-label="Expand player" title="Expand" onClick={onExpand}><Icon name="expand" /></button>
+          <button type="button" className="mini-close" aria-label="Stop playback" title="Stop" onClick={onClose}><Icon name="x" /></button>
         </div>
       )}
       {docked && (

@@ -1,11 +1,15 @@
+import { useLayoutEffect } from "react";
 import type { BrowseAnime, BrowseFilters } from "../shared/contracts";
 import Art from "./Art";
+import { landSeries } from "./flight";
 import CopyTitle from "./CopyTitle";
 import { Icon } from "./icons";
 
 const STATUS_WORDS: Record<BrowseAnime["status"], string> = { finished: "Finished", ongoing: "Airing", upcoming: "Upcoming", unknown: "Unknown" };
 
 export default function BrowseDetail({ anime, resolving, error, onBack, onRetry, onSearch, onBrowse }: { anime: BrowseAnime; resolving: boolean; error?: string; onBack: () => void; onRetry: () => void; onSearch: () => void; onBrowse: (filters: Partial<BrowseFilters>) => void }) {
+  // The card that opened this title lends it its poster, as a series page does.
+  useLayoutEffect(() => landSeries(document.querySelector<HTMLElement>(".browse-detail .side .poster"), `anilist:${anime.anilistId}`), [anime.anilistId]);
   return <div className="series browse-detail">
     <header className="series-top"><button type="button" className="crumb" onClick={onBack}><Icon name="back" />Browse</button><h1>{anime.title}<CopyTitle title={anime.title} /></h1>
       <div className="meta"><span className="tag quiet">AniList catalog</span>{resolving && <span className="tag quiet">checking streaming sources<span className="dots"> ···</span></span>}</div></header>

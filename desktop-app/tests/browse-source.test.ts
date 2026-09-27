@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { browseMatch, browseQueries, identified, knownCandidate, rememberedBrowseAnime } from "../shared/browse-source";
+import { unifyAnimeResults } from "../shared/catalog";
 import type { AnimeResult, BrowseAnime, Work } from "../shared/contracts";
 
 const anime: BrowseAnime = { anilistId: 42, refs: ["anilist:42", "mal:42"], title: "Example Season 2", titles: ["Example Season 2", "Other Name 2", "Another Name 2", "Fourth Name"], genres: [], studios: [], type: "TV", year: 2020, status: "finished" };
@@ -52,6 +53,11 @@ describe("browse identity", () => {
     const known = rememberedBrowseAnime(anime, [work], { disabledSources: ["aniwave"] });
     expect(known?.sources?.map((source) => source.id)).toEqual(["hianime:example"]);
     expect(rememberedBrowseAnime(anime, [{ ...work, tentative: true }], {})).toBeUndefined();
+    // A reopening shows the site's cover the first opening found, and the catalogue cover only when none is known.
+    expect(rememberedBrowseAnime({ ...anime, cover: "https://anilist.test/cover.jpg" }, [work], {})?.poster).toBe("https://anilist.test/cover.jpg");
+    const covered = rememberedBrowseAnime({ ...anime, cover: "https://anilist.test/cover.jpg" }, [{ ...work, poster: "https://site.test/cover.jpg" }], {});
+    expect(covered?.poster).toBe("https://site.test/cover.jpg");
+    expect(unifyAnimeResults([identified(anime, covered!)])[0].poster).toBe("https://site.test/cover.jpg");
     expect(rememberedBrowseAnime(anime, [{ ...work, refs: ["anilist:42", "mal:99"] }], {})).toBeUndefined();
   });
 });

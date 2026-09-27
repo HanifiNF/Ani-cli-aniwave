@@ -221,6 +221,11 @@ describe("StateStore", () => {
     expect(changed).toBe(true);
     expect(store.snapshot().works?.map((item) => item.records)).toEqual([["aniwave:frieren-1", "hianime:frieren-x", "anidb:frieren-2"], ["aniwave:b-1"]]);
     expect(await store.recordBindings([{ id: "aniwave:b-1", title: "B", provider: "aniwave", refs: ["mal:7"] }])).toBe(false);
+    // The site's cover is remembered with the work, the latest one wins, and a binding without one keeps it.
+    expect(await store.recordBindings([{ id: "aniwave:b-1", title: "B", provider: "aniwave", refs: ["mal:7"], poster: "https://cdn.test/b.jpg" }])).toBe(true);
+    await store.recordBindings([{ id: "aniwave:b-1", title: "B", provider: "aniwave", refs: ["mal:7"], poster: "https://cdn.test/b2.jpg" }]);
+    await store.bindWork({ ids: ["aniwave:b-1"], refs: ["mal:7", "anilist:7"] });
+    expect(store.snapshot().works?.find((item) => item.records.includes("aniwave:b-1"))?.poster).toBe("https://cdn.test/b2.jpg");
     const reloaded = new StateStore(join(directory, "state.json")); await reloaded.load();
     expect(reloaded.snapshot().works).toHaveLength(2);
   });

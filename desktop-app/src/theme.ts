@@ -11,6 +11,8 @@ export function applyTheme(theme: ThemePreset, custom: CustomTheme): () => void 
   const brand = videoBrand(colours);
   root.setProperty("--theme-video-brand", brand.colour);
   root.setProperty("--theme-video-brand-text", brand.text);
+  // The first theme applies at once; later changes are new data, so the three colours glide (styles.css).
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => document.documentElement.classList.add("theme-glide"));
   return applyAppIcon(colours);
 }
 

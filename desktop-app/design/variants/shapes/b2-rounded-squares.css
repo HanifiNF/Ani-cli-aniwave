@@ -1,0 +1,9 @@
+/* Option B2: rounded squares everywhere. 10px on containers and anything 44px or taller (cards, panels, large buttons,
+   the search fields), 8px on every small control and label (chips, tags, badges, fields, small and icon buttons,
+   switches); shapes nested 3px inside a track are 5px so the corners stay concentric. Circles only for dots, avatars,
+   and swatches. Only radii change; the motion and behaviour are untouched. */
+:root { --pill: 8px; }
+:focus-visible { border-radius: revert; }
+.omni-surface, .search, .browse-search, .hints { border-radius: 10px !important; }
+.chips-ind, .chips button, .ep-head .sort button, .switch i { border-radius: 5px; }
+.src .chk { border-radius: 5px; }

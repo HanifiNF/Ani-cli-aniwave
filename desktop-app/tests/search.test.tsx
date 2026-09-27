@@ -206,14 +206,15 @@ describe("companion contextual dialogue", () => {
   });
   it("previews and saves the companion size from Settings", async () => {
     await click("Settings");
-    const slider = container.querySelector<HTMLInputElement>('#companion-size')!;
-    expect(slider.value).toBe("100");
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "200");
-      slider.dispatchEvent(new Event("input", { bubbles: true }));
-      slider.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(container.querySelector("output[for=companion-size]")?.textContent).toBe("200%");
+    const row = container.querySelector<HTMLButtonElement>('[aria-controls="companion-editor"]')!;
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => row.click());
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    const increase = container.querySelector<HTMLButtonElement>('[aria-label="Increase companion size"]')!;
+    for (let step = 0; step < 10; step++) await act(async () => increase.click());
+    expect(container.querySelector('[aria-label="Companion size"] output')?.textContent).toBe("200%");
+    expect(increase.disabled).toBe(true);
+    expect(row.textContent).toContain("200%");
     expect(container.querySelector<HTMLElement>(".companion-pet")?.style.width).toBe("192px");
     await advance(450);
     expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ companionSize: 200 }));
@@ -234,9 +235,9 @@ describe("release update checks", () => {
     await click("settings, update available");
     expect(container.querySelector(".update-notice")?.textContent).toContain("v1.1.0 available");
     expect(container.querySelector(".settings-section-nav .rail-dot")).not.toBeNull();
-    await click("View release");
+    await click("Version 1.1.0 is available");
     expect(api.openLatestRelease).toHaveBeenCalledOnce();
-    await click("skip this version");
+    await click("skip");
     expect(api.dismissUpdate).toHaveBeenCalledWith("1.1.0");
     expect(container.querySelector(".update-notice")).toBeNull();
     expect(container.querySelector(".rail-dot")).toBeNull();
@@ -245,10 +246,10 @@ describe("release update checks", () => {
   });
 
   it("offers a forced check from the Updates row", async () => {
-    vi.mocked(api.checkForUpdates).mockResolvedValue(available);
+    vi.mocked(api.checkForUpdates).mockResolvedValue({ currentVersion: "1.0.0", latestVersion: "1.0.0", state: "current" });
     await advance(1_500);
-    await click("settings, update available");
-    await click("check again");
+    await click("settings");
+    await click("check now");
     expect(api.checkForUpdates).toHaveBeenLastCalledWith(true);
   });
 });
@@ -389,7 +390,7 @@ describe("live catalog search", () => {
     const page = container.querySelector<HTMLElement>(".page-settings")!;
     const headings = [...container.querySelectorAll<HTMLElement>('.settings .group h3[id^="settings-"]')];
     const nav = container.querySelector<HTMLElement>('.settings-section-nav')!;
-    expect(headings.map((heading) => heading.textContent)).toEqual(["Playback", "Defaults", "Appearance", "Anime information", "Episode metadata", "Sources", "Episode updates", "Updates"]);
+    expect(headings.map((heading) => heading.textContent)).toEqual(["Playback", "Defaults", "Appearance", "Companion", "Anime information", "Episode metadata", "Sources", "Episode updates", "Updates"]);
     expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(headings.map((heading) => heading.textContent));
     const positions = new Map(headings.map((heading, index) => [heading.id, 120 + index * 200]));
     vi.spyOn(page, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
@@ -707,7 +708,8 @@ describe("live catalog search", () => {
       { provider: "aniwave", episodes: [{ id: "aniwave:ep-2", number: "2", provider: "aniwave" }, { id: "aniwave:ep-1", number: "1", provider: "aniwave" }] },
       { provider: "anidb", episodes: [{ id: "anidb:ep-1", number: "1", provider: "anidb" }] }
     ] });
-    vi.mocked(api.recordHistory).mockImplementation(async (entry) => { const next = await api.getState(); next.history = [entry]; vi.mocked(api.getState).mockResolvedValue(next); return next; });
+    // Like the real store, each answer is a new state object.
+    vi.mocked(api.recordHistory).mockImplementation(async (entry) => { const next = { ...(await api.getState()), history: [entry] }; vi.mocked(api.getState).mockResolvedValue(next); return next; });
 
     await type("re zero"); await advance(); await press("Enter");
     const button = () => [...container.querySelectorAll<HTMLButtonElement>(".series .side .stack .btn")].find((node) => node.textContent?.includes("watched"))!;
@@ -862,6 +864,7 @@ describe("live catalog search", () => {
       { id: "aniwave:frieren-1", provider: "aniwave", title: "frieren", aliases: ["frieren"] },
       { id: "hianime:frieren-x", provider: "hianime", title: "frieren", aliases: ["frieren"] }
     ] }));
+    // Resuming stays on the card while the episode is found; the player takes the screen from there.
     expect(container.querySelector(".series")).toBeNull();
     const request = vi.mocked(api.play).mock.calls[0][0];
     await act(async () => load({ id: "continued", request, preferences: {}, fullscreen: false, canOpenExternal: false }));
@@ -1103,12 +1106,14 @@ describe("progressive catalog navigation", () => {
     vi.mocked(api.streams).mockReturnValue(pending.promise);
     await act(async () => root.render(<StrictMode><App key="cancel-direct" /></StrictMode>));
     await press("Enter");
-    expect(container.querySelector(".page-opening")).not.toBeNull(); expect(container.querySelector(".series")).toBeNull();
+    // The card finds its episode in place, carrying the travelling arc; Escape stops it and Home stays as it was.
+    expect(container.querySelector(".page-home .card.is-resolving")).not.toBeNull(); expect(container.querySelector(".series")).toBeNull();
     const request = vi.mocked(api.streams).mock.calls[0][2]!;
-    await click("Cancel");
+    await press("Escape");
     expect(api.cancelCatalog).toHaveBeenCalledWith(request.id);
     await act(async () => pending.resolve([{ quality: "720p", url: "https://cdn.test/1.m3u8", provider: "aniwave" }]));
     expect(api.play).not.toHaveBeenCalled(); expect(container.querySelector(".page-home")).not.toBeNull();
+    expect(container.querySelector(".card.is-resolving")).toBeNull();
   });
 
   it("tries the same episode on another source after direct resolution fails", async () => {
@@ -1120,6 +1125,28 @@ describe("progressive catalog navigation", () => {
     await press("Enter");
     expect(api.streams).toHaveBeenNthCalledWith(2, "hianime:two", "sub", expect.any(Object));
     expect(api.play).toHaveBeenCalledOnce();
+  });
+
+  it("goes on to the series page from the card when a stream cannot be found", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "1", mode: "sub", updatedAt: "", completed: true }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2].map((number) => ({ id: `aniwave:1:${number}`, number: String(number), provider: "aniwave" })) }] });
+    vi.mocked(api.streams).mockRejectedValue(new Error("no stream was found"));
+    await act(async () => root.render(<StrictMode><App key="resume-failed" /></StrictMode>));
+    await press("Enter");
+    expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
+    expect(container.querySelector(".play-note")?.textContent).toContain("no stream was found");
+    expect(container.querySelector(".play-note")?.textContent).toContain("Try again");
+  });
+
+  it("opens the series page without an error when the viewer is caught up", async () => {
+    state.history = [{ animeId: "aniwave:fixture-1", title: "Fixture", lastEpisode: "2", mode: "sub", updatedAt: "", completed: true }];
+    vi.mocked(api.episodes).mockResolvedValue({ groups: [{ provider: "aniwave", episodes: [1, 2].map((number) => ({ id: `aniwave:1:${number}`, number: String(number), provider: "aniwave" })) }] });
+    await act(async () => root.render(<StrictMode><App key="caught-up" /></StrictMode>));
+    await press("Enter");
+    expect(api.streams).not.toHaveBeenCalled();
+    expect(container.querySelector(".series h1")?.textContent).toBe("Fixture");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector(".status-pill")).toBeNull();
   });
 
   it("waits for a new episode instead of replaying the last cached completed episode", async () => {

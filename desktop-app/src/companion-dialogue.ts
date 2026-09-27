@@ -3,7 +3,8 @@ import type { CompanionAnimation, CompanionFrequency } from "../shared/companion
 export type CompanionSection = "home" | "browse" | "saved" | "recent" | "notifications" | "settings";
 export type CompanionEventKind = "series" | "section" | "startup-update" | "startup-continue" | "discover" | "save" | "play" | "pause" | "complete" | "error" | "hello";
 export interface CompanionEvent { id: number; kind: CompanionEventKind; title?: string; episode?: string; key?: string; section?: CompanionSection; otherCount?: number; targetId?: string }
-export interface CompanionLine { text: string; animation: CompanionAnimation }
+/** `title` is the title as it appears in `text`, when the line names one, so the bubble can set it apart. */
+export interface CompanionLine { text: string; animation: CompanionAnimation; title?: string }
 
 export const guaranteedCompanionEvent = (kind: CompanionEventKind) => kind === "series" || kind === "section" || kind === "startup-update" || kind === "startup-continue" || kind === "hello";
 
@@ -44,7 +45,7 @@ export function companionLine(event: CompanionEvent, alternate = false): Compani
   const template = event.kind === "section" ? SECTION_LINES[event.section ?? "home"][alternate ? 1 : 0] : LINES[event.kind][alternate ? 1 : 0];
   const base = template.replaceAll("{title}", title).replaceAll("{episode}", episode);
   const extra = event.kind === "startup-update" && event.otherCount && event.otherCount > 0 ? ` Plus ${Math.min(999, event.otherCount)} other unread ${event.otherCount === 1 ? "update" : "updates"}.` : "";
-  return { text: base + extra, animation: ANIMATION[event.kind] };
+  return { text: base + extra, animation: ANIMATION[event.kind], title: template.includes("{title}") ? title : undefined };
 }
 
 /** Keeps one pending high-priority event; the UI consumes it once a cooldown ends. */

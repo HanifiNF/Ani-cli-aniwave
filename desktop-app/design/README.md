@@ -1,6 +1,80 @@
 # ANIdesktop design notes
 
-## Current design: atsu style (September 2026)
+## Design language (September 2026)
+
+A quiet, fast tool: motion shows where things come from and where they go, then gets out of the way. The screens below keep
+their layouts; this is how they look and move. Mockup: `design/variants/design-language.html` (live, with a spec sheet and
+a Feel switch comparing the tunings tried); `design/record-design-language.cjs` records it and `design/record-app-motion.cjs`
+records the real renderer, both at true speed.
+
+- Colour: the three theme colours (background, text, highlight) and tones mixed from them in oklab: surfaces 6% and 10%
+  text, hairlines 12%, secondary text 60%, faint text 36%. The highlight marks only the primary action, the selection,
+  progress, ticks, switches that are on, and the today dot. Status dots keep their own green and red. Flat fills only: raised
+  layers get a 12% hairline, never a drop shadow; the scrim is the background at 72%.
+- Shape: one family of rounded squares, so neighbours never mix shapes. 10px on containers and anything large (cards,
+  posters, panels, large buttons, the search fields); 8px on every small control and label (chips and their tracks,
+  tags, badges, fields, small and icon buttons, the nav fill, switches); 5px on shapes nested inside a small control's
+  track (the chip and sort indicators, the switch knob) and on checkboxes, so corners stay concentric. Circles only for
+  dots, avatars, and swatches; focus rings follow each control's own shape. Pills were used for the search field and
+  chips at first and dropped because they mixed with rounded squares in the same rows. Mockups: `design/variants/shapes/`
+  (A pills, B 8px with pill chips, B2 chosen), applied to the live app as radius-only overrides.
+- Type: Inter only (bundled, `@fontsource-variable/inter`), weights 400, 500 and 700, letter spacing −0.005em everywhere.
+  Small labels are sentence case at 500, never tracked capitals.
+- Icons: one set (`src/icons.tsx`) on a 24px grid with a 1.8 stroke and round caps and joins, drawn at 1.5 screen pixels at
+  every size. The full player uses it too (`src/playerIcons.tsx` fills Vidstack's icon slots, at 24px in the bar and 18px
+  in menus); seek and replay are one arc with the arrowhead's point on the arc's end, captions on takes the highlight, and
+  the shortcuts button is a keyboard instead of "?". The player's menus use the raised surface and hairline. Mockup:
+  `design/variants/player-icons.html` (with Vidstack's glyphs beside them, from `player-icons-vidstack.js`).
+- Motion (`src/motion.ts`): springs on everything, three presets. Snap (0.25 s, damping 1) moves controls; glide (0.4 s,
+  0.95) moves layout and shared elements, with posters flying between a card and a title page on a 20% quicker
+  version (0.32 s); stretch moves indicator edges (leading 0.2 s, trailing 0.32 s), so an indicator
+  runs ahead and gathers up as it lands. Every spring is launched: a new target from rest starts at distance × ω, so about a
+  quarter of the travel lands in the first frame and the rest settles calmly. Shorter springs from rest were tried and
+  rejected (they read as sped up); springs from rest felt laggy. A new target mid-flight keeps position and velocity. CSS
+  gets the same springs as `linear()` curves (`--t-snap`, `--t-glide`, `--t-out`). Lists rise in turn, 18 ms apart. With
+  reduced motion, changes apply at once or as a plain fade.
+- Input: chips, tabs, sort toggles, theme tiles, and the nav act on pointer down (keys on click, `src/press.ts`); cards,
+  buttons, and tiles dip slightly under the pointer and act on release.
+- Continuity: the search pill and the palette are one surface that grows around the results (`src/useSearchMorph.ts`); a
+  card's or search row's poster flies to the series poster and, on the way back, to the very card that opened it
+  (`src/flight.ts`: cards carry `data-origin` inside a `data-origin-group`, so a Saved card stays the Saved card even when
+  the title is also in Continue watching, with another card for the title as the fallback; the landing spot is read every
+  frame, so scrolling while the poster is in the air carries it along; the Browse detail page takes part like a series). When
+  the destination shows a different picture (a Browse card's AniList cover, a series showing the streaming site's), the
+  flyer blurs across to it in the air and lets go only once the two match, waiting briefly for a picture still loading.
+  The site's cover is remembered with the title's match (`Work.poster`), so reopening from Browse shows the same picture
+  as the first opening. A
+  scrolling list inside a page (the search results) carries `data-scroll-memory`: its scroll is kept with the title and put
+  back on return, and a row still partly hidden is scrolled just into view before the poster lands. Going back to search
+  results reopens the palette already open, so the row is in place when the poster arrives. The player grows out of
+  the Play button, an episode row, or a card, and docking, expanding, and throwing the corner player move one box on the glide
+  spring (`src/playerMotion.ts`, PlayerScreen), with its title bars fading while the box is scaled. The corner player follows
+  the pointer exactly, stretches with resistance past the window's edges, and flies to the corner it was thrown toward.
+- Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
+  indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
+  that can be dragged, stretches past either end, and springs from its release speed.
+- Resuming (a Continue watching or Recent card) goes straight into the episode: the card finds it in place, dimmed with
+  the travelling arc Browse cards use (a second press or Escape stops it), and the player grows out of the card. Only a
+  title with nothing to play (caught up, or no stream) goes on to its series page, the poster flying there, where a
+  failure shows its reason and "Try again" under Play. The card's episode count can be stale, so it always checks.
+  Play on a series page reports its own work: it reads "Finding Ep 13" with a turning arc and a note slides open under
+  it ("Choosing a stream · sub from aniwave", then "Opening …", with Cancel; Escape cancels too). There is no separate
+  "opening" page, and a poster still in the air when the player takes the screen is dropped (`cancelFlight`).
+  `design/shots/motion/app-resume.mp4` records the card resume.
+- Back is a return, not a visit: going back from a series lands on the page it was opened from (Home, Saved, Recent,
+  Browse, Notifications; the back link names it), with its scroll, filter, backdrop art, schedule day, and keyboard
+  cursor as they were, and without the page fade or the cards' rise. Posters already shown this session appear at once
+  (`src/Art.tsx`) instead of fading in again.
+- Stable layout: nothing appears above content to announce work. Progress, confirmations, and errors float in a status
+  pill at the bottom of the page (confirmations pass after 4 s, errors stay until the next action); quick actions whose
+  control shows the result (save, ticks, mark all watched, removing a card) say nothing at all. Episode loading is shown
+  by skeleton rows only. The series page holds room for the AniList synopsis and facts while they load, the facts sit in a
+  steady grid, and Browse fills the screen with ghost cards before its first page.
+- Swaps (`src/Swap.tsx`): inner content that changes in place (the Play label, Save, the result count, the save state,
+  play/pause) blurs out quickly while the new copy blurs in a beat later. Theme changes glide between the colour sets. The
+  bell no longer swings; a new count grows in from the bell's corner.
+
+## Atsu-style screens (September 2026)
 
 The renderer follows atsu.moe. The components in `../src/` are the current UI reference.
 
@@ -59,9 +133,9 @@ The renderer follows atsu.moe. The components in `../src/` are the current UI re
   named options (player, quality, audio, preferred source). The cancel/save row sticks to the bottom of the scrolling
   form and save is disabled until something changes. The key-hint footer is gone; `?`
   shows a hint pill.
-- Settings save state: every row applies on change, and the right end of the Settings heading reports it only while there is news. It is empty at rest, reads "Saving…" during a write, shows a check with "Saved" that fades after two seconds, and on a refusal keeps "Not saved" with a "retry" link until the save goes through. Mockups: `design/variants/settings-save-state.html` (P1 chosen).
+- Settings save state: every row applies on change, and the right end of the Settings heading reports it only while there is news. It is empty at rest, reads "Saving…" during a write, shows a check with "Saved" that fades after two seconds, and on a refusal keeps "Not saved" with a "retry" link until the save goes through. It holds still as it changes (B2): the mark has its own slot before the word, a small arc turning while saving that crossfades into the check, and the word keeps one starting point and one height in every state (a fixed-width text column sized to the widest word, and a steady baseline). Mockups: `design/variants/settings-save-state.html` (P1 chosen); `design/shots/motion/app-save-state.mp4` records B2.
 - Subtitle appearance row: the last row of Playback reads like its neighbours, with the label and a one-line summary on the left, then a live one-line sample sized like the external player field and a chevron on the right. The sample stays live while the rows beneath are open, so the settings page carries no second preview. The still behind the sample (and behind the preview in the player's dialog) is a dark frame tinted by the theme. Mockups: `design/variants/subtitle-row.html` (R2 chosen).
-- Updates: an available release is announced only inside Settings (`src/UpdateUI.tsx`). An accent link beside the Settings heading ("v0.1.4 available") jumps to the Updates row, the Updates entry in the rail carries a dot, and the gear in the top bar carries the same dot on every screen. The Updates group is one row: the news, the installed version and check time, then "skip this version", "check again", a "View release" link, and primary "Download update". Downloads show progress in that button. Completed Windows/ AppImage updates offer "Install and restart"; Sparkle-enabled macOS builds offer "Install update…", which opens the native download/install/relaunch window. DMG fallback builds and manual Linux packages offer "Open download". Platform instructions and failures appear below the row. The action row wraps at smaller widths. Skipping clears the link and both dots until the next release. There is no banner. Mockups: `design/variants/update-available.html` (first round, rejected) and `design/variants/update-in-settings.html` (S2 chosen).
+- Updates: an available release is announced only inside Settings (`src/UpdateUI.tsx`). An accent link beside the Settings heading ("v0.1.4 available") jumps to the Updates row, the Updates entry in the rail carries a dot, and the gear in the top bar carries the same dot on every screen. The Updates group is one row with one action (variant C): the version title opens the release notes (an external-link icon marks it), the installed version and check time sit under it, and a quiet "skip" stands beside the primary "Download update" ("View release" where the app cannot download). There is no "check again" while a version is on offer; the hourly check finds anything newer, and "check now" returns once the app is up to date. Downloads show progress in that button. Completed Windows/ AppImage updates offer "Install and restart"; Sparkle-enabled macOS builds offer "Install update…", which opens the native download/install/relaunch window. DMG fallback builds and manual Linux packages offer "Open download". Platform instructions appear below the row once a download is under way or ready, and failures whenever they happen. The action row wraps at smaller widths. Skipping clears the link and both dots until the next release. There is no banner. Mockups: `design/variants/update-available.html` (first round, rejected) and `design/variants/update-in-settings.html` (S2 chosen); the decluttered row's variants are captured in the live page by `design/capture-update-row.cjs` (C chosen).
 - Footer: one raised, rounded panel under every page (like the atsu.moe footer), and the only place the app describes itself. Left: the wordmark, a one-line blurb, a credit line saying the app is built on ani-cli by pystardust and its contributors (both linked), and a link to the source. Middle: an "App" column of icon links (home, saved, recent, settings) with the current one lit. Right: "Made by", one row per creator with a small round portrait, the name, and icon-only links (GitHub, Discord, Instagram, email; the Discord icon copies the handle and shows a "Copied" tip). A dim foot line carries the media note. There are no About or Contact pages.
 - Type is the system sans-serif (Inter when installed); Fragment Mono is no longer bundled. Themes are unchanged.
 

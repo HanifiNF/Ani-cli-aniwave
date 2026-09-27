@@ -8,11 +8,13 @@ const keysOf = (anime: AnimeResult) => [...(anime.refs ?? []), ...animeSources(a
 /** Series information for open works: the cached copy shows first and a refresh replaces it when one arrives. */
 export function useWorkInfo(scope: string) {
   const [infos, setInfos] = useState<Record<string, WorkInfo>>({});
+  // Works whose request has finished, found or not; until then the page holds room for the information.
+  const [settled, setSettled] = useState<Record<string, true>>({});
   const tasks = useRef(new Map<string, string>());
 
   useEffect(() => {
     for (const id of tasks.current.values()) window.aniDesktop.cancelCatalog(id);
-    tasks.current.clear(); setInfos({});
+    tasks.current.clear(); setInfos({}); setSettled({});
   }, [scope]);
 
   const remember = useCallback((keys: string[], value: WorkInfo) => {
@@ -30,7 +32,11 @@ export function useWorkInfo(scope: string) {
     tasks.current.set(key, id);
     const update = (value: WorkInfo | undefined) => { if (value) remember(keys, value); };
     void window.aniDesktop.workInfo(anime, { id, priority, refresh }, update)
-      .then(update).catch(() => undefined).finally(() => { if (tasks.current.get(key) === id) tasks.current.delete(key); });
+      .then(update).catch(() => undefined).finally(() => {
+        if (tasks.current.get(key) !== id) return;
+        tasks.current.delete(key);
+        setSettled((current) => current[key] ? current : { ...current, [key]: true });
+      });
   }, [remember, scope]);
 
   const get = useCallback((anime: AnimeResult): WorkInfo | undefined => {
@@ -38,5 +44,8 @@ export function useWorkInfo(scope: string) {
     return undefined;
   }, [infos]);
 
-  return { get, load };
+  /** True until the work has information or its request has finished without any. */
+  const loading = useCallback((anime: AnimeResult): boolean => !get(anime) && !settled[keysOf(anime).join("|")], [settled, get]);
+
+  return { get, load, loading };
 }
