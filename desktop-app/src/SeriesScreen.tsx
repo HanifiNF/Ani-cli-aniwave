@@ -25,6 +25,8 @@ interface Props {
   episodeGroups: EpisodeGroup[]; episodeRows: EpisodeRow[]; episodeCount: number;
   seriesMetadata?: SeriesMetadataCatalog;
   info?: WorkInfo;
+  /** The information is still on its way: its room is held so the episode list does not drop when it lands. */
+  infoLoading?: boolean;
   nextUp?: EpisodeRow; episodeFilter: EpisodeFilter; episodeSort: EpisodeSort; jump: string;
   playingId?: string; status?: PlayStatus; metadata: ReturnType<typeof useEpisodeMetadata>; listRef: RefObject<HTMLDivElement | null>;
   onPlay: (episode: Episode) => void; onBookmark: () => void; onBack: () => void;
@@ -40,7 +42,7 @@ const STATUS_WORDS: Record<WorkInfo["status"], string> = { finished: "Finished",
 const TYPE_WORDS: Record<NonNullable<WorkInfo["type"]>, string> = { TV: "TV", MOVIE: "Movie", OVA: "OVA", ONA: "ONA", SPECIAL: "Special", MUSIC: "Music" };
 
 export default function SeriesScreen({ anime, progress, isSaved, player, backLabel, mode, quality, lastQuery, busy, resolving,
-  pendingSources, sourceErrors, episodeGroups, episodeRows, seriesMetadata, info, nextUp, episodeFilter, episodeSort,
+  pendingSources, sourceErrors, episodeGroups, episodeRows, seriesMetadata, info, infoLoading = false, nextUp, episodeFilter, episodeSort,
   jump, playingId, status, metadata, listRef, onPlay, onBookmark, onBack, onMode, onQuality, onCheckSources, onRefreshSources,
   onJump, onWatched, onWatchedAll, onDismissStatus, reorder, onRefreshInfo, onSplitSource, onBrowse }: Props) {
   const [showAll, setShowAll] = useState(false);
@@ -76,9 +78,10 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
           {sources.map((source) => <span className="tag src-tag" key={source.id} title={source.title}>{source.provider}
             {sources.length > 1 && <button type="button" className="split" aria-label={`Split ${source.provider} record “${source.title}” off this series`} title="Not the same anime? Split this source off" onClick={() => onSplitSource(source.id)}><Icon name="x" /></button>}
           </span>)}
-          {resolving && <span className="tag quiet" role="status">checking other sources{pendingSources.length ? `: ${pendingSources.join(", ")}` : ""}<span className="dots"> ···</span></span>}
           {anime.tentative && <span className="tag quiet" title="These sources were grouped by title alone. Split one off if it does not belong.">grouped by title</span>}
           {alias && <span>{alias}</span>}
+          {/* Last in the row, so nothing moves when the check finishes. */}
+          {resolving && <span className="tag quiet" role="status">checking other sources{pendingSources.length ? `: ${pendingSources.join(", ")}` : ""}<span className="dots"> ···</span></span>}
         </div>
       </header>
       <aside className="side">
@@ -98,16 +101,19 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
       </aside>
       <div className="main">
         <div className="facts">
-          {format && <div><small>Format</small>{format}</div>}
+          {format ? <div><small>Format</small>{format}</div> : infoLoading && <div><small>Format</small><span className="wait">…</span></div>}
+          {!info && infoLoading && <div><small>Status</small><span className="wait">…</span></div>}
           {info && <div><small>Status</small>{STATUS_WORDS[info.status]}{info.nextAiring ? ` · ep ${info.nextAiring.episode} ${new Date(info.nextAiring.airingAt).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}` : ""}</div>}
           <div><small>Available episodes</small>{counts("available")}</div>
           <div><small>Announced total</small>{counts("announced") === "Unknown" && info?.episodes ? String(info.episodes) : counts("announced")}</div>
           {info?.studios.length ? <div><small>Studio</small>{info.studios.map((studio, index) => <span key={studio}>{index > 0 && ", "}<button type="button" className="studio-link" title={`Browse anime by ${studio}`} onClick={() => onBrowse({ search: studio, sort: "match" })}>{studio}</button></span>)}</div> : null}
           {info?.score ? <div><small>Score</small>{(info.score / 10).toFixed(1)}</div> : null}
+          {!info && infoLoading && <><div><small>Studio</small><span className="wait">…</span></div><div><small>Score</small><span className="wait">…</span></div></>}
           <div><small>Progress</small>{progress ? `${progress.completed === false ? "Started" : "Watched through"} ${progress.lastEpisode}` : "Not started"}</div>
           <div><small>Last source</small>{progress ? `${progress.lastProvider ?? providerFromId(progress.animeId)} · ${progress.mode}` : "—"}</div>
           <div><small>Plays in</small>{player}</div>
         </div>
+        {!info && infoLoading && <section className="about about-wait" aria-hidden="true"><i /><i /><i /><b /></section>}
         {info && (
           <section className="about" aria-label="About this series">
             {info.description && <p className={`synopsis ${showAll ? "open" : ""}`}>{info.description}</p>}

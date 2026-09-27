@@ -267,7 +267,9 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
           {anime.score !== undefined && anime.score > 0 && <span className="badges top"><span className="badge">{(anime.score / 10).toFixed(1)}</span></span>}
           {opening && <span className="sr-only" role="status">Checking streaming sources</span>}</button>
         <span className="t">{anime.title}</span><span className="s">{factsOf(anime)}</span><GenreChips genres={anime.genres} /></div>; })}</div>}
-      {loading && !reading && (pages.length > 0 || !shown.length) && <div className="browse-ghosts" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <span className="ghost" key={index} />)}</div>}
+      {/* Ghosts hold a page's place while it loads. Before the first page they are there from the first frame and fill
+          the screen, so the footer starts where the results will leave it instead of being pushed down when they land. */}
+      {(loading || (enabled && !last && !error)) && !reading && (pages.length > 0 || !shown.length) && <div className="browse-ghosts" aria-hidden="true">{Array.from({ length: shown.length ? 8 : 24 }, (_, index) => <span className="ghost" key={index} />)}</div>}
       {!loading && !error && last && !entries.length && (last.hasNextPage
         ? <div className="browse-none"><b>No matches so far</b>The first {pages.length === 1 ? "page" : `${pages.length} pages`} had nothing to show. More of the catalog may match.</div>
         : studios.length > 0 && filters.search ? <div className="browse-none"><b>No titles contain “{filters.search}”</b>It matches {studios.length > 1 ? "studios" : "a studio"}.

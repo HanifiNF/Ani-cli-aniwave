@@ -624,7 +624,8 @@ describe("live catalog search", () => {
       { provider: "aniwave", episodes: [{ id: "aniwave:ep-2", number: "2", provider: "aniwave" }, { id: "aniwave:ep-1", number: "1", provider: "aniwave" }] },
       { provider: "anidb", episodes: [{ id: "anidb:ep-1", number: "1", provider: "anidb" }] }
     ] });
-    vi.mocked(api.recordHistory).mockImplementation(async (entry) => { const next = await api.getState(); next.history = [entry]; vi.mocked(api.getState).mockResolvedValue(next); return next; });
+    // Like the real store, each answer is a new state object.
+    vi.mocked(api.recordHistory).mockImplementation(async (entry) => { const next = { ...(await api.getState()), history: [entry] }; vi.mocked(api.getState).mockResolvedValue(next); return next; });
 
     await type("re zero"); await advance(); await press("Enter");
     const button = () => [...container.querySelectorAll<HTMLButtonElement>(".series .side .stack .btn")].find((node) => node.textContent?.includes("watched"))!;

@@ -37,6 +37,11 @@ records the real renderer, both at true speed.
 - Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
   indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
   that can be dragged, stretches past either end, and springs from its release speed.
+- Stable layout: nothing appears above content to announce work. Progress, confirmations, and errors float in a status
+  pill at the bottom of the page (confirmations pass after 4 s, errors stay until the next action); quick actions whose
+  control shows the result (save, ticks, mark all watched, removing a card) say nothing at all. Episode loading is shown
+  by skeleton rows only. The series page holds room for the AniList synopsis and facts while they load, the facts sit in a
+  steady grid, and Browse fills the screen with ghost cards before its first page.
 - Swaps (`src/Swap.tsx`): inner content that changes in place (the Play label, Save, the result count, the save state,
   play/pause) blurs out quickly while the new copy blurs in a beat later. Theme changes glide between the colour sets. The
   bell no longer swings; a new count grows in from the bell's corner.

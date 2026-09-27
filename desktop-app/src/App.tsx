@@ -388,8 +388,13 @@ function App() {
     if (screen !== "series" && screen !== "settings" && screen !== "player") fieldRef.current?.focus();
   }, [screen]);
 
-  async function run<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
-    setBusy(label); setError(undefined); setNotice(undefined);
+  /**
+    Runs an app operation, reporting failures in the status pill. Quick actions whose control already shows the result
+    (save, a tick, a removed card) pass `quiet`, so no "working" word appears for the moment they take.
+  */
+  async function run<T>(label: string, operation: () => Promise<T>, { quiet = false } = {}): Promise<T | undefined> {
+    if (!quiet) setBusy(label);
+    setError(undefined); setNotice(undefined);
     try { return await operation(); }
     catch (reason) { setError(messageFrom(reason)); return undefined; }
     finally { setBusy(undefined); }
@@ -402,6 +407,13 @@ function App() {
     if (next !== "home" && next !== "series") setQuery("");
     if (next === "settings") setSettingsDraft(appState.settings);
   }
+
+  // A confirmation ("aniwave split off") says its piece and goes; errors stay until the next action.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(undefined), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   // Watched marks and resume points change while the player has the store.
   const refreshState = () => { void window.aniDesktop.getState().then(setAppState).catch((reason) => setError(messageFrom(reason))); };
@@ -564,7 +576,8 @@ function App() {
     setStatus(undefined); setJump(""); setSourceErrors(options.discovery?.errors ?? {});
     setScreen(options.autoPlay ? "opening" : "series");
     if (options.mode) setMode(options.mode);
-    setBusy("loading episodes"); setError(undefined); setNotice(undefined);
+    // The skeleton rows show that episodes are loading; no status word joins them.
+    setError(undefined); setNotice(undefined);
     let currentAnime = anime;
     let groups: EpisodeGroup[] = replacing ? [] : episodeGroups;
     let positioned = Boolean(options.focusEpisodeId || (options.refresh && selectedEpisodeId));
@@ -718,14 +731,14 @@ function App() {
     const entry: LibraryEntry = progress
       ? { ...progress, title: selectedAnime.title, poster: selectedAnime.poster ?? progress.poster, sources: animeSources(selectedAnime) }
       : { ...libraryEntry(selectedAnime, first, mode), completed: false };
-    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(entry));
+    const state = await run("updating saved titles", () => window.aniDesktop.toggleBookmark(entry), { quiet: true });
     if (state) setAppState(state);
   }
 
   // The checkbox on a row records progress through that episode on its provider.
   async function markWatched(episode: Episode) {
     if (!selectedAnime) return;
-    const state = await run("updating progress", () => window.aniDesktop.recordHistory(libraryEntry(selectedAnime, episode, mode)));
+    const state = await run("updating progress", () => window.aniDesktop.recordHistory(libraryEntry(selectedAnime, episode, mode)), { quiet: true });
     if (state) setAppState(state);
   }
 
@@ -734,7 +747,7 @@ function App() {
     if (!selectedAnime) return;
     const entry = libraryEntryAllWatched(selectedAnime, episodeGroups, mode, progress?.lastProvider);
     if (!entry) return;
-    const state = await run("updating progress", () => window.aniDesktop.recordHistory(entry));
+    const state = await run("updating progress", () => window.aniDesktop.recordHistory(entry), { quiet: true });
     if (state) setAppState(state);
   }
 
@@ -795,13 +808,13 @@ function App() {
   async function removeRow(row: Row) {
     if (!row.entry) return;
     const id = row.entry.animeId;
-    const state = await run("removing", () => row.kind === "saved" ? window.aniDesktop.removeBookmark(id) : window.aniDesktop.removeHistory(id));
+    const state = await run("removing", () => row.kind === "saved" ? window.aniDesktop.removeBookmark(id) : window.aniDesktop.removeHistory(id), { quiet: true });
     if (state) setAppState(state);
   }
 
   async function clearHistory() {
     if (!window.confirm("Clear all recent titles?")) return;
-    const state = await run("clearing history", () => window.aniDesktop.clearHistory());
+    const state = await run("clearing history", () => window.aniDesktop.clearHistory(), { quiet: true });
     if (state) setAppState(state);
   }
 
@@ -1043,8 +1056,9 @@ function App() {
           />
         </Suspense>
       )}
+      {/* Progress, confirmations, and errors float over the page, so they never push its content. */}
+      {message && !paletteOpen && screen !== "player" && <div key={displayError ? "error" : message} className={`msg status-pill ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && !displayError && <span className="dots"> ···</span>}</div>}
       {screen !== "player" && <div key={screen} className={`page page-${screen}`}>
-        {message && !paletteOpen && <div className={`msg ${displayError ? "err" : ""}`} role={displayError ? "alert" : "status"}>{message}{busy && <span className="dots"> ···</span>}</div>}
         {screen === "opening" && selectedAnime && <div className="empty" role="status">
           <b>{selectedAnime.title}</b>
           <span>{status?.phase === "failed" ? `Episode ${status.episode.number}: ${status.detail}`
@@ -1095,9 +1109,9 @@ function App() {
 
         {screen === "series" && selectedAnime && (
           <SeriesScreen anime={selectedAnime} progress={progress} isSaved={isSaved} player={player} backLabel={seriesOrigin.current === "browse" ? "Browse" : undefined}
-            mode={mode} quality={quality} lastQuery={lastQuery} busy={busy} resolving={resolving}
+            mode={mode} quality={quality} lastQuery={lastQuery} busy={busy ?? (episodesLoading ? "loading episodes" : undefined)} resolving={resolving}
             pendingSources={pendingSources} sourceErrors={sourceErrors} episodeGroups={episodeGroups} episodeRows={episodeRows}
-            episodeCount={episodeCount} seriesMetadata={seriesMetadata.get(selectedAnime)} info={workInfo.get(linkedAnime(selectedAnime))} nextUp={nextUp} episodeFilter={episodeFilter}
+            episodeCount={episodeCount} seriesMetadata={seriesMetadata.get(selectedAnime)} info={workInfo.get(linkedAnime(selectedAnime))} infoLoading={appState.settings.animeInfo !== false && workInfo.loading(linkedAnime(selectedAnime))} nextUp={nextUp} episodeFilter={episodeFilter}
             episodeSort={episodeSort} jump={jump} playingId={playingId} status={status} metadata={metadata} listRef={listRef}
             onPlay={(episode) => void playEpisode(episode)} onBookmark={() => void toggleBookmark()} onBack={goBack} onBrowse={browseFor}
             onMode={setMode} onQuality={setQuality} onCheckSources={() => void openAnime(selectedAnime, { refresh: true, checkNow: true })}
