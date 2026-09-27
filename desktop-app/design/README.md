@@ -11,8 +11,13 @@ records the real renderer, both at true speed.
   text, hairlines 12%, secondary text 60%, faint text 36%. The highlight marks only the primary action, the selection,
   progress, ticks, switches that are on, and the today dot. Status dots keep their own green and red. Flat fills only: raised
   layers get a 12% hairline, never a drop shadow; the scrim is the background at 72%.
-- Shape: 10px on cards, posters, panels, and buttons; 8px on small controls (icon buttons, badges, checkboxes, fields,
-  keys); pills for the search field and every chip (segmented chips, tags, genres, tokens); circles for dots.
+- Shape: one family of rounded squares, so neighbours never mix shapes. 10px on containers and anything large (cards,
+  posters, panels, large buttons, the search fields); 8px on every small control and label (chips and their tracks,
+  tags, badges, fields, small and icon buttons, the nav fill, switches); 5px on shapes nested inside a small control's
+  track (the chip and sort indicators, the switch knob) and on checkboxes, so corners stay concentric. Circles only for
+  dots, avatars, and swatches; focus rings follow each control's own shape. Pills were used for the search field and
+  chips at first and dropped because they mixed with rounded squares in the same rows. Mockups: `design/variants/shapes/`
+  (A pills, B 8px with pill chips, B2 chosen), applied to the live app as radius-only overrides.
 - Type: Inter only (bundled, `@fontsource-variable/inter`), weights 400, 500 and 700, letter spacing −0.005em everywhere.
   Small labels are sentence case at 500, never tracked capitals.
 - Icons: one set (`src/icons.tsx`) on a 24px grid with a 1.8 stroke and round caps and joins, drawn at 1.5 screen pixels at

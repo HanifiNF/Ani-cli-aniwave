@@ -1,0 +1,7 @@
+/* Option B: 8px on every small control and label; pills only for the search fields and the selection chips
+   (segmented chips, the sort toggle, switches). Only radii change; the motion and behaviour are untouched. */
+:focus-visible { border-radius: revert; }
+.tag, .genre, .token, .token button, .studio-token, .studio-token button, .browse-suggest button, .genre-bubbles span,
+.genre-bubbles button, .series .meta .tag, .src .q, .hit .srcs .tag, .notifications-unread-count, .episode-update-count,
+.ep-head .jump, .hints, .search .clear, .browse-search .clear, .series .meta .src-tag .split { border-radius: 8px; }
+.src .chk { border-radius: 5px; }

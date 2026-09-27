@@ -427,7 +427,7 @@ function App() {
   }, [screen]);
 
   /**
-    Runs an app operation, reporting failures in the status pill. Quick actions whose control already shows the result
+    Runs an app operation, reporting failures in the status note. Quick actions whose control already shows the result
     (save, a tick, a removed card) pass `quiet`, so no "working" word appears for the moment they take.
   */
   async function run<T>(label: string, operation: () => Promise<T>, { quiet = false } = {}): Promise<T | undefined> {
