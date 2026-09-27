@@ -9,7 +9,11 @@ const FIELD = 44;
   surface grows down around the results (its height on the glide spring) and the results are revealed by its edge as it
   passes, so the palette visibly comes out of the field and goes back into it.
 */
-export function useSearchMorph(box: RefObject<HTMLElement | null>, surface: RefObject<HTMLElement | null>, open: boolean): void {
+/**
+  `appearAtOnce` is read when the palette opens: a page returned to shows its results as they were, already open,
+  instead of growing them out of the field again.
+*/
+export function useSearchMorph(box: RefObject<HTMLElement | null>, surface: RefObject<HTMLElement | null>, open: boolean, appearAtOnce?: RefObject<boolean>): void {
   const spring = useRef<Spring>(null);
   const apply = () => {
     const node = surface.current, height = spring.current?.x;
@@ -27,7 +31,9 @@ export function useSearchMorph(box: RefObject<HTMLElement | null>, surface: RefO
   };
   useLayoutEffect(() => {
     apply();
-    spring.current!.to(target());
+    const instant = open && appearAtOnce?.current === true;
+    if (open && appearAtOnce) appearAtOnce.current = false;
+    spring.current!.to(target(), { instant });
   }, [open]);
 
   // New results change the palette's height; the surface follows it on the same spring.

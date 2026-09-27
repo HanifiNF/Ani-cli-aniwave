@@ -133,6 +133,8 @@ function App() {
   const navIndicator = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLDivElement>(null);
   const searchSurface = useRef<HTMLElement>(null);
+  // Set on a return to a page whose results are open, so they reappear as they were rather than grow again.
+  const resultsAtOnce = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
   const playbackRequest = useRef<string | undefined>(undefined);
@@ -522,6 +524,7 @@ function App() {
     returnTo(document.querySelector(".series .side .poster"), fallback);
     returning.current = { screen: origin, top: originScroll.current, card: openedCard.current };
     keepBackdrop.current = true;
+    resultsAtOnce.current = origin === "home" && Boolean(query.trim());
     setEpisodeInboxOpen(false); setError(undefined); setNotice(undefined);
     if (origin !== "home" && origin !== "saved" && origin !== "recent") setQuery("");
     setScreen(origin);
@@ -1004,7 +1007,7 @@ function App() {
       returnCard.current = back.card;
       skipReveal.current = true;
       const page = document.querySelector<HTMLElement>(".page");
-      for (const element of [page, document.querySelector(".backdrop"), ...(page?.querySelectorAll(ENTRANCES) ?? []), ...document.querySelectorAll(".palette .hit-row")]) element?.setAttribute("data-still", "");
+      for (const element of [page, document.querySelector(".backdrop"), document.querySelector(".dim"), ...(page?.querySelectorAll(ENTRANCES) ?? []), ...document.querySelectorAll(".palette .hit-row")]) element?.setAttribute("data-still", "");
     }
     resolveReturn(back ? () => { const page = document.querySelector<HTMLElement>(".page"); if (page) page.scrollTop = back.top; } : undefined);
   }, [screen]);
@@ -1048,7 +1051,7 @@ function App() {
     const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? (provider === "auto" ? saved?.lastProvider ?? selectedAnime?.provider : provider) ?? "aniwave")];
     return row ? all.find((item) => !item.watched && item.number === row.number) ?? row : undefined;
   }, [episodeGroups, progress, selectedAnime, provider, appState.bookmarks]);
-  useSearchMorph(searchBox, searchSurface, paletteOpen);
+  useSearchMorph(searchBox, searchSurface, paletteOpen, resultsAtOnce);
   // The current section's fill moves between the nav icons; screens outside the nav let it fade.
   useIndicator(navRef, navIndicator, ":scope > button.on", screen === "catalog-detail" ? "browse" : screen);
   // The update notice lives in Settings; a dot on the gear is its only sign elsewhere.

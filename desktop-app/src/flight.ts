@@ -8,7 +8,9 @@ import { Spring, motionAllowed } from "./motion";
   still moving) turns it from where it is, at its speed.
 
   Cards take part by carrying data-origin (unique within their group) inside an element with data-origin-group
-  (a section, the Browse grid, the search results, the notifications list).
+  (a section, the Browse grid, the search results, the notifications list). A scrolling list inside the page (the
+  search results) carries data-scroll-memory: its scroll is remembered with the card and put back on the way home, and
+  the card is then revealed within it if it still is not fully in view, before the poster lands.
 */
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -23,6 +25,30 @@ let cameFrom: string | undefined;
 interface Flight { node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement }
 let flight: Flight | undefined;
 let waiting: { selectors: string[]; at: number } | undefined;
+/** Scroll positions of the lists around the card that opened the title: taken at the launch, kept with the title, restored on return. */
+let launchScrolls: { at: number; scrolls: ScrollMemory } | undefined;
+let cameFromScrolls: ScrollMemory | undefined;
+/** The title whose page last received a launch, so a repeat call for it is recognised. */
+let openTitle: string | undefined;
+let returnScrolls: ScrollMemory | undefined;
+type ScrollMemory = { key: string; top: number }[];
+
+function scrollsAround(element: Element): ScrollMemory {
+  const out: ScrollMemory = [];
+  for (let node = element.parentElement; node; node = node.parentElement) if (node.dataset.scrollMemory) out.push({ key: node.dataset.scrollMemory, top: node.scrollTop });
+  return out;
+}
+
+/** Scrolls each remembered list around the card just enough to show it whole. */
+function reveal(target: Element) {
+  const card = target.closest("[data-origin]") ?? target;
+  for (let node = card.parentElement; node; node = node.parentElement) {
+    if (!node.dataset.scrollMemory) continue;
+    const box = node.getBoundingClientRect(), r = card.getBoundingClientRect();
+    if (r.top < box.top) node.scrollTop -= box.top - r.top;
+    else if (r.bottom > box.bottom) node.scrollTop += r.bottom - box.bottom;
+  }
+}
 
 const rectOf = (element: Element): Rect => { const r = element.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
 const imageOf = (element: Element) => (element instanceof HTMLImageElement ? element : element.querySelector("img"))?.currentSrc || undefined;
@@ -38,6 +64,8 @@ function cardSelector(element: Element): string | undefined {
 
 /** Records the poster that is about to open a title, before the page changes. */
 export function launchFrom(element: Element | null | undefined): void {
+  // Scroll memory is not motion, so it is kept with reduced motion too.
+  if (element) launchScrolls = { at: performance.now(), scrolls: scrollsAround(element) };
   if (!element || !motionAllowed()) return;
   origin = { rect: rectOf(element), src: imageOf(element), at: performance.now(), back: cardSelector(element) };
 }
@@ -46,11 +74,16 @@ export function launchFrom(element: Element | null | undefined): void {
   Called by the series page when a title opens there: lands a pending launch on its poster, and remembers the card it
   came from for the way back. A title opened without a card (a key, a notification) forgets any earlier card.
 */
-export function landSeries(target: HTMLElement | null): void {
+export function landSeries(target: HTMLElement | null, title: string): void {
+  // A repeat call for the same title (an effect run again) keeps what the first call recorded.
+  const repeat = title === openTitle;
+  openTitle = title;
   const fresh = origin && performance.now() - origin.at < FRESH;
-  // A repeat call for the same opening (the poster already in flight to this page) keeps the card it came from.
   if (fresh) cameFrom = origin!.back;
-  else if (!flight) cameFrom = undefined;
+  else if (!repeat) cameFrom = undefined;
+  if (launchScrolls && performance.now() - launchScrolls.at < FRESH) cameFromScrolls = launchScrolls.scrolls;
+  else if (!repeat) cameFromScrolls = undefined;
+  launchScrolls = undefined;
   land(target);
 }
 
@@ -60,7 +93,8 @@ export function landSeries(target: HTMLElement | null): void {
 */
 export function returnTo(from: Element | null | undefined, fallback?: string): void {
   const selectors = [cameFrom && `${cameFrom} ${POSTER}`, fallback].filter((value): value is string => Boolean(value));
-  cameFrom = undefined;
+  returnScrolls = cameFromScrolls;
+  cameFrom = undefined; cameFromScrolls = undefined; openTitle = undefined;
   if (!from || !motionAllowed() || !selectors.length) { waiting = undefined; return; }
   if (!flight) origin = { rect: rectOf(from), src: imageOf(from), at: performance.now() };
   waiting = { selectors, at: performance.now() };
@@ -72,15 +106,22 @@ export function returnTo(from: Element | null | undefined, fallback?: string): v
   position is in place before the landing spot is measured.
 */
 export function resolveReturn(restore?: () => void): void {
-  const pending = waiting;
-  waiting = undefined;
-  if (!pending) { restore?.(); return; }
+  const pending = waiting, scrolls = returnScrolls;
+  waiting = undefined; returnScrolls = undefined;
+  const settle = () => {
+    restore?.();
+    for (const { key, top } of scrolls ?? []) {
+      const list = document.querySelector<HTMLElement>(`[data-scroll-memory="${CSS.escape(key)}"]`);
+      if (list) list.scrollTop = top;
+    }
+  };
+  if (!pending) { settle(); return; }
   const find = () => { for (const selector of pending.selectors) { const found = document.querySelector<HTMLElement>(selector); if (found) return found; } return null; };
   const attempt = () => {
     const target = find();
-    if (target) { restore?.(); land(target); return; }
+    if (target) { settle(); reveal(target); land(target); return; }
     if (performance.now() - pending.at < WAIT && typeof requestAnimationFrame === "function") { requestAnimationFrame(attempt); return; }
-    restore?.();
+    settle();
     origin = undefined; flight?.node.remove(); flight = undefined;
   };
   attempt();

@@ -18,7 +18,7 @@ export default function SearchPalette({ results, query, lastQuery, cursor, ready
         {ready || results.length ? <Swap id={`${results.length}|${lastQuery}`}>{results.length} {results.length === 1 ? "result" : "results"} for "{lastQuery}"</Swap> : pending ? "Searching…" : "Press Enter to search"}
       </div>
       {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"} title={providerErrors.join("; ") || undefined}>{message}{providerErrors.length > 0 && <button type="button" className="link" onClick={onRetry}>Retry search</button>}</div>}
-      <div className="section-results" role="listbox" aria-label="Results" data-origin-group="search">
+      <div className="section-results" role="listbox" aria-label="Results" data-origin-group="search" data-scroll-memory="search-results">
         {results.map((anime, index) => {
           const sources = animeSources(anime);
           const alias = sources.find((source) => source.title !== anime.title)?.title;
