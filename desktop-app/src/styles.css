@@ -571,10 +571,22 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .update-settings .update-title:hover .icon, .update-settings .update-title:focus-visible .icon { color: var(--text); }
 .update-settings .btn .icon { width: 16px; height: 16px; }
 /* Silent at rest: "Saving…" while a change is written, "Saved" for two seconds after, and a refusal that stays with a retry. */
-.save-state { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 18px; color: var(--dim); font-size: 12px; }
-.save-word { display: inline-flex; align-items: center; }
-.save-word .swap > * { display: inline-flex; align-items: center; gap: 6px; }
+/* It holds still as its words change: a fixed height, and an invisible character first, so the heading row always finds
+   the same text baseline in it (an empty indicator, a tick, or two words crossfading would each give another). The mark
+   has its own slot before the word (a turning arc while saving, the tick once saved), and the word sits over an
+   invisible copy of the widest one, so "Sav" starts in the same place in every state. */
+.save-state { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 18px; color: var(--dim); font-size: 12px; }
+.save-state::before { content: "\200b"; }
+.save-word { display: inline-flex; align-items: center; gap: 6px; }
+.save-slot { display: inline-grid; width: 13px; height: 13px; }
+.save-slot .swap, .save-text { display: inline-grid; align-items: center; justify-items: start; }
+/* The widest of SettingsScreen's SAVE_WORDS, kept invisibly under the word. */
+.save-text::before { content: "Not saved"; visibility: hidden; }
+.save-text > *, .save-text::before { grid-area: 1 / 1; }
+.save-word .swap > * { display: inline-flex; align-items: center; }
 .save-word .icon { width: 13px; height: 13px; }
+.save-turn { animation: save-turn .9s linear infinite; }
+@keyframes save-turn { to { rotate: 1turn; } }
 @keyframes word-in { from { opacity: 0; filter: blur(3px); } }
 .save-state[data-state="error"] { color: var(--danger); }
 .save-retry { color: var(--text); font-size: 12px; text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
@@ -750,6 +762,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
   .swap-out, .swap-in { animation-name: fade-out-plain; animation-duration: 120ms; animation-delay: 0s; }
   .swap-in { animation-name: fade; }
   .pressing { scale: none; }
+  .save-turn { animation: none; }
   /* Without the fade, the tick and the bright heading simply stay while the heading holds focus. */
   .settings .group h3.jump-hit, .settings .group h3.jump-hit::before { animation: none; }
   .settings .group h3:focus { color: var(--text); }

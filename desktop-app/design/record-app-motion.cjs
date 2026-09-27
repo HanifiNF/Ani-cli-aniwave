@@ -58,6 +58,11 @@ const SEQUENCES = {
     ["await rec.tap([...document.querySelectorAll('.browse-grid .card')].find((c) => /Frieren/.test(c.textContent)).querySelector('.hit'))", 2400],
     ["await rec.tap('.series .crumb')", 1400],
   ],
+  // The Settings save indicator: the arc turns while saving, becomes the tick, and "Sav" never moves.
+  "save-state": [
+    ["await rec.tap('[title^=settings]')", 1000],
+    ["await rec.tap('.settings [role=switch]')", 2900],
+  ],
   controls: [
     ["await rec.tap('[title=settings]')", 1000],
     ["await rec.tap('[aria-label=\"Start fullscreen\"]')", 700],
