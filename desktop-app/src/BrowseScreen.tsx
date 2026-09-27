@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { BrowseAnime, BrowseFilters, BrowseProgress, BrowseResult, BrowseSort, BrowseStudio, MediaType } from "../shared/contracts";
 import Art from "./Art";
 import { catalogRequestId } from "./catalog-request";
@@ -138,13 +138,20 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
   useEffect(() => {
     if (enabled && !pages.length) load(1);
   }, [enabled, filters]);
-  useEffect(() => {
+  // The page keeps its scroll across visits. It is recorded as the page scrolls (a page being removed reads 0) and put
+  // back before paint, ahead of anything that measures the grid, such as a poster flying home to its card.
+  const scrolled = useRef(state.scrollTop);
+  useLayoutEffect(() => {
     const page = document.querySelector<HTMLElement>(".page-browse");
     if (page) page.scrollTop = state.scrollTop;
+    const track = () => { if (page) scrolled.current = page.scrollTop; };
+    page?.addEventListener("scroll", track, { passive: true });
     return () => {
+      page?.removeEventListener("scroll", track);
       sequence.current += 1;
       if (request.current) window.aniDesktop.cancelCatalog(request.current);
-      if (page) setState((previous) => ({ ...previous, scrollTop: page.scrollTop }));
+      const top = scrolled.current;
+      setState((previous) => ({ ...previous, scrollTop: top }));
     };
   }, []);
   // Every change applies at once and starts again from the first page.

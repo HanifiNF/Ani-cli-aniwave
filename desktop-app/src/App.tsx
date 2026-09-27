@@ -514,24 +514,32 @@ function App() {
   }
   const miniWidth = appState.settings.miniPlayerWidth ?? MINI_PLAYER_WIDTH.default;
 
+  /**
+    Back is a return, not a visit: the page comes back as it was left (its scroll, its filter, its backdrop, no
+    entrance), and the poster flies home to the card that opened the title, or to `fallback`, another card for it.
+  */
+  function returnFrom(origin: ReturnPage, fallback?: string) {
+    returnTo(document.querySelector(".series .side .poster"), fallback);
+    returning.current = { screen: origin, top: originScroll.current, card: openedCard.current };
+    keepBackdrop.current = true;
+    setEpisodeInboxOpen(false); setError(undefined); setNotice(undefined);
+    if (origin !== "home" && origin !== "saved" && origin !== "recent") setQuery("");
+    setScreen(origin);
+  }
+
   function goBack() {
     if (screen === "player") { dockPlayer(); return; }
     if (screen === "notifications") { go(notificationsOrigin.current === "notifications" ? "home" : notificationsOrigin.current); return; }
     if (screen === "home") { if (query) setQuery(""); catalogSearch.clear(); return; }
     if (screen === "series" && seriesSearch) { closeSeriesSearch(); return; }
     if (screen === "browse" && browseOpening) { cancelSeries(); setBrowseOpening(undefined); return; }
-    if (screen === "catalog-detail") { cancelSeries(); go("browse"); return; }
+    if (screen === "catalog-detail") { cancelSeries(); returnFrom("browse"); return; }
     if (screen === "series") {
       // Back is a return, not a visit: the page comes back as it was left (its scroll, its filter, its backdrop, no
       // entrance), and the poster flies home to the card that opened the series, or to another card for the title.
       const entry = selectedAnime && [...appState.history, ...appState.bookmarks].find((item) => overlaps(item, selectedAnime));
-      returnTo(document.querySelector(".series .side .poster"), entry ? `.card[data-anime="${CSS.escape(entry.animeId)}"] .poster` : undefined);
-      const origin = seriesOrigin.current;
-      returning.current = { screen: origin, top: originScroll.current, card: openedCard.current };
-      keepBackdrop.current = true;
-      setSelectedAnime(undefined); setEpisodeInboxOpen(false); setError(undefined); setNotice(undefined);
-      if (origin !== "home" && origin !== "saved" && origin !== "recent") setQuery("");
-      setScreen(origin);
+      setSelectedAnime(undefined);
+      returnFrom(seriesOrigin.current, entry ? `.card[data-anime="${CSS.escape(entry.animeId)}"] .poster` : undefined);
       return;
     }
     go("home");
@@ -574,6 +582,16 @@ function App() {
     go("browse");
   }
 
+  /** The detail page takes over from a card in the grid like a series does: its poster flies in and back. */
+  function leaveBrowseForDetail(fromGrid: boolean) {
+    if (fromGrid) {
+      const poster = document.querySelector(".browse-grid .card.is-resolving .poster");
+      launchFrom(poster); noteOpenedCard(poster);
+      originScroll.current = document.querySelector<HTMLElement>(".page")?.scrollTop ?? 0;
+    }
+    setScreen("catalog-detail");
+  }
+
   async function openBrowseAnime(anime: BrowseAnime, retry = false): Promise<void> {
     // From the grid the card reports the check, and a second click on it cancels. Only a title without a source lands on the detail page.
     const inPlace = screen === "browse";
@@ -594,9 +612,9 @@ function App() {
       }
       const failures = Object.entries(discovery.errors).map(([provider, detail]) => `${provider}: ${detail}`);
       setBrowseResolveError(failures.length ? `Source search was incomplete. ${failures.join(" · ")}` : undefined);
-      setScreen("catalog-detail");
+      leaveBrowseForDetail(inPlace);
     } catch (reason) {
-      if (token === openToken.current) { setBrowseResolveError(messageFrom(reason)); setScreen("catalog-detail"); }
+      if (token === openToken.current) { setBrowseResolveError(messageFrom(reason)); leaveBrowseForDetail(inPlace); }
     } finally {
       catalogTasks.current.delete(id);
       setBrowseOpening((current) => current?.token === token ? undefined : current);
@@ -1151,7 +1169,7 @@ function App() {
           openingId={browseOpening?.id} onOpen={(anime) => void openBrowseAnime(anime)} onSearchSources={searchSourcesFor} />}
 
         {screen === "catalog-detail" && browseAnime && <BrowseDetail anime={browseAnime} resolving={browseResolving} error={browseResolveError}
-          onBack={() => { cancelSeries(); go("browse"); }} onRetry={() => void openBrowseAnime(browseAnime, true)}
+          onBack={goBack} onRetry={() => void openBrowseAnime(browseAnime, true)}
           onSearch={() => searchSourcesFor(browseAnime.title)} onBrowse={browseFor} />}
 
         {screen === "saved" && (appState.bookmarks.length === 0

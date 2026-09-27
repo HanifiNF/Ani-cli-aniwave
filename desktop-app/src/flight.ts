@@ -19,7 +19,8 @@ const POSTER = ":is(.poster, .thumb, .notification-poster)";
 let origin: { rect: Rect; src?: string; at: number; back?: string } | undefined;
 /** Where the open series came from, as a selector for its card; set when the series poster receives a launch. */
 let cameFrom: string | undefined;
-let flight: { node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement; settled: number } | undefined;
+interface Flight { node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement }
+let flight: Flight | undefined;
 let waiting: { selectors: string[]; at: number } | undefined;
 
 const rectOf = (element: Element): Rect => { const r = element.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
@@ -84,7 +85,10 @@ export function resolveReturn(restore?: () => void): void {
   attempt();
 }
 
-/** Lands the pending or moving poster on `target`, which stays hidden until the flyer arrives. */
+/**
+  Lands the pending or moving poster on `target`, which stays hidden until the flyer arrives. The landing spot is read
+  again every frame, so a page that scrolls or shifts while the poster is in the air carries the landing spot with it.
+*/
 export function land(target: HTMLElement | null): void {
   if (!target || !motionAllowed()) { origin = undefined; return; }
   const fresh = origin && performance.now() - origin.at < FRESH;
@@ -98,25 +102,50 @@ export function land(target: HTMLElement | null): void {
     node.setAttribute("aria-hidden", "true");
     if (origin!.src) { const image = document.createElement("img"); image.src = origin!.src; image.alt = ""; node.append(image); }
     document.body.append(node);
+    const from = origin!.rect;
+    const created: Flight = { node, springs: {} as Flight["springs"] };
     const apply = () => {
-      const s = flight?.springs; if (!s) return;
+      if (flight !== created) return;
+      follow(created);
+      const s = created.springs;
       node.style.transform = `translate(${s.x.x}px, ${s.y.x}px)`; node.style.width = `${s.w.x}px`; node.style.height = `${s.h.x}px`;
     };
-    const from = origin!.rect;
-    flight = { node, springs: { x: new Spring(from.x, "glide", apply, 0.3), y: new Spring(from.y, "glide", apply, 0.3), w: new Spring(from.w, "glide", apply, 0.3), h: new Spring(from.h, "glide", apply, 0.3) }, settled: 0 };
+    for (const key of KEYS) created.springs[key] = new Spring(from[key], "glide", apply, 0.3);
+    flight = created;
     apply();
   }
   origin = undefined;
-  const current = flight;
+  const current: Flight = flight!;
   if (current.target && current.target !== target) current.target.style.visibility = "";
   current.target = target;
   target.style.visibility = "hidden";
-  current.settled = 0;
-  for (const key of KEYS) current.springs[key].to(to[key], { done: () => {
-    if (++current.settled < KEYS.length || flight !== current) return;
+  for (const key of KEYS) current.springs[key].to(to[key], { done: () => arrive(current) });
+}
+
+/** Moves the springs' targets to where the destination is drawn now; a spring already at rest sets off again. */
+function follow(current: Flight) {
+  const target = current.target;
+  if (!target?.isConnected) return;
+  const now = rectOf(target);
+  for (const key of KEYS) {
+    const spring = current.springs[key];
+    if (Math.abs(spring.target - now[key]) < 0.5) continue;
+    if (spring.moving) spring.target = now[key];
+    else spring.to(now[key], { done: () => arrive(current) });
+  }
+}
+
+/** The flight ends when every side of the rectangle has come to rest on the destination. */
+function arrive(current: Flight) {
+  if (flight !== current || KEYS.some((key) => current.springs[key].moving)) return;
+  const target = current.target;
+  if (target) {
+    // One last look: if the page moved in the final frame, keep flying.
+    follow(current);
+    if (KEYS.some((key) => current.springs[key].moving)) return;
     target.style.visibility = "";
     target.closest(".card")?.removeAttribute("data-shared");
-    current.node.remove();
-    flight = undefined;
-  } });
+  }
+  current.node.remove();
+  flight = undefined;
 }

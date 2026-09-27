@@ -30,7 +30,10 @@ records the real renderer, both at true speed.
 - Input: chips, tabs, sort toggles, theme tiles, and the nav act on pointer down (keys on click, `src/press.ts`); cards,
   buttons, and tiles dip slightly under the pointer and act on release.
 - Continuity: the search pill and the palette are one surface that grows around the results (`src/useSearchMorph.ts`); a
-  card's or search row's poster flies to the series poster and back to its card (`src/flight.ts`); the player grows out of
+  card's or search row's poster flies to the series poster and, on the way back, to the very card that opened it
+  (`src/flight.ts`: cards carry `data-origin` inside a `data-origin-group`, so a Saved card stays the Saved card even when
+  the title is also in Continue watching, with another card for the title as the fallback; the landing spot is read every
+  frame, so scrolling while the poster is in the air carries it along; the Browse detail page takes part like a series); the player grows out of
   the Play button, an episode row, or a card, and docking, expanding, and throwing the corner player move one box on the glide
   spring (`src/playerMotion.ts`, PlayerScreen), with its title bars fading while the box is scaled. The corner player follows
   the pointer exactly, stretches with resistance past the window's edges, and flies to the corner it was thrown toward.
