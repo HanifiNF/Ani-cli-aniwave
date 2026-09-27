@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPoint, homeFromPosition, positionFromHome, pathIsClear, wanderTarget } from "../src/companion-motion";
+import { clampPoint, homeFromPosition, petSize, positionFromHome, pathIsClear, wanderTarget } from "../src/companion-motion";
 
 const bounds = { left: 20, top: 80, right: 500, bottom: 450 };
 describe("companion movement", () => {
@@ -36,5 +36,17 @@ describe("companion movement", () => {
     expect(target).toBeDefined();
     expect(target!.y).toBeGreaterThan(home.y);
     expect(pathIsClear(home, target!, obstacles)).toBe(true);
+  });
+  it("clamps and restores the home using the displayed size", () => {
+    for (const percent of [50, 100, 200]) {
+      const size = petSize(percent);
+      const point = positionFromHome({ x: 1, y: 1 }, bounds, false, size);
+      expect(point).toEqual({ x: bounds.right - size.width, y: bounds.bottom - size.height });
+      expect(homeFromPosition(point, bounds, size)).toEqual({ x: 1, y: 1 });
+      const target = wanderTarget({ x: bounds.left, y: bounds.top }, bounds, [], () => 0, size);
+      expect(target).toBeDefined();
+      expect(target!.x + size.width).toBeLessThanOrEqual(bounds.right);
+      expect(target!.y + size.height).toBeLessThanOrEqual(bounds.bottom);
+    }
   });
 });

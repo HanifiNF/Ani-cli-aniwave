@@ -12,10 +12,15 @@ export interface CompanionPreferences {
   companionPetId?: CompanionSelectionId;
   companionFrequency?: CompanionFrequency;
   companionWander?: boolean;
+  companionSize?: number;
   companionHome?: CompanionHome;
 }
 
-export const COMPANION_DEFAULTS = { companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal", companionWander: true } as const;
+export const COMPANION_DEFAULTS = { companionEnabled: true, companionPetId: "columbinya", companionFrequency: "normal", companionWander: true, companionSize: 100 } as const;
+
+export function normalizeCompanionSize(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(50, Math.min(200, Math.round(value / 10) * 10)) : 100;
+}
 
 export function normalizeCompanionPreferences(value: CompanionPreferences): Required<Omit<CompanionPreferences, "companionHome">> & Pick<CompanionPreferences, "companionHome"> {
   const home = value.companionHome;
@@ -24,6 +29,7 @@ export function normalizeCompanionPreferences(value: CompanionPreferences): Requ
     companionPetId: COMPANION_PETS.includes(value.companionPetId as CompanionPetId) || /^custom:[0-9a-f-]{36}$/i.test(value.companionPetId ?? "") ? value.companionPetId! : "columbinya",
     companionFrequency: COMPANION_FREQUENCIES.includes(value.companionFrequency as CompanionFrequency) ? value.companionFrequency! : "normal",
     companionWander: value.companionWander !== false,
+    companionSize: normalizeCompanionSize(value.companionSize),
     companionHome: home && Number.isFinite(home.x) && Number.isFinite(home.y)
       ? { x: Math.max(0, Math.min(1, home.x)), y: Math.max(0, Math.min(1, home.y)) } : undefined
   };

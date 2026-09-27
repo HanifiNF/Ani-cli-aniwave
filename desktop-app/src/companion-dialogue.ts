@@ -1,11 +1,26 @@
 import type { CompanionAnimation, CompanionFrequency } from "../shared/companion";
 
-export type CompanionEventKind = "series" | "discover" | "save" | "play" | "pause" | "complete" | "error" | "hello";
-export interface CompanionEvent { id: number; kind: CompanionEventKind; title?: string; episode?: string; key?: string }
+export type CompanionSection = "home" | "browse" | "saved" | "recent" | "notifications" | "settings";
+export type CompanionEventKind = "series" | "section" | "startup-update" | "startup-continue" | "discover" | "save" | "play" | "pause" | "complete" | "error" | "hello";
+export interface CompanionEvent { id: number; kind: CompanionEventKind; title?: string; episode?: string; key?: string; section?: CompanionSection; otherCount?: number; targetId?: string }
 export interface CompanionLine { text: string; animation: CompanionAnimation }
 
+export const guaranteedCompanionEvent = (kind: CompanionEventKind) => kind === "series" || kind === "section" || kind === "startup-update" || kind === "startup-continue" || kind === "hello";
+
+const SECTION_LINES: Record<CompanionSection, readonly [string, string]> = {
+  home: ["Welcome home! What shall we watch?", "Back home! Your anime is waiting."],
+  browse: ["Let's find something new to watch!", "What kind of anime are we looking for?"],
+  saved: ["Here are the anime you saved for later.", "Your saved anime are right here!"],
+  recent: ["Want to pick up where you left off?", "Here's what you've watched recently."],
+  notifications: ["Let's see what's new!", "Any new episodes waiting for us?"],
+  settings: ["Let's make things just right for you.", "Want to customize your experience?"]
+};
+
 const LINES: Record<CompanionEventKind, readonly string[]> = {
-  series: ["Let's see what {title} has in store.", "A new adventure? I'm in!"],
+  series: ["Let's see what {title} has in store.", "A new adventure with {title}? I'm in!"],
+  section: SECTION_LINES.home,
+  "startup-update": ["Episode {episode} of {title} is new!", "A new episode of {title} is here: {episode}!"],
+  "startup-continue": ["Want to continue {title}?", "Ready to pick up {title} again?"],
   discover: ["Found some anime for you!", "Anything catch your eye?"],
   save: ["Saved! We can come back to this one.", "I'll remember this anime."],
   play: ["Episode {episode} is starting. Enjoy!", "Time to watch {title}!"],
@@ -16,7 +31,7 @@ const LINES: Record<CompanionEventKind, readonly string[]> = {
 };
 
 const ANIMATION: Record<CompanionEventKind, CompanionAnimation> = {
-  series: "wave", discover: "jump", save: "wave", play: "jump", pause: "waiting", complete: "review", error: "failed", hello: "wave"
+  series: "wave", section: "wave", "startup-update": "jump", "startup-continue": "wave", discover: "jump", save: "wave", play: "jump", pause: "waiting", complete: "review", error: "failed", hello: "wave"
 };
 
 const COOLDOWN: Record<CompanionFrequency, number> = { quiet: 120_000, normal: 45_000, chatty: 20_000 };
@@ -26,8 +41,10 @@ const PER_EVENT = 300_000;
 export function companionLine(event: CompanionEvent, alternate = false): CompanionLine {
   const title = (event.title ?? "this anime").replace(/\s+/g, " ").trim().slice(0, 44) || "this anime";
   const episode = (event.episode ?? "").replace(/[^\p{L}\p{N}. -]/gu, "").slice(0, 12) || "this";
-  const template = LINES[event.kind][alternate ? 1 : 0];
-  return { text: template.replaceAll("{title}", title).replaceAll("{episode}", episode), animation: ANIMATION[event.kind] };
+  const template = event.kind === "section" ? SECTION_LINES[event.section ?? "home"][alternate ? 1 : 0] : LINES[event.kind][alternate ? 1 : 0];
+  const base = template.replaceAll("{title}", title).replaceAll("{episode}", episode);
+  const extra = event.kind === "startup-update" && event.otherCount && event.otherCount > 0 ? ` Plus ${Math.min(999, event.otherCount)} other unread ${event.otherCount === 1 ? "update" : "updates"}.` : "";
+  return { text: base + extra, animation: ANIMATION[event.kind] };
 }
 
 /** Keeps one pending high-priority event; the UI consumes it once a cooldown ends. */
@@ -37,7 +54,7 @@ export class CompanionDialogueGate {
   private pending?: CompanionEvent;
 
   accept(event: CompanionEvent, frequency: CompanionFrequency, now: number): CompanionEvent | undefined {
-    if (event.kind === "hello") { this.last = now; return event; }
+    if (guaranteedCompanionEvent(event.kind)) { this.last = now; this.pending = undefined; return event; }
     const key = `${event.kind}:${event.key ?? event.title ?? ""}`;
     if (now - (this.seen.get(key) ?? -Infinity) < PER_EVENT) return;
     this.seen.set(key, now);

@@ -53,7 +53,8 @@ import BrowseScreen, { DEFAULT_BROWSE_STATE, type BrowseViewState } from "./Brow
 import BrowseDetail from "./BrowseDetail";
 import EpisodeUpdatesPanel, { EpisodeUpdatesPage, usePanelPresence } from "./EpisodeUpdatesPanel";
 import WatchCompanion from "./WatchCompanion";
-import type { CompanionEvent, CompanionEventKind } from "./companion-dialogue";
+import type { CompanionEvent, CompanionEventKind, CompanionSection } from "./companion-dialogue";
+import { companionStartupPrompts, type CompanionPrompt } from "./companion-startup";
 import type { CompanionHome, CustomCompanion } from "../shared/companion";
 
 type Screen = "home" | "browse" | "catalog-detail" | "series" | "opening" | "saved" | "recent" | "notifications" | "settings" | "player";
@@ -80,8 +81,25 @@ function App() {
   const companionSequence = useRef(0);
   const companionSearchSeen = useRef(false);
   const companionBrowseSeen = useRef(false);
+  const startupInitialized = useRef(false);
+  const startupQueue = useRef<CompanionPrompt[]>([]);
+  const startupCurrent = useRef<number | undefined>(undefined);
+  const startupOpenedAt = useRef(Date.now());
+  const startupAnnouncedUpdates = useRef(new Set<string>());
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const emitCompanionPrompt = (prompt: CompanionPrompt) => {
+    const id = ++companionSequence.current;
+    setCompanionEvent({ ...prompt, id });
+    return id;
+  };
   const emitCompanion = (kind: CompanionEventKind, title?: string, episode?: string, key?: string) =>
-    setCompanionEvent({ id: ++companionSequence.current, kind, title, episode, key });
+    emitCompanionPrompt({ kind, title, episode, key });
+  const showNextStartup = () => {
+    if (screenRef.current !== "home") return;
+    const next = startupQueue.current.shift();
+    if (next) startupCurrent.current = emitCompanionPrompt(next);
+  };
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [selectedAnime, setSelectedAnime] = useState<AnimeResult>();
@@ -113,6 +131,7 @@ function App() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>();
   const [updateChecking, setUpdateChecking] = useState(false);
   const [episodeUpdateStatus, setEpisodeUpdateStatus] = useState<EpisodeUpdateStatus>();
+  const [episodeStatusLoaded, setEpisodeStatusLoaded] = useState(false);
   const [episodeInboxOpen, setEpisodeInboxOpen] = useState(false);
   const episodeInbox = usePanelPresence(episodeInboxOpen);
   // Counts rises in the unread total, so the bell can swing and its count pop when an episode arrives.
@@ -166,7 +185,7 @@ function App() {
     }).catch((reason) => setError(messageFrom(reason)));
   }, []);
   useEffect(() => {
-    void window.aniDesktop.episodeUpdates().then(setEpisodeUpdateStatus).catch(() => undefined);
+    void window.aniDesktop.episodeUpdates().then(setEpisodeUpdateStatus).catch(() => undefined).finally(() => setEpisodeStatusLoaded(true));
     const stopChange = window.aniDesktop.onEpisodeUpdatesChange(setEpisodeUpdateStatus);
     return stopChange;
   }, []);
@@ -176,6 +195,34 @@ function App() {
     if (lastUnread.current !== undefined && unread > lastUnread.current) setEpisodeArrivals((count) => count + 1);
     lastUnread.current = unread;
   }, [episodeUpdateStatus?.unreadCount]);
+  useEffect(() => {
+    if (!stateLoaded || !episodeStatusLoaded || startupInitialized.current) return;
+    startupInitialized.current = true;
+    if (screenRef.current !== "home" || appState.settings.companionEnabled === false) return;
+    startupQueue.current = companionStartupPrompts(episodeUpdateStatus, appState.history);
+    const initialUpdate = startupQueue.current.find((item) => item.kind === "startup-update");
+    if (initialUpdate?.targetId) startupAnnouncedUpdates.current.add(initialUpdate.targetId);
+    showNextStartup();
+  }, [stateLoaded, episodeStatusLoaded, episodeUpdateStatus, appState.history, appState.settings.companionEnabled]);
+  useEffect(() => {
+    if (!startupInitialized.current || !stateLoaded || screen !== "home" || appState.settings.companionEnabled === false || Date.now() - startupOpenedAt.current > 60_000) return;
+    const latest = episodeUpdateStatus?.updates.filter((item) => !item.readAt && item.detectedAt >= startupOpenedAt.current).sort((a, b) => b.detectedAt - a.detectedAt)[0];
+    if (!latest || startupAnnouncedUpdates.current.has(latest.id)) return;
+    startupAnnouncedUpdates.current.add(latest.id);
+    const otherCount = episodeUpdateStatus!.updates.filter((item) => !item.readAt).length - 1;
+    const prompt: CompanionPrompt = { kind: "startup-update", title: latest.title, episode: latest.episodeNumber, otherCount, targetId: latest.id };
+    if (startupCurrent.current) startupQueue.current.unshift(prompt);
+    else startupCurrent.current = emitCompanionPrompt(prompt);
+  }, [episodeUpdateStatus, stateLoaded, screen, appState.settings.companionEnabled]);
+  const previousCompanionScreen = useRef<Screen>("home");
+  useEffect(() => {
+    if (previousCompanionScreen.current === screen) return;
+    previousCompanionScreen.current = screen;
+    startupQueue.current = [];
+    startupCurrent.current = undefined;
+    const sections: CompanionSection[] = ["home", "browse", "saved", "recent", "notifications", "settings"];
+    if (stateLoaded && sections.includes(screen as CompanionSection) && !(screen === "home" && episodeInboxOpen)) emitCompanionPrompt({ kind: "section", section: screen as CompanionSection });
+  }, [screen, stateLoaded]);
   useEffect(() => window.aniDesktop.onOpenEpisodeUpdates(() => {
     if (screen === "player") {
       void window.aniDesktop.player.setFullscreen(false).catch(() => undefined);
@@ -575,7 +622,9 @@ function App() {
   }
 
   async function openAnime(anime: AnimeResult, options: { resumeAfter?: string; preferredProvider?: ProviderName; mode?: TranslationMode; autoPlay?: boolean; refresh?: boolean; checkNow?: boolean; focusEpisodeId?: string; returnTo?: "browse" | "notifications"; discovery?: BrowseDiscoveryResult } = {}): Promise<boolean> {
-    if (!options.refresh && !options.autoPlay) emitCompanion("series", anime.title, undefined, anime.id);
+    // A saved or notified title refreshes its episode list while opening.
+    // Refreshing an already-open series is internal; entering its page is not.
+    if (!options.autoPlay && (screen !== "series" || !options.refresh)) emitCompanion("series", anime.title, undefined, anime.id);
     cancelSeries();
     if (seriesSearch) closeSeriesSearch();
     const replacing = !options.refresh || screen !== "series" || !selectedAnime || !overlaps(selectedAnime, anime);
@@ -1027,7 +1076,7 @@ function App() {
           {navIcon("browse", "browse", "browse")}
           {navIcon("saved", "bookmark", "saved")}
           {navIcon("recent", "clock", "recent")}
-          <button type="button" className={`episode-updates-trigger${screen === "notifications" ? " on" : ""}`} aria-label={`Notifications, ${episodeUpdateStatus?.unreadCount ?? 0} unread`} aria-expanded={episodeInboxOpen} onClick={() => { if (screen === "player") { void window.aniDesktop.player.setFullscreen(false).catch(() => undefined); setScreen("home"); } setEpisodeInboxOpen((open) => !open); }}><Icon name="bell" key={`bell-${episodeArrivals}`} className={episodeArrivals ? "bell-ring" : undefined} />{Boolean(episodeUpdateStatus?.unreadCount) && <span key={`count-${episodeArrivals}`} className={`episode-update-count${episodeArrivals ? " bump" : ""}`}>{episodeUpdateStatus!.unreadCount}</span>}</button>
+          <button type="button" className={`episode-updates-trigger${screen === "notifications" ? " on" : ""}`} aria-label={`Notifications, ${episodeUpdateStatus?.unreadCount ?? 0} unread`} aria-expanded={episodeInboxOpen} onClick={() => { if (screen === "player") { void window.aniDesktop.player.setFullscreen(false).catch(() => undefined); setScreen("home"); } if (!episodeInboxOpen && screen !== "notifications") { startupQueue.current = []; startupCurrent.current = undefined; emitCompanionPrompt({ kind: "section", section: "notifications" }); } setEpisodeInboxOpen((open) => !open); }}><Icon name="bell" key={`bell-${episodeArrivals}`} className={episodeArrivals ? "bell-ring" : undefined} />{Boolean(episodeUpdateStatus?.unreadCount) && <span key={`count-${episodeArrivals}`} className={`episode-update-count${episodeArrivals ? " bump" : ""}`}>{episodeUpdateStatus!.unreadCount}</span>}</button>
           {navIcon("settings", "gear", "settings", updatePending(updateStatus))}
         </nav>
       </header>
@@ -1154,6 +1203,15 @@ function App() {
       </div>
       <WatchCompanion settings={themeSource} screen={screen} fullscreen={playerFullscreen && screen === "player"} corner={appState.settings.miniPlayerCorner ?? "bottom-right"} dockedPlayer={Boolean(session && screen !== "player")} event={companionEvent}
         customImage={customCompanionImage && customCompanionImage.id === themeSource.companionPetId ? customCompanionImage.url : undefined} customName={customCompanions.find((item) => item.id === themeSource.companionPetId)?.name}
+        onMessageDone={(id) => { if (startupCurrent.current !== id) return; startupCurrent.current = undefined; showNextStartup(); }}
+        onMessageAction={(message) => {
+          startupQueue.current = []; startupCurrent.current = undefined;
+          if (message.kind === "startup-update" && message.targetId) openEpisodeUpdate(message.targetId, true);
+          else if (message.kind === "startup-continue" && message.targetId) {
+            const entry = appState.history.find((item) => item.animeId === message.targetId);
+            if (entry) void openAnime(asAnime(entry), { preferredProvider: entry.lastProvider, mode: entry.mode });
+          }
+        }}
         onHomeChange={(companionHome: CompanionHome) => changeSettings({ ...settingsDraft, companionHome })} />
 
       {showHints && screen !== "player" && screen !== "series" && (

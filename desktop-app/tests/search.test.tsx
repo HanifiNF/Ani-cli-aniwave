@@ -139,6 +139,87 @@ describe("site footer navigation", () => {
   });
 });
 
+describe("companion contextual dialogue", () => {
+  async function remountWithEpisodeUpdate() {
+    await act(async () => root.unmount());
+    const entry = { animeId: "aniwave:show-1", title: "Show", lastEpisode: "12", mode: "sub" as const, updatedAt: new Date().toISOString(), lastProvider: "aniwave" as const };
+    state.history = [entry];
+    state.bookmarks = [entry];
+    vi.mocked(api.episodeUpdates).mockResolvedValue({ updates: [{ id: "update-13", animeId: entry.animeId, sourceId: entry.animeId, provider: "aniwave", title: "Show", episodeId: "aniwave:show-1:13", episodeNumber: "13", detectedAt: Date.now() - 1_000 }], unreadCount: 1, counts: {}, latestByAnime: {}, checking: false });
+    root = createRoot(container);
+    await act(async () => root.render(<StrictMode><App /></StrictMode>));
+  }
+  it("shows the startup update then a dismissible continue prompt without autoplay", async () => {
+    await remountWithEpisodeUpdate();
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("Episode 13 of Show is new");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss companion message"]')!.click());
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("continue Show");
+    await click("Continue");
+    expect(container.querySelector(".series")).not.toBeNull();
+    expect(api.play).not.toHaveBeenCalled();
+  });
+  it("opens the notified episode focused without autoplay", async () => {
+    await remountWithEpisodeUpdate();
+    await click("View episode");
+    expect(container.querySelector(".series")).not.toBeNull();
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("Show");
+    expect(api.markEpisodeUpdateRead).toHaveBeenCalledWith("update-13");
+    expect(api.play).not.toHaveBeenCalled();
+  });
+  it("announces a saved anime even when opening it refreshes episodes", async () => {
+    await act(async () => root.unmount());
+    state.bookmarks = [{ animeId: "aniwave:saved-1", title: "Saved Anime", lastEpisode: "2", mode: "sub", updatedAt: new Date().toISOString() }];
+    root = createRoot(container);
+    await act(async () => root.render(<StrictMode><App /></StrictMode>));
+    await act(async () => container.querySelector<HTMLButtonElement>(".section-saved .hit")!.click());
+    expect(container.querySelector(".series")).not.toBeNull();
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("Saved Anime");
+  });
+  it("cancels the remaining startup prompt when navigating away", async () => {
+    await remountWithEpisodeUpdate();
+    await click("Saved");
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("saved");
+    await advance(10_100);
+    expect(container.querySelector(".companion-bubble")?.textContent ?? "").not.toContain("continue Show");
+  });
+  it("announces an episode discovered by the delayed startup check", async () => {
+    await act(async () => root.unmount());
+    let notify!: (status: Awaited<ReturnType<AniDesktopApi["episodeUpdates"]>>) => void;
+    vi.mocked(api.onEpisodeUpdatesChange).mockImplementation((listener) => { notify = listener; return () => {}; });
+    root = createRoot(container);
+    await act(async () => root.render(<StrictMode><App /></StrictMode>));
+    expect(container.querySelector(".companion-bubble")).toBeNull();
+    await act(async () => notify({ updates: [{ id: "fresh", animeId: "aniwave:show", sourceId: "aniwave:show", provider: "aniwave", title: "Fresh Show", episodeId: "aniwave:show:2", episodeNumber: "2", detectedAt: Date.now() }], unreadCount: 1, counts: {}, latestByAnime: {}, checking: false }));
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("Episode 2 of Fresh Show is new");
+  });
+  it("speaks on section entry without replaying on a rerender", async () => {
+    await click("Saved");
+    const first = container.querySelector(".companion-bubble")?.textContent;
+    expect(first).toContain("saved");
+    await act(async () => { vi.advanceTimersByTime(5_001); });
+    expect(container.querySelector(".companion-bubble")).toBeNull();
+    await act(async () => root.render(<StrictMode><App /></StrictMode>));
+    expect(container.querySelector(".companion-bubble")).toBeNull();
+    await click("Home");
+    await click("Saved");
+    expect(container.querySelector(".companion-bubble")?.textContent).toContain("saved");
+  });
+  it("previews and saves the companion size from Settings", async () => {
+    await click("Settings");
+    const slider = container.querySelector<HTMLInputElement>('#companion-size')!;
+    expect(slider.value).toBe("100");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "200");
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector("output[for=companion-size]")?.textContent).toBe("200%");
+    expect(container.querySelector<HTMLElement>(".companion-pet")?.style.width).toBe("192px");
+    await advance(450);
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ companionSize: 200 }));
+  });
+});
+
 describe("release update checks", () => {
   const available = { currentVersion: "1.0.0", latestVersion: "1.1.0", state: "available" as const };
 

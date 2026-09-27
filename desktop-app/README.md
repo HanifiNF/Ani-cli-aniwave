@@ -26,7 +26,7 @@ Open **Settings → Appearance → Watch companion**, enter a name, then choose 
 
 Keep unused cells transparent. ANIdesktop checks the image dimensions and decoding before copying it into app data. Up to 20 custom companions can be stored, selected, or removed; removing one never alters your original file. Imports are local to that computer, so share the original PNG/WebP with a friend who wants the same companion. Imported companions use the app's existing preset speech. If an image fails to import, check its file type, size, dimensions, and whether it opens in another image viewer.
 
-Drag the companion within the app content to set its home, or focus it and use the arrow keys (Shift for larger steps). It occasionally walks nearby and returns home. **Reset position** and **Allow wandering** are in the same Settings group. Reduced-motion mode prevents wandering and frame animation.
+Drag the companion within the app content to set its home, or focus it and use the arrow keys (Shift for larger steps). It occasionally walks nearby and returns home. **Companion size** (50–200%), **Reset position**, and **Allow wandering** are in the same Settings group. Reduced-motion mode prevents wandering and frame animation. The companion comments when you open an anime or visit an app section; on startup it can announce unread episode updates and offer to reopen your most recently watched anime without autoplay.
 
 ## Requirements
 
