@@ -3,6 +3,7 @@ import { animeSources } from "../shared/catalog";
 import Art from "./Art";
 import { Icon } from "./icons";
 import { stagger } from "./transition";
+import Swap from "./Swap";
 
 interface Props {
   results: AnimeResult[]; query: string; lastQuery: string; cursor: number;
@@ -14,7 +15,7 @@ export default function SearchPalette({ results, query, lastQuery, cursor, ready
   return (
     <div className="palette" role="dialog" aria-label="Search results">
       <div className="found" id="results-heading" aria-live="polite">
-        {ready || results.length ? <>{results.length} {results.length === 1 ? "result" : "results"} for "{lastQuery}"</> : pending ? "Searching…" : "Press Enter to search"}
+        {ready || results.length ? <Swap id={`${results.length}|${lastQuery}`}>{results.length} {results.length === 1 ? "result" : "results"} for "{lastQuery}"</Swap> : pending ? "Searching…" : "Press Enter to search"}
       </div>
       {message && <div className={`msg ${error ? "err" : ""}`} role={error ? "alert" : "status"} title={providerErrors.join("; ") || undefined}>{message}{providerErrors.length > 0 && <button type="button" className="link" onClick={onRetry}>Retry search</button>}</div>}
       <div className="section-results" role="listbox" aria-label="Results">

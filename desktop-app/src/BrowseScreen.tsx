@@ -8,6 +8,7 @@ import GenreChips from "./GenreChips";
 import { Icon } from "./icons";
 import Reveal from "./Reveal";
 import { stagger } from "./transition";
+import { pressProps } from "./press";
 import TypeAhead from "./TypeAhead";
 
 export const DEFAULT_BROWSE_FILTERS: BrowseFilters = { includeGenres: [], excludeGenres: [], sort: "popularity" };
@@ -229,7 +230,7 @@ export default function BrowseScreen({ state, setState, enabled, openingId, onOp
 
   return <section className="section browse" aria-labelledby="browse-heading" ref={root} onKeyDown={onKeyDown}>
     <div className="section-head"><h2 id="browse-heading">Browse</h2><span className="browse-sub">AniList catalog</span>
-      {enabled && <div className={`browse-sort ${stepBack}`} role="radiogroup" aria-label="Sort">{sorts.map(([value, name]) => <button type="button" key={value} role="radio" aria-checked={filters.sort === value} className={filters.sort === value ? "on" : ""} onClick={() => filters.sort !== value && set("sort", value)}>{name}</button>)}</div>}</div>
+      {enabled && <div className={`browse-sort ${stepBack}`} role="radiogroup" aria-label="Sort">{sorts.map(([value, name]) => <button type="button" key={value} role="radio" aria-checked={filters.sort === value} className={filters.sort === value ? "on" : ""} {...pressProps(() => { if (filters.sort !== value) set("sort", value); })}>{name}</button>)}</div>}</div>
     {!enabled ? <div className="empty"><b>Anime information is disabled</b>Enable it in Settings to browse the AniList catalog.</div> : <>
       <label className="browse-search"><Icon name="search" />
         {filters.studio && <span className="studio-token"><em>Studio</em>{filters.studio.name}<button type="button" aria-label={`Remove studio ${filters.studio.name}`} onClick={dropStudio}>×</button></span>}

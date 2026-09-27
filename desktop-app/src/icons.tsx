@@ -1,4 +1,4 @@
-/** Line icons drawn in the current text colour. Sized by CSS. */
+/** Line icons drawn in the current text colour: one set on a 24px grid with a 1.8 stroke and round caps and joins. Sized by CSS, which keeps the line at the same screen weight at every size. */
 const PATHS = {
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>,
   home: <path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z" />,
@@ -10,6 +10,8 @@ const PATHS = {
   chevron: <path d="m9 6 6 6-6 6" />,
   back: <path d="m15 6-6 6 6 6" />,
   play: <path d="M8 5.5v13l11-6.5z" />,
+  pause: <path d="M9 5.5v13M15 5.5v13" />,
+  expand: <path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5" />,
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   x: <path d="M6 6l12 12M18 6 6 18" />,
   trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></>,

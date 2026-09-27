@@ -52,7 +52,7 @@ function LibraryCard({ row, index, order, current, onActivate, onRemove, onFocus
     : row.kind === "continue" ? `${entry.completed === false ? "Started" : "Watched through"} ${watched} · ${when(entry.updatedAt)}`
     : `${entry.completed === false ? "Started" : "Watched through"} ${progress || entry.lastEpisode}`;
   const label = row.kind === "saved" ? `open ${entry.title}` : entry.completed === false ? `resume ${entry.title}` : `play next episode of ${entry.title}`;
-  return <div ref={ref} className={`card ${current ? "cur" : ""}`} data-cursor={current} style={stagger(order, 10)}>
+  return <div ref={ref} className={`card ${current ? "cur" : ""}`} data-cursor={current} data-anime={entry.animeId} style={stagger(order, 10)}>
     <button type="button" className="hit" onClick={() => onActivate(row)} onFocus={() => { if (index >= 0) onFocus(index); }} aria-label={label}>
       <Art src={entry.poster} className="poster" />
       <span className="badges"><span className="badge hi">EP {watched}/{available ?? "?"}</span><span className="badge">{entry.mode.toUpperCase()}</span></span>

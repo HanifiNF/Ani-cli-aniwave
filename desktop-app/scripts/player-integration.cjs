@@ -329,8 +329,8 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate("document.querySelector('video').paused"), false, 'playback continues while docked');
   assert.equal(playerActive, true, 'player still active while docked');
   assert.ok(playbackMenu().enabled, 'playback menu stays live while docked');
-  const dockedBox = await evaluate("(() => { const b=document.querySelector('.player-shell').getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; })()");
-  assert.ok(dockedBox[2] < (await evaluate('innerWidth')) / 2 && dockedBox[0] > dockedBox[2], `docked box ${dockedBox}`);
+  // The box springs from the full player into its corner; measure it once it has landed.
+  await waitFor("(() => { const b=document.querySelector('.player-shell').getBoundingClientRect(); return b.width < innerWidth / 2 && b.x > b.width; })()", 'docked box settles in the corner');
   if (process.env.ANI_PLAYER_CAPTURE_DIR) writeFileSync(join(process.env.ANI_PLAYER_CAPTURE_DIR,'player-docked.png'),(await win.webContents.capturePage()).toPNG());
   await key(' '); await delay(150);
   assert.equal(await evaluate("document.querySelector('video').paused"), false, 'playback keys are off while docked');
@@ -344,6 +344,7 @@ app.whenReady().then(async () => {
     fire('pointerdown',b.x+40,b.y+10); fire('pointermove',b.x-600,b.y-400); fire('pointerup',b.x-600,b.y-400); })()`);
   await waitFor("!!document.querySelector('.player-shell.corner-top-left')", 'drag snaps to the top left');
   await waitFor("!!document.querySelector('.player-shell.corner-top-left') && !document.querySelector('.is-dragging')", 'drag released');
+  await waitFor("!document.querySelector('.player-shell').style.transform", 'thrown box lands in the corner');
   if (process.env.ANI_PLAYER_CAPTURE_DIR) { await delay(100); writeFileSync(join(process.env.ANI_PLAYER_CAPTURE_DIR,'player-docked-moved.png'),(await win.webContents.capturePage()).toPNG()); }
   // Resize keys and the grip change the width; the grip faces the page from the top left corner.
   const widthOf = () => evaluate("document.querySelector('.player-shell').getBoundingClientRect().width");

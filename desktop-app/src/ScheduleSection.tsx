@@ -7,6 +7,7 @@ import GenreChips from "./GenreChips";
 import { localDateKey, msUntilNextLocalDay, releaseCountdown, releaseHasPassed, scheduleDayBounds, scheduleDays, seasonLabel, selectionAfterDayChange } from "./schedule";
 import { messageFrom } from "./errors";
 import { stagger } from "./transition";
+import { pressProps } from "./press";
 
 const titleKey = (value: string) => value.normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -107,12 +108,12 @@ export default function ScheduleSection({ settings, library, onOpen, metadataFor
       <div className="schedule-days" role="tablist" aria-label="Schedule day">
         {days.map((day) => <button type="button" role="tab" key={day.date} aria-selected={day.date === selectedDate}
           aria-label={`${day.weekday} ${day.dateLabel}${day.today ? ", today" : ""}`} title={day.dateLabel}
-          className={`${day.date === selectedDate ? "on" : ""} ${day.today ? "today" : ""}`} onClick={() => setSelectedDate(day.date)}>
+          className={`${day.date === selectedDate ? "on" : ""} ${day.today ? "today" : ""}`} {...pressProps(() => setSelectedDate(day.date))}>
           {day.weekday}<small>{day.dayOfMonth}</small>
         </button>)}
       </div>
       <div className="schedule-audio" role="group" aria-label="Schedule audio">
-        {(["sub", "dub"] as const).map((value) => <button type="button" key={value} className={mode === value ? "on" : ""} aria-pressed={mode === value} onClick={() => setMode(value)}>{value.toUpperCase()}</button>)}
+        {(["sub", "dub"] as const).map((value) => <button type="button" key={value} className={mode === value ? "on" : ""} aria-pressed={mode === value} {...pressProps(() => setMode(value))}>{value.toUpperCase()}</button>)}
       </div>
     </div>
     <div className="cards" role="group" aria-labelledby="schedule-heading" aria-live="polite" aria-busy={loading}>

@@ -13,6 +13,9 @@ import IdentityIndexPanel from "./IdentityIndexPanel";
 import { UpdateNotice, UpdatePanel, updatePending } from "./UpdateUI";
 import { SubtitleAppearanceEditor, SubtitleAppearanceRow } from "./SubtitleAppearanceEditor";
 import Reveal from "./Reveal";
+import { useIndicator } from "./useIndicator";
+import { pressProps } from "./press";
+import Swap from "./Swap";
 
 /** Every row applies as it changes; this is the page's word on how that went. Idle says nothing. */
 export type SettingsSaveState = "idle" | "saved" | "saving" | "error";
@@ -118,10 +121,14 @@ export default function SettingsScreen({ draft, setDraft, saved, saveState, onRe
   updateStatus, updateChecking, onCheckUpdates, onOpenUpdate, onSkipUpdate, episodeUpdateStatus, onCheckEpisodes, updateInstall, onDownloadUpdate, onInstallUpdate, subtitleAppearance, onSubtitleAppearance }: Props) {
   const { formRef, sections, active, jump } = useSectionNavigation();
   const [subtitlesOpen, setSubtitlesOpen] = useState(false);
+  const rail = useRef<HTMLElement>(null), railPill = useRef<HTMLSpanElement>(null);
+  const tiles = useRef<HTMLSpanElement>(null), tileRing = useRef<HTMLElement>(null);
+  useIndicator(rail, railPill, '[aria-current="location"]', `${active}|${sections.length}`, { axis: "y" });
+  useIndicator(tiles, tileRing, ".tile.on .prev", draft.theme, { cross: true, pad: 2 });
   return (
     <div className="settings-layout">
-    <div className="settings-head"><h1>Settings</h1><UpdateNotice status={updateStatus} onJump={() => jump("settings-updates")} /><span className="save-state" data-state={saveState}><span key={saveState} className="save-word" role="status" aria-live="polite">{saveState === "saved" && <Icon name="check" />}{SAVE_WORDS[saveState]}</span>{saveState === "error" && <button type="button" className="save-retry" onClick={onRetrySave}>retry</button>}</span></div>
-    <nav className="settings-section-nav" aria-label="Settings sections" style={{ "--i": Math.max(0, sections.findIndex((section) => section.id === active)) } as React.CSSProperties}><span className="rail-pill" aria-hidden="true" />{sections.map((section) => <button type="button" key={section.id} aria-current={active === section.id ? "location" : undefined} onClick={() => jump(section.id)}>{section.label}{section.id === "settings-updates" && updatePending(updateStatus) && <i className="rail-dot" aria-label="update available" />}</button>)}</nav>
+    <div className="settings-head"><h1>Settings</h1><UpdateNotice status={updateStatus} onJump={() => jump("settings-updates")} /><span className="save-state" data-state={saveState}><span className="save-word" role="status" aria-live="polite"><Swap id={saveState}>{saveState === "saved" && <Icon name="check" />}{SAVE_WORDS[saveState]}</Swap></span>{saveState === "error" && <button type="button" className="save-retry" onClick={onRetrySave}>retry</button>}</span></div>
+    <nav className="settings-section-nav" aria-label="Settings sections" ref={rail}><span className="rail-pill" ref={railPill} aria-hidden="true" />{sections.map((section) => <button type="button" key={section.id} aria-current={active === section.id ? "location" : undefined} onClick={() => jump(section.id)}>{section.label}{section.id === "settings-updates" && updatePending(updateStatus) && <i className="rail-dot" aria-label="update available" />}</button>)}</nav>
     <form ref={formRef} className="settings" onSubmit={(event) => event.preventDefault()}>
       <div className="settings-jump"><label htmlFor="settings-section-jump">Jump to section</label><select id="settings-section-jump" value={active} onChange={(event) => jump(event.target.value)}>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></div>
       <div className="group"><h3 id="settings-playback" tabIndex={-1}>Playback</h3><div className="box">
@@ -139,13 +146,13 @@ export default function SettingsScreen({ draft, setDraft, saved, saveState, onRe
         <div className="r"><span className="k">Preferred source<small>Search checks every source that is on. Auto plays from the first available</small></span><Chips value={draft.preferredProvider} options={["auto", ...enabledProviders(draft)] as ProviderPreference[]} onChange={(preferredProvider) => setDraft({ ...draft, preferredProvider })} /></div>
       </div></div>
       <div className="group"><h3 id="settings-appearance" tabIndex={-1}>Appearance</h3><div className="box">
-        <div className="r stack"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="tiles" role="radiogroup" aria-label="theme">
+        <div className="r stack"><span className="k">Theme<small>Presets match common terminal schemes</small></span><span className="tiles" role="radiogroup" aria-label="theme" ref={tiles}><i className="tile-ring" ref={tileRing} aria-hidden="true" />
           {THEME_NAMES.map((name) => {
             const colours = resolveTheme(name, draft.customTheme);
             return (
               <button type="button" key={name} role="radio" aria-checked={draft.theme === name} className={`tile${draft.theme === name ? " on" : ""}`}
                 style={{ "--t-bg": colours.background, "--t-text": colours.text, "--t-cur": colours.highlight } as React.CSSProperties}
-                onClick={() => setDraft({ ...draft, theme: name, customTheme: name === "custom" && draft.theme !== "custom" ? { ...resolveTheme(draft.theme, draft.customTheme) } : draft.customTheme })}>
+                {...pressProps(() => { if (draft.theme !== name) setDraft({ ...draft, theme: name, customTheme: name === "custom" && draft.theme !== "custom" ? { ...resolveTheme(draft.theme, draft.customTheme) } : draft.customTheme }); })}>
                 <span className="prev" aria-hidden="true"><i /><i /><b /></span><span>{name.replace("-", " ")}</span>
               </button>
             );

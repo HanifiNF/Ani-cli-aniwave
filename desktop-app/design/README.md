@@ -1,6 +1,44 @@
 # ANIdesktop design notes
 
-## Current design: atsu style (September 2026)
+## Design language (September 2026)
+
+A quiet, fast tool: motion shows where things come from and where they go, then gets out of the way. The screens below keep
+their layouts; this is how they look and move. Mockup: `design/variants/design-language.html` (live, with a spec sheet and
+a Feel switch comparing the tunings tried); `design/record-design-language.cjs` records it and `design/record-app-motion.cjs`
+records the real renderer, both at true speed.
+
+- Colour: the three theme colours (background, text, highlight) and tones mixed from them in oklab: surfaces 6% and 10%
+  text, hairlines 12%, secondary text 60%, faint text 36%. The highlight marks only the primary action, the selection,
+  progress, ticks, switches that are on, and the today dot. Status dots keep their own green and red. Flat fills only: raised
+  layers get a 12% hairline, never a drop shadow; the scrim is the background at 72%.
+- Shape: 10px on cards, posters, panels, and buttons; 8px on small controls (icon buttons, badges, checkboxes, fields,
+  keys); pills for the search field and every chip (segmented chips, tags, genres, tokens); circles for dots.
+- Type: Inter only (bundled, `@fontsource-variable/inter`), weights 400, 500 and 700, letter spacing −0.005em everywhere.
+  Small labels are sentence case at 500, never tracked capitals.
+- Icons: one set (`src/icons.tsx`) on a 24px grid with a 1.8 stroke and round caps and joins, drawn at 1.5 screen pixels at
+  every size. Vidstack's own control icons in the full player are not yet part of the set.
+- Motion (`src/motion.ts`): springs on everything, three presets. Snap (0.25 s, damping 1) moves controls; glide (0.4 s,
+  0.95) moves layout and shared elements; stretch moves indicator edges (leading 0.2 s, trailing 0.32 s), so an indicator
+  runs ahead and gathers up as it lands. Every spring is launched: a new target from rest starts at distance × ω, so about a
+  quarter of the travel lands in the first frame and the rest settles calmly. Shorter springs from rest were tried and
+  rejected (they read as sped up); springs from rest felt laggy. A new target mid-flight keeps position and velocity. CSS
+  gets the same springs as `linear()` curves (`--t-snap`, `--t-glide`, `--t-out`). Lists rise in turn, 18 ms apart. With
+  reduced motion, changes apply at once or as a plain fade.
+- Input: chips, tabs, sort toggles, theme tiles, and the nav act on pointer down (keys on click, `src/press.ts`); cards,
+  buttons, and tiles dip slightly under the pointer and act on release.
+- Continuity: the search pill and the palette are one surface that grows around the results (`src/useSearchMorph.ts`); a
+  card's or search row's poster flies to the series poster and back to its card (`src/flight.ts`); the player grows out of
+  the Play button, an episode row, or a card, and docking, expanding, and throwing the corner player move one box on the glide
+  spring (`src/playerMotion.ts`, PlayerScreen), with its title bars fading while the box is scaled. The corner player follows
+  the pointer exactly, stretches with resistance past the window's edges, and flies to the corner it was thrown toward.
+- Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
+  indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
+  that can be dragged, stretches past either end, and springs from its release speed.
+- Swaps (`src/Swap.tsx`): inner content that changes in place (the Play label, Save, the result count, the save state,
+  play/pause) blurs out quickly while the new copy blurs in a beat later. Theme changes glide between the colour sets. The
+  bell no longer swings; a new count grows in from the bell's corner.
+
+## Atsu-style screens (September 2026)
 
 The renderer follows atsu.moe. The components in `../src/` are the current UI reference.
 

@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AnimeResult, BrowseFilters, Episode, EpisodeGroup, LibraryEntry, ProviderName, SeriesMetadataCatalog, TranslationMode, WorkInfo } from "../shared/contracts";
 import { animeSources, providerFromId } from "../shared/catalog";
 import { PLAYBACK_QUALITIES as QUALITIES } from "../shared/settings";
@@ -10,6 +10,11 @@ import Chips from "./Chips";
 import CopyTitle from "./CopyTitle";
 import { Icon } from "./icons";
 import { stagger } from "./transition";
+import { pressProps } from "./press";
+import { useIndicator } from "./useIndicator";
+import { land } from "./flight";
+import { setPlayOrigin } from "./playerMotion";
+import Swap from "./Swap";
 
 const SKELETON_ROWS = 6;
 
@@ -39,6 +44,10 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
   jump, playingId, status, metadata, listRef, onPlay, onBookmark, onBack, onMode, onQuality, onCheckSources, onRefreshSources,
   onJump, onWatched, onWatchedAll, onDismissStatus, reorder, onRefreshInfo, onSplitSource, onBrowse }: Props) {
   const [showAll, setShowAll] = useState(false);
+  const sortRef = useRef<HTMLSpanElement>(null), sortIndicator = useRef<HTMLElement>(null);
+  useIndicator(sortRef, sortIndicator, '[aria-checked="true"]', episodeSort);
+  // A poster that opened this title lands on this one.
+  useLayoutEffect(() => land(document.querySelector<HTMLElement>(".series .side .poster")), [anime.id]);
   const hasEpisodes = episodeGroups.some((group) => group.episodes.length);
   const sources = animeSources(anime);
   const genres = [...new Map([...(seriesMetadata?.genres ?? []), ...(info?.genres ?? [])].map((genre) => [genre.toLocaleLowerCase(), genre])).values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
@@ -75,9 +84,9 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
       <aside className="side">
         <Art src={anime.poster ?? info?.cover} className="poster" />
         <div className="stack">
-          <button type="button" className="btn primary" disabled={!nextUp} onClick={() => nextUp && onPlay(nextUp.episode)}>Play Ep {nextUp?.number ?? "…"}<Icon name="play" /></button>
-          <button type="button" className="btn" onClick={() => onBookmark()} aria-pressed={isSaved}>{isSaved ? "Saved" : "Save"}<Icon name="bookmark" className={isSaved ? "fill" : undefined} /></button>
-          <button type="button" className="btn" disabled={!hasEpisodes || allWatched} onClick={() => onWatchedAll()} title="Record every episode on every source as watched">{allWatched ? "All watched" : "Mark all watched"}<Icon name="check" /></button>
+          <button type="button" className="btn primary" disabled={!nextUp} onClick={(event) => { if (!nextUp) return; setPlayOrigin(event.currentTarget); onPlay(nextUp.episode); }}><Swap id={nextUp?.number ?? "…"}>Play Ep {nextUp?.number ?? "…"}</Swap><Icon name="play" /></button>
+          <button type="button" className="btn" onClick={() => onBookmark()} aria-pressed={isSaved}><Swap id={isSaved ? "saved" : "save"}>{isSaved ? "Saved" : "Save"}</Swap><Icon name="bookmark" className={isSaved ? "fill" : undefined} /></button>
+          <button type="button" className="btn" disabled={!hasEpisodes || allWatched} onClick={() => onWatchedAll()} title="Record every episode on every source as watched"><Swap id={allWatched ? "all" : "mark"}>{allWatched ? "All watched" : "Mark all watched"}</Swap><Icon name="check" /></button>
         </div>
         {genres.length ? <div className="genre-bubbles" aria-label="Genres">
           {genres.map((genre) => <button type="button" key={genre.toLocaleLowerCase()} title={`Browse ${genre} anime`} onClick={() => onBrowse({ includeGenres: [genre] })}>{genre}</button>)}
@@ -121,9 +130,10 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
           <button type="button" className="btn small" onClick={onRefreshSources}>Refresh sources</button>
           <Chips value={episodeFilter} options={["all", "unwatched", "watched"] as const} onChange={(value) => reorder(value, episodeSort)} names={{ all: "All", unwatched: "Unwatched", watched: "Watched" }} />
           <label className="jump"><Icon name="search" /><input value={jump} onChange={(event) => onJump(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onJump(event.currentTarget.value); }} placeholder="Jump to" aria-label="Jump to episode" inputMode="numeric" /></label>
-          <span className="sort" role="radiogroup" aria-label="Sort">
-            <button type="button" role="radio" aria-checked={episodeSort === "oldest"} className={episodeSort === "oldest" ? "on" : ""} title="Oldest first" onClick={() => reorder(episodeFilter, "oldest")}><Icon name="up" /></button>
-            <button type="button" role="radio" aria-checked={episodeSort === "newest"} className={episodeSort === "newest" ? "on" : ""} title="Newest first" onClick={() => reorder(episodeFilter, "newest")}><Icon name="down" /></button>
+          <span className="sort" role="radiogroup" aria-label="Sort" ref={sortRef}>
+            <i className="chips-ind" ref={sortIndicator} aria-hidden="true" />
+            <button type="button" role="radio" aria-checked={episodeSort === "oldest"} className={episodeSort === "oldest" ? "on" : ""} title="Oldest first" {...pressProps(() => reorder(episodeFilter, "oldest"))}><Icon name="up" /></button>
+            <button type="button" role="radio" aria-checked={episodeSort === "newest"} className={episodeSort === "newest" ? "on" : ""} title="Newest first" {...pressProps(() => reorder(episodeFilter, "newest"))}><Icon name="down" /></button>
           </span>
         </div>
         <div className="eps" ref={listRef} role="group" aria-label="Episodes">
@@ -141,7 +151,7 @@ export default function SeriesScreen({ anime, progress, isSaved, player, backLab
                 {row.first && <h4 className="grp-head">Ep {row.number}{nextUp?.number === row.number && <span className="up">Next up</span>}</h4>}
                 <div className={`src ${row.watched ? "w" : ""} ${playingId === row.episode.id ? "playing" : ""}`} data-episode={row.episode.id} data-episode-number={row.number}>
                   <button type="button" className="src-hit"
-                    onClick={() => onPlay(row.episode)} aria-label={`play episode ${row.number} from ${row.episode.provider}`}>
+                    onClick={(event) => { setPlayOrigin(event.currentTarget.closest(".src")); onPlay(row.episode); }} aria-label={`play episode ${row.number} from ${row.episode.provider}`}>
                     <span className="t">Episode {row.number}<small>{row.episode.provider}</small>{playingId === row.episode.id && <em>playing</em>}</span>
                     {info?.availability && <span className="audio-availability" title="Audio listed by a supported provider server">{[info?.availability?.sub && "sub", info?.availability?.dub && "dub"].filter(Boolean).join(" · ") || "no audio"}</span>}
                     {info?.quality ? <span className="q">{info?.quality}</span>

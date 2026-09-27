@@ -334,7 +334,11 @@ describe("built-in player screen", () => {
 
     await pointer("pointerdown", 900, 600); await pointer("pointermove", 200, 100);
     expect(shell.classList).toContain("is-dragging");
-    expect(shell.style.transform).toBe("translate(-700px, -500px)");
+    // The box follows the pointer exactly, and past the window's edge it moves on with resistance.
+    const [, dx, dy] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(shell.style.transform)!.map(Number);
+    expect(dx).toBe(-700);
+    expect(dy).toBeGreaterThan(-500);
+    expect(dy).toBeLessThan(-440);
     box = { left: 120, top: -60, width: 360, height: 250 };
     await pointer("pointerup", 200, 100);
     expect(shell.classList).not.toContain("is-dragging");

@@ -46,7 +46,11 @@ import { useWorkInfo } from "./useWorkInfo";
 import { MINI_PLAYER_WIDTH, clampMiniPlayerWidth } from "../shared/contracts";
 import { animeSources, enabledProviders, expandWithLinks, likelyDuplicate, mergeKey, overlaps, unifyAnimeResults } from "../shared/catalog";
 import { Icon } from "./icons";
-import { withTransition } from "./transition";
+import { installPressDip, pressProps } from "./press";
+import { useIndicator } from "./useIndicator";
+import { useSearchMorph } from "./useSearchMorph";
+import { launchFrom, resolveReturn, returnTo } from "./flight";
+import { capturePlayer, notePlayOrigin, setPlayOrigin } from "./playerMotion";
 import { SiteFooter, type FooterScreen } from "./SiteFooter";
 import { updatePending } from "./UpdateUI";
 import BrowseScreen, { DEFAULT_BROWSE_STATE, type BrowseViewState } from "./BrowseScreen";
@@ -81,6 +85,7 @@ function App() {
   const [notice, setNotice] = useState<string>();
   const [status, setStatus] = useState<PlayStatus>();
   const { session, setSession, fullscreen: playerFullscreen, setFullscreen: setPlayerFullscreen } = usePlayerSession(() => {
+    notePlayOrigin();
     setScreen("player"); setStatus(undefined); setError(undefined); setNotice(undefined);
   });
   const [nowPlaying, setNowPlaying] = useState<NowPlaying>();
@@ -96,7 +101,7 @@ function App() {
   const [episodeUpdateStatus, setEpisodeUpdateStatus] = useState<EpisodeUpdateStatus>();
   const [episodeInboxOpen, setEpisodeInboxOpen] = useState(false);
   const episodeInbox = usePanelPresence(episodeInboxOpen);
-  // Counts rises in the unread total, so the bell can swing and its count pop when an episode arrives.
+  // Counts rises in the unread total, so the count can grow in afresh when an episode arrives.
   const [episodeArrivals, setEpisodeArrivals] = useState(0);
   const lastUnread = useRef<number>(undefined);
   const notificationsOrigin = useRef<Screen>("home");
@@ -117,11 +122,29 @@ function App() {
   const unifiedResults = useMemo(() => unifyAnimeResults(results, appState.providerLinks ?? []), [results, appState.providerLinks]);
 
   const fieldRef = useRef<HTMLInputElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const navIndicator = useRef<HTMLElement>(null);
+  const searchBox = useRef<HTMLDivElement>(null);
+  const searchSurface = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const playToken = useRef(0);
   const playbackRequest = useRef<string | undefined>(undefined);
   const seriesOrigin = useRef<"home" | "browse" | "notifications">("home");
   useEffect(() => () => { if (playbackRequest.current) window.aniDesktop.cancelCatalog(playbackRequest.current); }, []);
+  useEffect(() => installPressDip(), []);
+  // A card or search row that opens a title lends its poster to the series page (src/flight.ts).
+  useEffect(() => {
+    const launch = (event: MouseEvent) => {
+      const hit = event.target instanceof Element ? event.target.closest(".card .hit, .hit-row .hit") : null;
+      if (!hit) return;
+      const poster = hit.querySelector(".poster, .thumb");
+      launchFrom(poster);
+      // A card that resumes playback is also where the player grows from.
+      if (hit.matches(".card .hit")) setPlayOrigin(poster);
+    };
+    document.addEventListener("click", launch, true);
+    return () => document.removeEventListener("click", launch, true);
+  }, []);
   const mergePromptActive = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
@@ -390,17 +413,19 @@ function App() {
     if (index >= 0) selectEpisodeAt(index);
   }
 
+  // Docking and expanding move the player box from where it is drawn now (PlayerScreen springs it to the new layout).
   function dockPlayer() {
-    withTransition(() => {
-      setStatus(undefined); setError(undefined); setNotice(undefined);
-      setScreen(selectedAnime ? "series" : "home");
-      focusPlayingEpisode();
-    });
+    capturePlayer();
+    setStatus(undefined); setError(undefined); setNotice(undefined);
+    setScreen(selectedAnime ? "series" : "home");
+    focusPlayingEpisode();
     refreshState();
   }
 
   function expandPlayer() {
-    if (session) withTransition(() => { setScreen("player"); setError(undefined); setNotice(undefined); });
+    if (!session) return;
+    capturePlayer();
+    setScreen("player"); setError(undefined); setNotice(undefined);
   }
 
   function closePlayer() {
@@ -446,7 +471,12 @@ function App() {
     if (screen === "series" && seriesSearch) { closeSeriesSearch(); return; }
     if (screen === "browse" && browseOpening) { cancelSeries(); setBrowseOpening(undefined); return; }
     if (screen === "catalog-detail") { cancelSeries(); go("browse"); return; }
-    if (screen === "series") { setSelectedAnime(undefined); go(seriesOrigin.current); return; }
+    if (screen === "series") {
+      // The poster flies back to its card when the page going back to shows one.
+      const entry = selectedAnime && [...appState.history, ...appState.bookmarks].find((item) => overlaps(item, selectedAnime));
+      if (entry) returnTo(document.querySelector(".series .side .poster"), `.card[data-anime="${CSS.escape(entry.animeId)}"] .poster`);
+      setSelectedAnime(undefined); go(seriesOrigin.current); return;
+    }
     go("home");
   }
 
@@ -501,6 +531,7 @@ function App() {
       if (token !== openToken.current) return;
       if (discovery.anime) {
         refreshState();
+        launchFrom(document.querySelector(".browse-grid .card.is-resolving .poster"));
         await openAnime({ ...discovery.anime, poster: discovery.anime.poster ?? anime.cover }, { returnTo: "browse", discovery });
         return;
       }
@@ -871,7 +902,7 @@ function App() {
       if (searchHere && query.trim() && (!catalogSearch.ready && (catalogSearch.pending || target === fieldRef.current))) {
         catalogSearch.searchNow(); return;
       }
-      if (rows[cursor]) void activate(rows[cursor]);
+      if (rows[cursor]) { launchFrom(document.querySelector('[data-cursor="true"] .poster, [data-cursor="true"] .thumb')); void activate(rows[cursor]); }
       return;
     }
     if (typing) return;
@@ -885,6 +916,8 @@ function App() {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
+
+  useLayoutEffect(() => resolveReturn(), [screen]);
 
   const placeholder = screen === "saved" ? "Filter saved titles" : screen === "recent" ? "Filter recent titles" : "Search anime";
   const searching = catalogSearch.loading;
@@ -925,9 +958,12 @@ function App() {
     const row = all[nextUpIndex(all, episodeGroups, progress, progress?.lastProvider ?? (provider === "auto" ? saved?.lastProvider ?? selectedAnime?.provider : provider) ?? "aniwave")];
     return row ? all.find((item) => !item.watched && item.number === row.number) ?? row : undefined;
   }, [episodeGroups, progress, selectedAnime, provider, appState.bookmarks]);
+  useSearchMorph(searchBox, searchSurface, paletteOpen);
+  // The current section's fill moves between the nav icons; screens outside the nav let it fade.
+  useIndicator(navRef, navIndicator, ":scope > button.on", screen === "catalog-detail" ? "browse" : screen);
   // The update notice lives in Settings; a dot on the gear is its only sign elsewhere.
   const navIcon = (target: Screen, name: "home" | "browse" | "bookmark" | "clock" | "gear", text: string, badge = false) => (
-    <button type="button" className={screen === target || (target === "browse" && screen === "catalog-detail") ? "on" : ""} title={badge ? `${text} · update available` : text} onClick={() => go(target)}><Icon name={name} />{badge && <i className="nav-badge" aria-hidden="true" />}<span className="sr-only">{badge ? `${text}, update available` : text}</span></button>
+    <button type="button" className={screen === target || (target === "browse" && screen === "catalog-detail") ? "on" : ""} title={badge ? `${text} · update available` : text} {...pressProps(() => go(target))}><Icon name={name} />{badge && <i className="nav-badge" aria-hidden="true" />}<span className="sr-only">{badge ? `${text}, update available` : text}</span></button>
   );
 
   return (
@@ -937,7 +973,8 @@ function App() {
         <div className="brand">
           <button type="button" className="logo" onClick={() => { go("home"); setQuery(""); catalogSearch.clear(); }} aria-label="Home">ANI<em>desktop</em></button>
         </div>
-        <div className={`searchbox ${paletteOpen ? "open" : ""}`}>
+        <div className={`searchbox ${paletteOpen ? "open" : ""}`} ref={searchBox}>
+          <i className="omni-surface" ref={searchSurface} aria-hidden="true" />
           {screen === "settings" || screen === "player" || screen === "browse" || screen === "catalog-detail" || screen === "notifications"
             ? <button type="button" className="search as-button" onClick={() => { go("home"); }}><Icon name="search" /><span>Search anime</span><kbd>{shortcut("K")}</kbd></button>
             : <label className="search">
@@ -962,12 +999,13 @@ function App() {
               onOpen={(anime) => void openAnime(anime)} onFocus={setCursor} />
           )}
         </div>
-        <nav className="icons" aria-label="Sections">
+        <nav className="icons" aria-label="Sections" ref={navRef}>
+          <i className="nav-ind" ref={navIndicator} aria-hidden="true" />
           {navIcon("home", "home", "home")}
           {navIcon("browse", "browse", "browse")}
           {navIcon("saved", "bookmark", "saved")}
           {navIcon("recent", "clock", "recent")}
-          <button type="button" className={`episode-updates-trigger${screen === "notifications" ? " on" : ""}`} aria-label={`Notifications, ${episodeUpdateStatus?.unreadCount ?? 0} unread`} aria-expanded={episodeInboxOpen} onClick={() => { if (screen === "player") { void window.aniDesktop.player.setFullscreen(false).catch(() => undefined); setScreen("home"); } setEpisodeInboxOpen((open) => !open); }}><Icon name="bell" key={`bell-${episodeArrivals}`} className={episodeArrivals ? "bell-ring" : undefined} />{Boolean(episodeUpdateStatus?.unreadCount) && <span key={`count-${episodeArrivals}`} className={`episode-update-count${episodeArrivals ? " bump" : ""}`}>{episodeUpdateStatus!.unreadCount}</span>}</button>
+          <button type="button" className={`episode-updates-trigger${screen === "notifications" ? " on" : ""}`} aria-label={`Notifications, ${episodeUpdateStatus?.unreadCount ?? 0} unread`} aria-expanded={episodeInboxOpen} onClick={() => { if (screen === "player") { void window.aniDesktop.player.setFullscreen(false).catch(() => undefined); setScreen("home"); } setEpisodeInboxOpen((open) => !open); }}><Icon name="bell" />{Boolean(episodeUpdateStatus?.unreadCount) && <span key={`count-${episodeArrivals}`} className={`episode-update-count${episodeArrivals ? " bump" : ""}`}>{episodeUpdateStatus!.unreadCount}</span>}</button>
           {navIcon("settings", "gear", "settings", updatePending(updateStatus))}
         </nav>
       </header>

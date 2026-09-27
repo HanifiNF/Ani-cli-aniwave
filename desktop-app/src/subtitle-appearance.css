@@ -1,16 +1,16 @@
 /* Subtitle appearance: a disclosure row in Playback, and the same rows in the player's dialog. */
 /* The still is a dark frame tinted by the theme, so it sits with the page and stays dark under a light theme. */
-.subtitle-preview { position: relative; height: 112px; overflow: hidden; background: linear-gradient(135deg, color-mix(in oklab, #1a1a1a, var(--text) 22%), color-mix(in oklab, #000, var(--bg) 40%)); }
-.subtitle-preview-tag { position: absolute; top: 10px; left: 14px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: rgb(255 255 255 / 55%); }
-.subtitle-sample { position: absolute; left: 5%; right: 5%; bottom: calc(14px + var(--app-subtitle-bottom-inset)); text-align: center; color: var(--app-subtitle-color); font-family: var(--app-subtitle-font); font-size: calc(20px * var(--app-subtitle-size)); font-weight: 500; line-height: 1.3; text-shadow: var(--app-subtitle-shadow); transition: color .2s, font-size .22s var(--ease), bottom .22s var(--ease), text-shadow .2s; }
-.subtitle-sample > span { transition: background .2s; background: var(--app-subtitle-background-resolved); padding: .1em .35em; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.subtitle-preview { position: relative; height: 112px; overflow: hidden; background: color-mix(in oklab, #000 70%, var(--bg)); }
+.subtitle-preview-tag { position: absolute; top: 10px; left: 14px; font-size: 12px; font-weight: 500; color: rgb(255 255 255 / 55%); }
+.subtitle-sample { position: absolute; left: 5%; right: 5%; bottom: calc(14px + var(--app-subtitle-bottom-inset)); text-align: center; color: var(--app-subtitle-color); font-family: var(--app-subtitle-font); font-size: calc(20px * var(--app-subtitle-size)); font-weight: 500; line-height: 1.3; text-shadow: var(--app-subtitle-shadow); transition: color var(--t-snap), font-size var(--t-glide), bottom var(--t-glide), text-shadow var(--t-snap); }
+.subtitle-sample > span { transition: background var(--t-snap); background: var(--app-subtitle-background-resolved); padding: .1em .35em; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 /* On the row the sample sits where a control would, at the height of a text field; the raise nudges it up within the well. */
-.subtitle-thumb { display: grid; place-items: center; width: 168px; height: 34px; border-radius: 8px; flex: none; }
+.subtitle-thumb { display: grid; place-items: center; width: 168px; height: 34px; border-radius: var(--radius-sm); flex: none; }
 .subtitle-thumb .subtitle-sample { position: relative; left: auto; right: auto; bottom: var(--app-subtitle-bottom-inset); font-size: calc(13px * var(--app-subtitle-size)); line-height: 1; white-space: nowrap; }
 
-.group .r.subtitle-row { width: 100%; text-align: left; color: inherit; cursor: pointer; transition: background .16s; }
+.group .r.subtitle-row { width: 100%; text-align: left; color: inherit; cursor: pointer; transition: background var(--t-snap); }
 .group .r.subtitle-row:hover { background: color-mix(in oklab, var(--raised), var(--text) 3%); }
-.subtitle-chevron { color: var(--muted); transition: transform .3s var(--ease); }
+.subtitle-chevron { color: var(--muted); transition: transform var(--t-glide); }
 .subtitle-row[aria-expanded="true"] .subtitle-chevron { transform: rotate(180deg); }
 .subtitle-body > .subtitle-editor { border-top: 1px solid var(--rule); }
 .subtitle-body { background: color-mix(in oklab, var(--raised), var(--bg) 35%); }
@@ -18,24 +18,24 @@
 .subtitle-body .r:first-child { border-top: 0; }
 .subtitle-body .r .k { font-size: 13px; }
 .subtitle-editor .r[data-disabled="true"] .k { color: var(--muted); }
-.subtitle-editor .r :is(.stepper, .subtitle-swatch) { transition: opacity .18s; }
+.subtitle-editor .r :is(.stepper, .subtitle-swatch) { transition: opacity var(--t-snap); }
 .subtitle-editor .r[data-disabled="true"] :is(.stepper, .subtitle-swatch) { opacity: .45; }
 .subtitle-note { color: var(--muted); font-size: 12px; }
 
-.stepper { display: inline-flex; align-items: center; height: 30px; border-radius: 8px; background: var(--bg); overflow: hidden; }
+.stepper { display: inline-flex; align-items: center; height: 30px; border-radius: var(--radius-sm); background: var(--bg); overflow: hidden; }
 .stepper button { width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); }
 .stepper button:hover:not(:disabled) { color: var(--text); background: var(--raised2); }
 .stepper button:disabled { color: var(--dim); cursor: default; }
-.stepper button:focus-visible { outline-offset: -2px; border-radius: 6px; }
-.stepper-value { display: inline-block; animation: word-in .18s var(--ease) both; }
+.stepper button:focus-visible { outline-offset: -2px; border-radius: var(--radius-sm); }
+.stepper-value { display: inline-block; animation: swap-in var(--t-snap) both; }
 .stepper output { min-width: 52px; overflow: hidden; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .colour-dots { display: inline-flex; gap: 6px; align-items: center; margin-right: 4px; }
-.colour-dots button { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--rule); transition: box-shadow .16s, transform .16s; }
+.colour-dots button { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--rule); transition: box-shadow var(--t-snap), transform var(--t-snap); }
 .colour-dots button:active { transform: scale(.9); }
 .colour-dots button.on { box-shadow: 0 0 0 2px var(--raised), 0 0 0 3.5px var(--cursor); }
 .subtitle-swatch { height: 30px; }
-.subtitle-swatch > span { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+.subtitle-swatch > span { font: 12px var(--font); font-variant-numeric: tabular-nums; color: var(--muted); }
 .subtitle-custom.on .subtitle-swatch { box-shadow: inset 0 0 0 1.5px var(--cursor); }
 .subtitle-swatch input:disabled { cursor: default; }
 .btn.ghost { background: none; color: var(--muted); }
