@@ -17,6 +17,7 @@ const PATHS = {
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   progress: <path d="M12 4a8 8 0 0 1 8 8" />,
   x: <path d="M6 6l12 12M18 6 6 18" />,
+  plus: <path d="M12 5v14M5 12h14" />,
   trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></>,
   copy: <><rect x="9" y="9" width="11" height="11" rx="2.5" /><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15" /></>,
   up: <path d="M12 19V5M6 11l6-6 6 6" />,

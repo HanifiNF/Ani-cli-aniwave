@@ -48,7 +48,7 @@ export function SubtitlePreview({ value, thumb = false }: { value: SubtitleAppea
   </div>;
 }
 
-function Stepper({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
+export function Stepper({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
   const clamp = (next: number) => Math.min(max, Math.max(min, next));
   // Values off the step (an older file, say) move to the next step rather than staying off it.
   const down = clamp(Math.ceil((value - step) / step) * step);

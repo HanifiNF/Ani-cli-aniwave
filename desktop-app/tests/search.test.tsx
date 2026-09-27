@@ -206,14 +206,15 @@ describe("companion contextual dialogue", () => {
   });
   it("previews and saves the companion size from Settings", async () => {
     await click("Settings");
-    const slider = container.querySelector<HTMLInputElement>('#companion-size')!;
-    expect(slider.value).toBe("100");
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "200");
-      slider.dispatchEvent(new Event("input", { bubbles: true }));
-      slider.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(container.querySelector("output[for=companion-size]")?.textContent).toBe("200%");
+    const row = container.querySelector<HTMLButtonElement>('[aria-controls="companion-editor"]')!;
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => row.click());
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    const increase = container.querySelector<HTMLButtonElement>('[aria-label="Increase companion size"]')!;
+    for (let step = 0; step < 10; step++) await act(async () => increase.click());
+    expect(container.querySelector('[aria-label="Companion size"] output')?.textContent).toBe("200%");
+    expect(increase.disabled).toBe(true);
+    expect(row.textContent).toContain("200%");
     expect(container.querySelector<HTMLElement>(".companion-pet")?.style.width).toBe("192px");
     await advance(450);
     expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ companionSize: 200 }));
@@ -389,7 +390,7 @@ describe("live catalog search", () => {
     const page = container.querySelector<HTMLElement>(".page-settings")!;
     const headings = [...container.querySelectorAll<HTMLElement>('.settings .group h3[id^="settings-"]')];
     const nav = container.querySelector<HTMLElement>('.settings-section-nav')!;
-    expect(headings.map((heading) => heading.textContent)).toEqual(["Playback", "Defaults", "Appearance", "Anime information", "Episode metadata", "Sources", "Episode updates", "Updates"]);
+    expect(headings.map((heading) => heading.textContent)).toEqual(["Playback", "Defaults", "Appearance", "Companion", "Anime information", "Episode metadata", "Sources", "Episode updates", "Updates"]);
     expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(headings.map((heading) => heading.textContent));
     const positions = new Map(headings.map((heading, index) => [heading.id, 120 + index * 200]));
     vi.spyOn(page, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);

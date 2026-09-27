@@ -78,21 +78,40 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .companion-bubble.has-action { width: min(280px, calc(100vw - 24px)); display: grid; grid-template-columns: 1fr auto; align-items: center; }
 .companion-bubble.has-action span { grid-column: 1 / -1; }
 .companion-bubble .companion-action { align-self: center; padding: 5px 8px; border-radius: 6px; background: var(--cursor); color: var(--cursor-text); font-size: 12px; font-weight: 650; }
-.companion-size-control { display: flex; align-items: center; gap: 12px; min-width: 220px; }
-.companion-size-control input { width: 180px; accent-color: var(--cursor); }
-.companion-size-control output { min-width: 3.5ch; color: var(--muted); font-variant-numeric: tabular-nums; }
-.companion-choices { display: flex; flex-wrap: wrap; gap: 10px; }
-.companion-choice { min-width: 118px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; border-radius: 10px; border: 1px solid var(--rule); background: var(--raised); }
-.companion-choice.on { border-color: var(--cursor); color: var(--cursor); }
-.companion-choice-art { display: block; width: 96px; height: 104px; background-size: 768px 936px; background-position: 0 0; background-repeat: no-repeat; }
-.companion-custom-entry { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.companion-choice-initial { width: 96px; height: 104px; display: grid; place-items: center; font-size: 32px; color: var(--muted); }
-.companion-import-error { color: var(--danger); }
-.companion-guide { color: var(--muted); }
-.companion-guide details { width: 100%; }
-.companion-guide summary { cursor: pointer; color: var(--text); }
-.companion-guide p { max-width: 66ch; }
-.companion-example-sheet { display: block; width: min(300px, 100%); height: auto; background: var(--raised); border-radius: 8px; }
+/* Settings: the Companion section. One disclosure row, as Subtitle appearance, opens the picker and the behaviour rows. */
+.group .r.disclosure-row { width: 100%; text-align: left; color: inherit; cursor: pointer; transition: background var(--t-snap); }
+.group .r.disclosure-row:hover { background: color-mix(in oklab, var(--raised), var(--text) 3%); }
+.disclosure-chevron { width: 16px; height: 16px; color: var(--muted); transition: transform var(--t-glide); }
+.disclosure-row[aria-expanded="true"] .disclosure-chevron { transform: rotate(180deg); }
+.disclosure-body { background: color-mix(in oklab, var(--raised), var(--bg) 35%); }
+.disclosure-body > .companion-editor { border-top: 1px solid var(--rule); }
+.group .disclosure-body .r { padding: 11px 18px 11px 30px; }
+.group .disclosure-body .r:first-child { border-top: 0; }
+.disclosure-body .r .k { font-size: 13px; }
+/* The face sits where a control would, at the height of a text field. */
+.companion-face { width: 34px; height: 34px; flex: none; border-radius: var(--radius-sm); background-color: var(--bg); background-repeat: no-repeat; background-size: calc(1536px * .27) calc(1872px * .27); background-position: -9px 0; }
+.companion-face.initial, .companion-initial { display: grid; place-items: center; color: var(--muted); font-size: 15px; }
+.companion-initial { align-self: center; font-size: 22px; }
+.companion-sprite { display: block; width: calc(var(--h) * 192 / 208); height: var(--h); margin-bottom: -2px; background-repeat: no-repeat; background-size: calc(var(--h) * 1536 / 208) calc(var(--h) * 9); background-position: 0 0; }
+.tile.companion-tile .prev { display: grid; place-items: end center; height: 72px; padding: 0; background: var(--bg); }
+.companion-tile:disabled { cursor: default; opacity: .5; }
+.tile.companion-tile.add .prev { place-items: center; color: var(--muted); transition: color var(--t-snap), border-color var(--t-snap); }
+.companion-tile.add .prev .icon { width: 18px; height: 18px; }
+.companion-tile.add:hover .prev, .companion-tile.add[aria-expanded="true"] .prev { color: var(--text); border-color: var(--dim); }
+/* A custom tile and its remove button share one grid cell, so the tiles stay the ring's offset parent's children. */
+.companion-slot { display: grid; }
+.companion-slot > * { grid-area: 1 / 1; }
+.companion-remove { z-index: 2; justify-self: end; align-self: start; display: grid; place-items: center; width: 22px; height: 22px; margin: 5px; border-radius: 5px; color: var(--muted); background: var(--raised); opacity: 0; transition: opacity var(--t-snap), color var(--t-snap); }
+.companion-remove .icon { width: 12px; height: 12px; }
+.companion-remove:hover { color: var(--text); }
+.companion-slot:hover .companion-remove, .companion-slot[data-missing] .companion-remove, .companion-remove:focus-visible { opacity: 1; }
+.group .companion-import > .r:first-child { border-top: 1px solid var(--rule); }
+.companion-import .v-row input { width: 200px; height: 30px; padding: 0 12px; border-radius: var(--radius-sm); background: var(--bg); font-size: 13px; }
+.companion-import-error { color: var(--danger); font-size: 13px; }
+.companion-guide { padding: 0 18px 14px 30px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.companion-guide p { margin: 0 0 8px; max-width: 66ch; }
+.companion-guide b { color: var(--text); font-weight: 500; }
+.companion-example-sheet { display: block; width: min(160px, 100%); height: auto; margin: 0 0 8px; background: var(--bg); border-radius: var(--radius-sm); }
 @media (prefers-reduced-motion: reduce) { .companion-pet:hover { transform: none; } }
 .page { flex: 1; min-height: 0; overflow: auto; padding: 8px var(--gutter) var(--page-pad-bottom); scrollbar-gutter: stable; display: flex; flex-direction: column; }
 /* ---- top bar ---------------------------------------------------------- */
@@ -648,6 +667,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .settings > .group { animation: rise var(--enter) both; animation-delay: calc(var(--n, 0) * var(--stagger)); }
 .settings > .group:nth-child(3) { --n: 1; } .settings > .group:nth-child(4) { --n: 2; } .settings > .group:nth-child(5) { --n: 3; }
 .settings > .group:nth-child(6) { --n: 4; } .settings > .group:nth-child(7) { --n: 5; } .settings > .group:nth-child(8) { --n: 6; }
+.settings > .group:nth-child(9) { --n: 7; } .settings > .group:nth-child(10) { --n: 8; }
 /* Reveal: the row track grows from nothing, so the height animates without being measured. */
 .reveal { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows var(--t-glide), visibility 0s linear var(--spring-glide-ms, 400ms); }
 .reveal[data-open="true"] { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows var(--t-glide), visibility 0s; }
@@ -668,6 +688,9 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .group .r .v-row { display: flex; align-items: center; gap: 12px; }
 .group .r .btn:not(.primary) { background: var(--bg); }
 .group .r .btn:not(.primary):hover:not(:disabled) { background: var(--raised2); }
+/* Ghost buttons stay bare in a row until hovered. */
+.group .r .btn.ghost { background: none; color: var(--muted); white-space: nowrap; }
+.group .r .btn.ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
 .group .r.stack { flex-direction: column; align-items: stretch; gap: 12px; }
 .tiles { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
 /* The selection ring moves between the tiles on two edges. */
@@ -780,7 +803,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
   .browse-none, .browse-reading, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .typeahead-list, .browse-ghosts .ghost { animation: none; }
   .browse-search, .browse-search .clear, .browse-suggest button, .browse-sort, .browse-steps, .token button, .browse-grid, .browse-grid .card, .card .poster img, .browse-toggle .icon { transition: none; }
   .browse .reveal[data-open="true"] > .reveal-inner { overflow: visible; }
-  .reveal, .reveal-inner, .chips button, .settings-section-nav button, .subtitle-sample, .subtitle-sample > span, .subtitle-chevron, .subtitle-editor .r :is(.stepper, .subtitle-swatch), .colour-dots button { transition: none !important; }
+  .reveal, .reveal-inner, .chips button, .settings-section-nav button, .subtitle-sample, .subtitle-sample > span, .subtitle-chevron, .disclosure-chevron, .companion-remove, .companion-tile.add .prev, .subtitle-editor .r :is(.stepper, .subtitle-swatch), .colour-dots button { transition: none !important; }
   .settings > .group, .settings-section-nav, .stepper-value, .update-notice, .nav-badge { animation: none; }
   .episode-updates-panel, .notification-preview, .notification-card, .notifications-page-head, .notification-empty, .notifications-unread-count > span, .episode-update-count { animation: none; }
   .notification-preview, .notification-card, .notification-card::after, .notification-dot, .notification-card-actions button, .notification-card.read .notification-mark-read, .notification-panel-actions button, .notification-preview-foot button, .episode-updates-view-all { transition: none; }
