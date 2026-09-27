@@ -52,6 +52,12 @@ const SEQUENCES = {
     ["await rec.tap('.series .crumb')", 1600],
     ["", 200],
   ],
+  // A Browse card (AniList cover) opens a series showing another picture: the flyer crossfades in the air, both ways.
+  "browse-poster": [
+    ["await rec.tap('[title=browse]')", 2200],
+    ["await rec.tap([...document.querySelectorAll('.browse-grid .card')].find((c) => /Frieren/.test(c.textContent)).querySelector('.hit'))", 2400],
+    ["await rec.tap('.series .crumb')", 1400],
+  ],
   controls: [
     ["await rec.tap('[title=settings]')", 1000],
     ["await rec.tap('[aria-label=\"Start fullscreen\"]')", 700],

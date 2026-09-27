@@ -5,7 +5,9 @@ import { Spring, motionAllowed } from "./motion";
   back flies the series poster home to the very card that opened it (the Saved card stays the Saved card, even when
   the title also sits in Continue watching). The flyer is a copy of the image on four springs, one per side of its
   rectangle, on the flight preset (the glide's shape, 20% quicker); a new destination mid-flight (Escape while it is
-  still moving) turns it from where it is, at its speed.
+  still moving) turns it from where it is, at its speed. When the destination shows a different picture (a Browse card's
+  AniList cover opening a series that shows the streaming site's), the flyer crossfades to it in the air, and it hands
+  over only once it shows what the destination shows, waiting a moment for a picture that is still loading.
 
   Cards take part by carrying data-origin (unique within their group) inside an element with data-origin-group
   (a section, the Browse grid, the search results, the notifications list). A scrolling list inside the page (the
@@ -17,12 +19,19 @@ interface Rect { x: number; y: number; w: number; h: number }
 const KEYS = ["x", "y", "w", "h"] as const;
 const FRESH = 1_500; // A launch that finds no destination this soon is dropped.
 const WAIT = 700; // How long a return waits for its card on a page that fills in asynchronously.
+const HOLD = 700; // How long a landed poster waits for its destination's picture to load before handing over.
 const POSTER = ":is(.poster, .thumb, .notification-poster)";
 
 let origin: { rect: Rect; src?: string; at: number; back?: string } | undefined;
 /** Where the open series came from, as a selector for its card; set when the series poster receives a launch. */
 let cameFrom: string | undefined;
-interface Flight { node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement }
+interface Flight {
+  node: HTMLElement; springs: Record<(typeof KEYS)[number], Spring>; target?: HTMLElement;
+  /** The picture the flyer shows (or is crossfading to), and whether a crossfade is running. */
+  src?: string; fading?: boolean;
+  /** When the springs first came to rest with the destination's picture still loading. */
+  rest?: number;
+}
 let flight: Flight | undefined;
 let waiting: { selectors: string[]; at: number } | undefined;
 /** Scroll positions of the lists around the card that opened the title: taken at the launch, kept with the title, restored on return. */
@@ -52,6 +61,33 @@ function reveal(target: Element) {
 
 const rectOf = (element: Element): Rect => { const r = element.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
 const imageOf = (element: Element) => (element instanceof HTMLImageElement ? element : element.querySelector("img"))?.currentSrc || undefined;
+
+/** The destination's picture once it is showing, "" while it loads, undefined when it has none. */
+function pictureOf(element: Element): string | undefined {
+  const image = element instanceof HTMLImageElement ? element : element.querySelector("img");
+  if (!image) return undefined;
+  const ready = image.complete && image.naturalWidth > 0 && (!image.closest(".art") || image.classList.contains("in"));
+  return ready ? image.currentSrc || image.src : "";
+}
+
+/** Lays the new picture over the flyer's and blurs it in; the pictures underneath go once it is in. */
+function crossfade(current: Flight, src: string) {
+  current.src = src; current.fading = true;
+  const image = document.createElement("img");
+  image.src = src; image.alt = ""; image.className = "flyer-in";
+  const done = () => {
+    if (flight !== current || current.src !== src) return;
+    for (const old of [...current.node.querySelectorAll("img")]) if (old !== image) old.remove();
+    current.fading = false;
+    arrive(current);
+  };
+  // The destination has already loaded this picture, so decoding is quick; it keeps a blank frame out of the fade.
+  void image.decode().catch(() => undefined).then(() => {
+    if (flight !== current || current.src !== src) return;
+    image.addEventListener("animationend", done, { once: true });
+    current.node.append(image);
+  });
+}
 
 /** The selector that finds this card again after its page is rebuilt. */
 function cardSelector(element: Element): string | undefined {
@@ -145,7 +181,7 @@ export function land(target: HTMLElement | null): void {
     if (origin!.src) { const image = document.createElement("img"); image.src = origin!.src; image.alt = ""; node.append(image); }
     document.body.append(node);
     const from = origin!.rect;
-    const created: Flight = { node, springs: {} as Flight["springs"] };
+    const created: Flight = { node, springs: {} as Flight["springs"], src: origin!.src };
     const apply = () => {
       if (flight !== created) return;
       follow(created);
@@ -164,10 +200,15 @@ export function land(target: HTMLElement | null): void {
   for (const key of KEYS) current.springs[key].to(to[key], { done: () => arrive(current) });
 }
 
-/** Moves the springs' targets to where the destination is drawn now; a spring already at rest sets off again. */
+/**
+  Moves the springs' targets to where the destination is drawn now (a spring already at rest sets off again), and starts
+  a crossfade when the destination shows a picture the flyer does not.
+*/
 function follow(current: Flight) {
   const target = current.target;
   if (!target?.isConnected) return;
+  const picture = pictureOf(target);
+  if (picture && picture !== current.src) crossfade(current, picture);
   const now = rectOf(target);
   for (const key of KEYS) {
     const spring = current.springs[key];
@@ -177,7 +218,7 @@ function follow(current: Flight) {
   }
 }
 
-/** The flight ends when every side of the rectangle has come to rest on the destination. */
+/** The flight ends when every side of the rectangle has come to rest on the destination, showing its picture. */
 function arrive(current: Flight) {
   if (flight !== current || KEYS.some((key) => current.springs[key].moving)) return;
   const target = current.target;
@@ -185,6 +226,12 @@ function arrive(current: Flight) {
     // One last look: if the page moved in the final frame, keep flying.
     follow(current);
     if (KEYS.some((key) => current.springs[key].moving)) return;
+    // A running crossfade calls back when it ends; a picture still loading gets a moment before the flyer lets go.
+    if (current.fading) return;
+    if (target.isConnected && pictureOf(target) === "" && performance.now() - (current.rest ??= performance.now()) < HOLD) {
+      requestAnimationFrame(() => arrive(current));
+      return;
+    }
     target.style.visibility = "";
     target.closest(".card")?.removeAttribute("data-shared");
   }

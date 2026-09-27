@@ -62,6 +62,8 @@ export interface Work {
   episodes?: number;
   /** Bound by title matching only; a reference or a manual merge clears this. */
   tentative?: boolean;
+  /** The streaming site's cover, so an opening that reuses these records without searching shows the same picture. */
+  poster?: string;
   updatedAt: string;
 }
 

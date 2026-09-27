@@ -40,10 +40,12 @@ export function rememberedBrowseAnime(anime: BrowseIdentity & { cover?: string }
   const providers = enabledProviders(settings);
   const candidates = works.filter((work) => !work.tentative && !conflictingRefs(anime.refs, work.refs)
     && work.refs.some((ref) => anime.refs.includes(ref))).flatMap((work): AnimeResult[] => {
-    const sources = work.records.filter((id) => providers.includes(providerFromId(id))).map((id) => ({
-      id, provider: providerFromId(id), title: work.title, aliases: [], refs: work.refs, type: work.type, year: work.year
+    // The site's cover remembered with the work keeps a reopening on the picture the first opening showed.
+    const poster = work.poster ?? anime.cover;
+    const sources = work.records.filter((id) => providers.includes(providerFromId(id))).map((id, index) => ({
+      id, provider: providerFromId(id), title: work.title, aliases: [], refs: work.refs, type: work.type, year: work.year, ...(work.poster && index === 0 ? { poster } : {})
     }));
-    return sources.length ? [{ ...sources[0], sources, workId: work.id, poster: anime.cover }] : [];
+    return sources.length ? [{ ...sources[0], sources, workId: work.id, poster }] : [];
   });
   return browseMatch(anime, candidates);
 }

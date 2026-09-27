@@ -15,7 +15,7 @@ import { normalizeSubtitleAppearance, validateSubtitleAppearance } from "../shar
 import type { SubtitleAppearance } from "../shared/contracts";
 
 /** Bindings that should become or extend a remembered work. */
-export interface Binding { ids: string[]; refs?: string[]; title?: string; sources?: AnimeSource[]; tentative?: boolean; type?: unknown; year?: unknown; episodes?: unknown; }
+export interface Binding { ids: string[]; refs?: string[]; title?: string; sources?: AnimeSource[]; tentative?: boolean; type?: unknown; year?: unknown; episodes?: unknown; poster?: unknown; }
 
 function normalizePoster(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 2048) return undefined;
@@ -42,9 +42,9 @@ function normalizeWork(value: unknown): Work | undefined {
   const records = Array.isArray(raw.records) ? unique(raw.records.filter(isProviderId)) : [];
   const refs = Array.isArray(raw.refs) ? unique(raw.refs.filter(isRef)) : [];
   if (!records.length && !refs.length) return undefined;
-  const type = mediaTypeOf(raw.type), year = yearOf(raw.year), episodes = positiveInteger(raw.episodes);
+  const type = mediaTypeOf(raw.type), year = yearOf(raw.year), episodes = positiveInteger(raw.episodes), poster = normalizePoster(raw.poster);
   return { id: raw.id, title: raw.title, records, refs, updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date(0).toISOString(),
-    ...(type ? { type } : {}), ...(year ? { year } : {}), ...(episodes ? { episodes } : {}), ...(raw.tentative === true ? { tentative: true } : {}) };
+    ...(type ? { type } : {}), ...(year ? { year } : {}), ...(episodes ? { episodes } : {}), ...(raw.tentative === true ? { tentative: true } : {}), ...(poster ? { poster } : {}) };
 }
 
 export function normalizeEntry(entry: LibraryEntry): LibraryEntry {
@@ -331,7 +331,7 @@ export class StateStore {
       const sources = animeSources(row);
       const refs = unique([...(row.refs ?? []), ...sources.flatMap((source) => source.refs ?? [])]);
       if (sources.length < 2 && !refs.length) continue;
-      changed = this.applyBinding({ ids: sources.map((source) => source.id), refs, title: row.title, sources }) || changed;
+      changed = this.applyBinding({ ids: sources.map((source) => source.id), refs, title: row.title, sources, poster: row.poster }) || changed;
     }
     if (changed) await this.persist();
     return changed;
@@ -345,8 +345,12 @@ export class StateStore {
     const touching = works.filter((work) => work.records.some((id) => ids.includes(id)) || work.refs.some((value) => refs.includes(value)));
     const records = unique([...touching.flatMap((work) => work.records), ...ids]);
     const combinedRefs = unique([...touching.flatMap((work) => work.refs), ...refs]);
+    // The site's latest cover replaces an older one: it is what search shows for the title now.
+    const bound = binding.sources?.filter((source) => ids.includes(source.id)) ?? [];
+    const found = normalizePoster(binding.poster) ?? normalizePoster((bound.find((source) => source.provider === "aniwave" && source.poster) ?? bound.find((source) => source.poster))?.poster);
+    const poster = found ?? touching.find((work) => work.poster)?.poster;
     const unchanged = touching.length === 1 && touching[0].records.length === records.length && touching[0].refs.length === combinedRefs.length
-      && (!touching[0].tentative || binding.tentative === true);
+      && (!touching[0].tentative || binding.tentative === true) && touching[0].poster === poster;
     if (unchanged) return false;
     const title = binding.title?.trim() || touching[0]?.title || binding.sources?.find((source) => ids.includes(source.id))?.title || ids[0];
     const type = mediaTypeOf(binding.type) ?? touching.find((work) => work.type)?.type;
@@ -354,7 +358,7 @@ export class StateStore {
     const episodes = positiveInteger(binding.episodes) ?? touching.find((work) => work.episodes)?.episodes;
     const tentative = binding.tentative === true && !combinedRefs.length && touching.every((work) => work.tentative);
     const work: Work = { id: touching[0]?.id ?? newWorkId(), title: title.slice(0, 240), refs: combinedRefs, records, updatedAt: new Date().toISOString(),
-      ...(type ? { type } : {}), ...(year ? { year } : {}), ...(episodes ? { episodes } : {}), ...(tentative ? { tentative: true } : {}) };
+      ...(type ? { type } : {}), ...(year ? { year } : {}), ...(episodes ? { episodes } : {}), ...(tentative ? { tentative: true } : {}), ...(poster ? { poster } : {}) };
     this.state.works = [...works.filter((item) => !touching.includes(item)), work];
     this.trimWorks();
     // Library entries for this anime learn the bound records too, so opening them later starts with every source.

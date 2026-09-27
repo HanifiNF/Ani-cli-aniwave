@@ -39,7 +39,11 @@ records the real renderer, both at true speed.
   card's or search row's poster flies to the series poster and, on the way back, to the very card that opened it
   (`src/flight.ts`: cards carry `data-origin` inside a `data-origin-group`, so a Saved card stays the Saved card even when
   the title is also in Continue watching, with another card for the title as the fallback; the landing spot is read every
-  frame, so scrolling while the poster is in the air carries it along; the Browse detail page takes part like a series). A
+  frame, so scrolling while the poster is in the air carries it along; the Browse detail page takes part like a series). When
+  the destination shows a different picture (a Browse card's AniList cover, a series showing the streaming site's), the
+  flyer blurs across to it in the air and lets go only once the two match, waiting briefly for a picture still loading.
+  The site's cover is remembered with the title's match (`Work.poster`), so reopening from Browse shows the same picture
+  as the first opening. A
   scrolling list inside a page (the search results) carries `data-scroll-memory`: its scroll is kept with the title and put
   back on return, and a row still partly hidden is scrolled just into view before the poster lands. Going back to search
   results reopens the palette already open, so the row is in place when the poster arrives. The player grows out of
