@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WatchCompanion from "../src/WatchCompanion";
 import { DEFAULT_STATE } from "../shared/settings";
+import { companionFrame } from "../shared/companion";
 
 describe("watch companion overlay", () => {
   let container: HTMLDivElement;
@@ -41,6 +42,27 @@ describe("watch companion overlay", () => {
     expect(onHomeChange).toHaveBeenCalledTimes(2);
     await act(async () => pet.click());
     expect(container.querySelector(".companion-bubble")).not.toBeNull();
+  });
+  it("faces the way it is being carried, not the way from where it was picked up", async () => {
+    await act(async () => root.render(<WatchCompanion settings={{ ...DEFAULT_STATE.settings, companionWander: false }} screen="home" fullscreen={false} corner="bottom-right" dockedPlayer={false} />));
+    const pet = container.querySelector<HTMLButtonElement>(".companion-pet")!;
+    const pointer = (type: string, x: number, y: number) => {
+      const event = new Event(type, { bubbles: true }) as PointerEvent;
+      Object.defineProperties(event, { pointerId: { value: 1 }, button: { value: 0 }, clientX: { value: x }, clientY: { value: y } });
+      pet.dispatchEvent(event);
+    };
+    const row = () => pet.style.backgroundPosition.split(" ")[1];
+    const scale = (DEFAULT_STATE.settings.companionSize ?? 100) / 100;
+    const rowOf = (animation: "run-left" | "run-right") => `${-companionFrame(animation, 0).y / 2 * scale}px`;
+    await act(async () => { pointer("pointerdown", 30, 100); pointer("pointermove", 90, 100); });
+    expect(row()).toBe(rowOf("run-right"));
+    // Back towards the pickup point, while still to its right.
+    await act(async () => pointer("pointermove", 70, 100));
+    expect(row()).toBe(rowOf("run-left"));
+    // A one-pixel wobble and a straight lift keep the way it faces.
+    await act(async () => { pointer("pointermove", 71, 100); pointer("pointermove", 71, 40); });
+    expect(row()).toBe(rowOf("run-left"));
+    await act(async () => pointer("pointerup", 71, 40));
   });
   it("shows a selected custom sheet and falls back when that sheet is unavailable", async () => {
     const id = "custom:11111111-1111-4111-8111-111111111111" as const;

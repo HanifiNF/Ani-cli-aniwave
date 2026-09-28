@@ -5,6 +5,9 @@ import { CompanionDialogueGate, companionLine, type CompanionEvent } from "./com
 import CompanionBubble, { type BubbleCountdown, type BubblePlacement } from "./CompanionBubble";
 import { clampPoint, homeFromPosition, petSize, positionFromHome, wanderTarget, type Bounds, type Point, type Obstacle } from "./companion-motion";
 
+/** Pixels of sideways pointer travel that turn a carried pet. */
+const FACING_STEP = 3;
+
 interface Props {
   settings: Settings;
   screen: string;
@@ -32,7 +35,8 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
   const [bounds, setBounds] = useState<Bounds>(initialBounds);
   const [position, setPosition] = useState<Point>(() => positionFromHome(home, initialBounds(), dockedPlayer && corner.endsWith("left"), size));
   const positionRef = useRef(position);
-  const drag = useRef<{ pointerId: number; x: number; y: number; origin: Point; moved: boolean } | undefined>(undefined);
+  // `lastX` is where the pointer was when the pet last turned, so it faces the way it is being carried, not the way from the pickup point.
+  const drag = useRef<{ pointerId: number; x: number; y: number; origin: Point; moved: boolean; lastX: number } | undefined>(undefined);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const moveTo = (next: Point) => { positionRef.current = next; setPosition(next); };
@@ -238,8 +242,11 @@ export default function WatchCompanion({ settings, screen, fullscreen, corner, d
     <CompanionBubble message={line && { ...line, action }} countdown={countdown} placement={placement} onHold={setHeld}
       onAction={() => { if (activeEvent) onMessageAction?.(activeEvent); dismissMessage(false); }} onDismiss={() => dismissMessage()} />
     <button type="button" className="companion-pet" style={sprite} title={`Talk to or drag ${pet.name}`} aria-label={`Talk to or drag ${pet.name}`}
-      onPointerDown={(pointer) => { if (pointer.button !== 0) return; drag.current = { pointerId: pointer.pointerId, x: pointer.clientX, y: pointer.clientY, origin: positionRef.current, moved: false }; pointer.currentTarget.setPointerCapture?.(pointer.pointerId); setDragging(true); }}
-      onPointerMove={(pointer) => { const current = drag.current; if (!current || pointer.pointerId !== current.pointerId) return; const dx = pointer.clientX - current.x, dy = pointer.clientY - current.y; if (Math.hypot(dx, dy) < 6 && !current.moved) return; current.moved = true; moveTo(clampPoint({ x: current.origin.x + dx, y: current.origin.y + dy }, bounds, size)); setAnimation(dx >= 0 ? "run-right" : "run-left"); }}
+      onPointerDown={(pointer) => { if (pointer.button !== 0) return; drag.current = { pointerId: pointer.pointerId, x: pointer.clientX, y: pointer.clientY, origin: positionRef.current, moved: false, lastX: pointer.clientX }; pointer.currentTarget.setPointerCapture?.(pointer.pointerId); setDragging(true); }}
+      onPointerMove={(pointer) => { const current = drag.current; if (!current || pointer.pointerId !== current.pointerId) return; const dx = pointer.clientX - current.x, dy = pointer.clientY - current.y; if (Math.hypot(dx, dy) < 6 && !current.moved) return; current.moved = true; moveTo(clampPoint({ x: current.origin.x + dx, y: current.origin.y + dy }, bounds, size));
+        // A few pixels of sideways travel turn the pet, so a wobble or an upright carry keeps the way it faces.
+        const step = pointer.clientX - current.lastX;
+        if (Math.abs(step) >= FACING_STEP) { current.lastX = pointer.clientX; setAnimation(step > 0 ? "run-right" : "run-left"); } }}
       onPointerUp={(pointer) => finishDrag(pointer.pointerId)} onPointerCancel={(pointer) => finishDrag(pointer.pointerId)}
       onKeyDown={(key) => { const amount = key.shiftKey ? 32 : 16; const offset = key.key === "ArrowLeft" ? [-amount, 0] : key.key === "ArrowRight" ? [amount, 0] : key.key === "ArrowUp" ? [0, -amount] : key.key === "ArrowDown" ? [0, amount] : undefined; if (!offset) return; key.preventDefault(); const next = clampPoint({ x: positionRef.current.x + offset[0], y: positionRef.current.y + offset[1] }, bounds, size); moveTo(next); onHomeChange?.(homeFromPosition(next, bounds, size)); }}
       onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } talk(); }} />
