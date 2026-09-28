@@ -701,9 +701,9 @@ app.whenReady().then(async () => {
   app.exit(1);
 });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+// The app has one window, so closing it quits on every platform. This also finishes a macOS quit
+// that closed the window after its quit was reset, which otherwise leaves the app in the Dock.
+app.on("window-all-closed", () => app.quit());
 
 let flushingDiagnostics = false;
 app.on("before-quit", (event) => {
