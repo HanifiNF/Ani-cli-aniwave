@@ -68,6 +68,12 @@ const SEQUENCES = {
     ["", 600],
     ["await rec.tap('.page-home .card .hit')", 3400],
   ],
+  // Carrying the companion right, back left while still right of where it was picked up, then right again: it faces
+  // the way it is carried each time.
+  "companion-drag": [
+    ["", 500],
+    ["await rec.drag('.companion-pet', [[260, -60, 500], [-120, 0, 450], [90, -20, 400], [0, 0, 300]])", 700],
+  ],
   controls: [
     ["await rec.tap('[title=settings]')", 1000],
     ["await rec.tap('[aria-label=\"Start fullscreen\"]')", 700],
