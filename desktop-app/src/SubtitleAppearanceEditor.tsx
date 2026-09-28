@@ -71,11 +71,13 @@ function ColourSwatch({ label, value, disabled, onChange }: { label: string; val
  * The subtitle rows, in the settings idiom: chips, steppers, swatches, and a switch.
  * Renders inside a `.box`; the caller decides whether a preview sits above it.
  */
-export function SubtitleAppearanceEditor({ value, onChange, note }: { value: SubtitleAppearance; onChange: (value: SubtitleAppearance) => void; note?: ReactNode }) {
+/** `lead` holds rows that come before the appearance rows (the language, in Settings). */
+export function SubtitleAppearanceEditor({ value, onChange, note, lead }: { value: SubtitleAppearance; onChange: (value: SubtitleAppearance) => void; note?: ReactNode; lead?: ReactNode }) {
   const update = <K extends keyof SubtitleAppearance>(key: K, next: SubtitleAppearance[K]) => onChange({ ...value, [key]: next });
   const preset = TEXT_COLOURS.some((colour) => colour.value === value.textColor);
   return <div className="subtitle-editor">
     {note && <div className="r subtitle-note">{note}</div>}
+    {lead}
     <div className="r"><span className="k">Font</span><Chips value={value.font} options={FONTS} onChange={(font) => update("font", font)} /></div>
     <div className="r"><span className="k">Size</span><Stepper label="Subtitle size" value={value.size} min={50} max={200} step={10} onChange={(size) => update("size", size)} /></div>
     <div className="r"><span className="k">Colour</span><span className="v-row">
@@ -98,10 +100,13 @@ export function SubtitleAppearanceEditor({ value, onChange, note }: { value: Sub
   </div>;
 }
 
-/** The row in Playback: label and summary, then the live sample where a control would sit, and a chevron. Opens the editor beneath it. */
-export function SubtitleAppearanceRow({ value, open, onToggle }: { value: SubtitleAppearance; open: boolean; onToggle: () => void }) {
+/**
+  The row in Playback: label and summary (led by the subtitle language when given), then the live sample where a control
+  would sit, and a chevron. Opens the editor beneath it.
+*/
+export function SubtitleAppearanceRow({ value, language, open, onToggle }: { value: SubtitleAppearance; language?: string; open: boolean; onToggle: () => void }) {
   return <button type="button" className="r subtitle-row" aria-expanded={open} aria-controls="subtitle-editor" onClick={onToggle}>
-    <span className="k">Subtitle appearance<small>{subtitleSummary(value)}</small></span>
+    <span className="k">{language ? "Subtitles" : "Subtitle appearance"}<small>{language ? `${language} · ${subtitleSummary(value)}` : subtitleSummary(value)}</small></span>
     <span className="v-row">
       <SubtitlePreview value={value} thumb />
       <svg className="icon subtitle-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>

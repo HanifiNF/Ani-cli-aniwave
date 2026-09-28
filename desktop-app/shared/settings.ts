@@ -3,6 +3,7 @@ import { THEME_PRESETS } from "./theme";
 import { enabledProviders } from "./catalog";
 import { DEFAULT_SUBTITLE_APPEARANCE } from "./subtitle-appearance";
 import { COMPANION_DEFAULTS } from "./companion";
+import { DEFAULT_SUBTITLE_LANGUAGE } from "./subtitle-language";
 
 export const DEFAULT_STATE: PersistedState = {
   bookmarks: [],
@@ -24,6 +25,7 @@ export const DEFAULT_STATE: PersistedState = {
     preferredQuality: "best",
     preferredMode: "sub",
     preferredProvider: "auto",
+    subtitleLanguage: DEFAULT_SUBTITLE_LANGUAGE,
     aniwaveBaseUrl: "https://aniwaves.ru",
     anidbBaseUrl: "https://anidb.app",
     hianimeBaseUrl: "https://hianimes.se",

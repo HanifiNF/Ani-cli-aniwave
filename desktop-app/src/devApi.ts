@@ -6,6 +6,7 @@ import { DEFAULT_STATE } from "../shared/settings";
 import { browseMatch, browseQueries, identified } from "../shared/browse-source";
 import { BACKDROP_POOL } from "../shared/backdrops";
 import { DEV_BROWSE } from "./devBrowseFixtures";
+import { subtitlePreferences } from "../shared/subtitle-language";
 
 const DEV_TAGS = ["Cyberpunk", "Found Family", "Isekai", "Male Protagonist", "Reverse Isekai", "School", "Shounen", "Time Travel", "Tragedy", "Urban Fantasy"];
 const DEV_STUDIO_NAMES = [...new Set(DEV_BROWSE.flatMap((anime) => anime.studios))].sort();
@@ -245,7 +246,7 @@ export function installDevApi(): void {
       if (state.settings.playbackTarget !== "builtin") return true;
       // A public HLS test stream stands in for provider streams while working in the browser.
       const session: PlayerSession = { id: String(++sessions), request: { ...request, url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
-        canOpenExternal: false, fullscreen: Boolean(document.fullscreenElement), preferences: {} };
+        canOpenExternal: false, fullscreen: Boolean(document.fullscreenElement), preferences: subtitlePreferences(state.settings.subtitleLanguage) };
       for (const listener of loadListeners) listener(session);
       return true;
     },

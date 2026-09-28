@@ -14,6 +14,7 @@ const newWorkId = () => `work:${randomBytes(8).toString("hex")}`;
 import { isHexColor, isThemePreset } from "../shared/theme";
 import { normalizeSubtitleAppearance, validateSubtitleAppearance } from "../shared/subtitle-appearance";
 import type { SubtitleAppearance } from "../shared/contracts";
+import { normalizeSubtitleLanguage } from "../shared/subtitle-language";
 
 /** Bindings that should become or extend a remembered work. */
 export interface Binding { ids: string[]; refs?: string[]; title?: string; sources?: AnimeSource[]; tentative?: boolean; type?: unknown; year?: unknown; episodes?: unknown; poster?: unknown; }
@@ -246,6 +247,7 @@ export class StateStore {
       preferredMode: settings.preferredMode === "dub" ? "dub" : "sub",
       // A preferred source that is switched off would search nothing, so it falls back to auto.
       preferredProvider: isProviderName(settings.preferredProvider) && disabledSources.includes(settings.preferredProvider) ? "auto" : settings.preferredProvider,
+      subtitleLanguage: normalizeSubtitleLanguage(settings.subtitleLanguage),
       disabledSources,
       animeInfo: settings.animeInfo !== false,
       offlineIndex: settings.offlineIndex === true,

@@ -41,6 +41,14 @@ describe("StateStore", () => {
     expect(store.snapshot().playerPreferences).toEqual({});
     expect(store.snapshot().history).toEqual([]);
   });
+  it("starts subtitles in English until another language is chosen, and remembers the choice", async () => {
+    expect(store.snapshot().settings.subtitleLanguage).toBe("en");
+    await store.saveSettings({ ...store.snapshot().settings, subtitleLanguage: "off" });
+    await store.load();
+    expect(store.snapshot().settings.subtitleLanguage).toBe("off");
+    await store.saveSettings({ ...store.snapshot().settings, subtitleLanguage: "klingon" as never });
+    expect(store.snapshot().settings.subtitleLanguage).toBe("en");
+  });
   it("keeps backdrop art on until it is switched off, and remembers the choice", async () => {
     expect(store.snapshot().settings.emptyBackdrop).toBe(true);
     await store.saveSettings({ ...store.snapshot().settings, emptyBackdrop: false });

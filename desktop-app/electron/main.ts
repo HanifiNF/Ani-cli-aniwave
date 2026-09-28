@@ -45,6 +45,7 @@ import { autoUpdater } from "electron-updater";
 import { BrowseService } from "./browse-service";
 import { BrowseDiscovery } from "./browse-discovery";
 import { validateBrowseIdentity, validateBrowseQuery, validateKnownCandidate } from "./browse-validation";
+import { subtitlePreferences } from "../shared/subtitle-language";
 
 // Preserve existing settings and library data across the display-name change.
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Ani Desktop" : "ani-desktop"));
@@ -122,7 +123,7 @@ function playerPayload(): PlayerSession {
   return {
     id: activePlaybackId,
     diagnostics: state.settings.playerDiagnostics === true,
-    preferences: state.playerPreferences ?? {},
+    preferences: { ...state.playerPreferences, ...subtitlePreferences(state.settings.subtitleLanguage) },
     position: key ? state.playbackPositions?.[key] : undefined,
     request: activePlayback,
     canOpenExternal: Boolean(state.settings.playerPath.trim()),

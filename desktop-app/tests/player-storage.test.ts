@@ -31,6 +31,15 @@ it("replays completed episodes from the beginning and reports save failures", as
   expect(failed).toHaveBeenCalledWith(expect.objectContaining({message:"disk full"}));
 });
 
+it("keeps a subtitle change in the player to this episode, as Settings owns the language", async () => {
+  const saveStorage=vi.fn().mockResolvedValue(undefined);
+  const storage=new DesktopMediaStorage(session,{saveStorage} as unknown as AniPlayerApi,vi.fn());
+  await storage.setLang("ar"); await storage.setCaptions(false);
+  expect(await storage.getLang()).toBe("ar");
+  storage.onDestroy();
+  expect(saveStorage).not.toHaveBeenCalled();
+});
+
 describe("player IPC storage validation",()=>{
   it.each([{time:NaN},{time:Infinity},{time:-1},{volume:2},{rate:20},{captions:"yes"},{lang:{}}])("rejects invalid values %o",value=>{
     expect(()=>validateStorageUpdate(value)).toThrow();

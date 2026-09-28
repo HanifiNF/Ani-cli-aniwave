@@ -1,5 +1,6 @@
 import type { PlayerDiagnosticRecord } from "./player-diagnostics";
 import type { CompanionCandidate, CompanionPreferences, CustomCompanion } from "./companion";
+import type { SubtitleLanguage } from "./subtitle-language";
 
 export type TranslationMode = "sub" | "dub";
 export type ProviderPreference = "auto" | "aniwave" | "anidb" | "hianime";
@@ -334,6 +335,8 @@ export interface Settings extends CompanionPreferences {
   preferredQuality: string;
   preferredMode: TranslationMode;
   preferredProvider: ProviderPreference;
+  /** The subtitle language every episode starts with (an ISO 639-1 code), or "off". */
+  subtitleLanguage?: SubtitleLanguage;
   aniwaveBaseUrl: string;
   anidbBaseUrl: string;
   hianimeBaseUrl: string;

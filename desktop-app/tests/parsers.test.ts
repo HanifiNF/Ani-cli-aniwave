@@ -106,6 +106,13 @@ describe("source parsers", () => {
     for (let index = 0; index < plain.length; index += 1) encoded[index] = plain[index] ^ key[index % key.length];
     expect(parseHiAnimeEmbed(`<script>window.__P="${encoded.toString("base64")}"</script>`)).toEqual(source);
   });
+
+  it("takes each HiAnime subtitle track's language from its label", () => {
+    const source = { src: "https://cdn.test/master.m3u8", subtitles: [{ src: "https://cdn.test/ar.vtt", label: "Arabic", lang: "en" }, { src: "https://cdn.test/x.vtt", label: "Signs", lang: "en" }] };
+    const key = Buffer.from("otaku-embed-v1"), plain = Buffer.from(JSON.stringify(source)), encoded = Buffer.alloc(plain.length);
+    for (let index = 0; index < plain.length; index += 1) encoded[index] = plain[index] ^ key[index % key.length];
+    expect(parseHiAnimeEmbed(`<script>window.__P="${encoded.toString("base64")}"</script>`)?.subtitles.map((track) => track.lang)).toEqual(["ar", "en"]);
+  });
 });
 
 describe("AniWave search cards", () => {

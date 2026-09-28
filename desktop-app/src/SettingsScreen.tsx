@@ -18,6 +18,11 @@ import { pressProps } from "./press";
 import Swap from "./Swap";
 import type { CustomCompanion } from "../shared/companion";
 import CompanionSettings from "./CompanionSettings";
+import { languageName, normalizeSubtitleLanguage, SUBTITLE_LANGUAGES } from "../shared/subtitle-language";
+
+/** The subtitle choices in alphabetical order of their English names. */
+const SUBTITLE_CHOICES = [...SUBTITLE_LANGUAGES].sort((a, b) => languageName(a).localeCompare(languageName(b)));
+const subtitleLanguageName = (value: unknown) => { const language = normalizeSubtitleLanguage(value); return language === "off" ? "Off" : languageName(language); };
 
 /** Every row applies as it changes; this is the page's word on how that went. Idle says nothing. */
 export type SettingsSaveState = "idle" | "saved" | "saving" | "error";
@@ -143,8 +148,14 @@ export default function SettingsScreen({ draft, setDraft, saved, saveState, onRe
         <div className="r"><span className="k">Autoplay next episode<small>Built-in player only. Waits five seconds and can be cancelled</small></span><Switch checked={draft.autoplayNext !== false} label="Autoplay next episode" onChange={(autoplayNext) => setDraft({ ...draft, autoplayNext })} /></div>
         <div className="r"><span className="k">Diagnostics<small>Local keyboard and playback logs for troubleshooting</small></span><span className="v-row"><button type="button" className="btn small" onClick={() => { onOpenLogs(); }}>open logs</button><Switch checked={draft.playerDiagnostics === true} label="Diagnostics logging" onChange={(playerDiagnostics) => setDraft({ ...draft, playerDiagnostics })} /></span></div>
         <div className="r"><label htmlFor="player" className="k">External player<small>Optional with the built-in player. {isMac() ? "mpv, VLC, or IINA's iina-cli" : "mpv or VLC, by name or full path"}</small></label><input id="player" value={draft.playerPath} placeholder={draft.playbackTarget === "external" ? (isMac() ? "iina-cli" : "mpv") : "optional"} spellCheck={false} onChange={(event) => setDraft({ ...draft, playerPath: event.target.value })} /></div>
-        <SubtitleAppearanceRow value={subtitleAppearance} open={subtitlesOpen} onToggle={() => setSubtitlesOpen((open) => !open)} />
-        <Reveal id="subtitle-editor" className="subtitle-body" open={subtitlesOpen}><SubtitleAppearanceEditor value={subtitleAppearance} onChange={onSubtitleAppearance} /></Reveal>
+        <SubtitleAppearanceRow value={subtitleAppearance} language={subtitleLanguageName(draft.subtitleLanguage)} open={subtitlesOpen} onToggle={() => setSubtitlesOpen((open) => !open)} />
+        <Reveal id="subtitle-editor" className="subtitle-body" open={subtitlesOpen}><SubtitleAppearanceEditor value={subtitleAppearance} onChange={onSubtitleAppearance} lead={
+          <div className="r"><label htmlFor="subtitle-language" className="k">Language<small>Shown from the start of each episode when the stream has it. Built-in player only</small></label>
+          <span className="select"><select id="subtitle-language" value={normalizeSubtitleLanguage(draft.subtitleLanguage)} onChange={(event) => setDraft({ ...draft, subtitleLanguage: normalizeSubtitleLanguage(event.target.value) })}>
+            <option value="off">Off</option>
+            {SUBTITLE_CHOICES.map((code) => <option key={code} value={code}>{languageName(code)}</option>)}
+          </select><svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></span></div>
+        } /></Reveal>
       </div></div>
       <div className="group"><h3 id="settings-defaults" tabIndex={-1}>Defaults</h3><div className="box">
         <div className="r"><span className="k">Quality<small>Best takes the highest stream a source offers</small></span><Chips value={draft.preferredQuality} options={QUALITIES} onChange={(preferredQuality) => setDraft({ ...draft, preferredQuality })} /></div>
