@@ -703,6 +703,11 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .group .r .k small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .group .r > input { width: 300px; height: 34px; padding: 0 12px; border-radius: var(--radius-sm); background: var(--bg); font-size: 13px; }
 .group .r > input:focus-visible { outline-offset: 0; }
+/* A native menu in a field's shape; the chevron is drawn over it so it follows the theme. */
+.group .r .select { position: relative; display: inline-grid; align-items: center; }
+.group .r .select select { width: 200px; height: 34px; padding: 0 32px 0 12px; border: 0; border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 13px; appearance: none; cursor: pointer; }
+.group .r .select select:focus-visible { outline-offset: 0; }
+.group .r .select .icon { position: absolute; right: 10px; width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
 .group .r .chips { background: var(--bg); }
 .group .r .chips-ind { background: var(--raised2); }
 .group .r .v-row { display: flex; align-items: center; gap: 12px; }

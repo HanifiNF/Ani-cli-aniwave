@@ -493,6 +493,19 @@ describe("live catalog search", () => {
     await advance(2_000);
     expect(status.textContent).toBe("");
   });
+  it("saves the subtitle language chosen in the Subtitles rows", async () => {
+    await click("settings");
+    const row = container.querySelector<HTMLButtonElement>(".subtitle-row")!;
+    expect(row.textContent).toContain("SubtitlesEnglish · sans");
+    await act(async () => { row.click(); });
+    const select = document.querySelector<HTMLSelectElement>("#subtitle-language")!;
+    expect(select.value).toBe("en");
+    expect([...select.options].slice(0, 3).map((option) => option.textContent)).toEqual(["Off", "Arabic", "Chinese"]);
+    await act(async () => { select.value = "ja"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await advance(400);
+    expect(api.saveSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ subtitleLanguage: "ja" }));
+    expect(row.textContent).toContain("Japanese · sans");
+  });
   it("coalesces quick edits into one save, and leaving the page saves at once", async () => {
     await click("settings");
     await click("dub"); await click("720p"); await advance(100); await click("480p");

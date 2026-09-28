@@ -23,8 +23,9 @@ export class DesktopMediaStorage implements MediaStorage {
   async setVolume(volume: number) { this.update({ volume }); }
   async setMuted(muted: boolean) { this.update({ muted }); }
   async setPlaybackRate(rate: number) { this.update({ rate }); }
-  async setLang(lang: string | null) { this.update({ lang }); }
-  async setCaptions(captions: boolean) { this.update({ captions }); }
+  // The subtitle language and whether subtitles start on belong to Settings; a change in the player lasts one episode.
+  async setLang(lang: string | null) { this.data.lang = lang; }
+  async setCaptions(captions: boolean) { this.data.captions = captions; }
   async setTime(time: number, completed = false) {
     if (!Number.isFinite(time) || time < 0) return;
     this.data.time = completed ? 0 : time;

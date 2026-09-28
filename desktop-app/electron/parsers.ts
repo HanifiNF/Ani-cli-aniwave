@@ -1,5 +1,6 @@
 import type { AnimeResult, AnimeSource, Episode, ProviderName, ScheduleArtwork, ScheduleEntry, Stream, TextTrackSource, TranslationMode } from "../shared/contracts";
 import { mediaTypeOf, positiveInteger as wholeNumber, ref, yearOf } from "../shared/identity";
+import { languageFromLabel } from "../shared/subtitle-language";
 
 /** Facts a search card states, added to a source only when present so parsed records stay compact. */
 function withFacts(source: AnimeSource, facts: { type?: unknown; episodes?: unknown; year?: unknown; mal?: unknown }): AnimeSource {
@@ -396,7 +397,10 @@ export function parseHiAnimeEmbed(html: string): HiAnimeEmbedSource | undefined 
     const subtitles = Array.isArray(record.subtitles) ? record.subtitles.flatMap((item): TextTrackSource[] => {
       if (!item || typeof item !== "object") return [];
       const track = item as Record<string, unknown>;
-      return typeof track.src === "string" ? [{ src: track.src, label: typeof track.label === "string" ? track.label : "Subtitles", lang: typeof track.lang === "string" ? track.lang : "und", default: track.default === true }] : [];
+      if (typeof track.src !== "string") return [];
+      const label = typeof track.label === "string" ? track.label : "Subtitles";
+      // The site marks every track "en"; the label names the real language.
+      return [{ src: track.src, label, lang: languageFromLabel(label) ?? (typeof track.lang === "string" ? track.lang : "und"), default: track.default === true }];
     }) : [];
     return { src: record.src, subtitles };
   } catch { return undefined; }
