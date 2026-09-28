@@ -51,7 +51,12 @@ records the real renderer, both at true speed.
   spring (`src/playerMotion.ts`, PlayerScreen), with its title bars fading while the box is scaled. The corner player follows
   the pointer exactly, stretches with resistance past the window's edges, and flies to the corner it was thrown toward.
 - Indicators (`src/useIndicator.ts`): the nav fill, the segmented chips (with a lit copy of the labels clipped to the
-  indicator), the settings rail, the episode sort, and the theme ring all move on two edges. Switches have a two-edge knob
+  indicator), the settings rail, the episode sort, and the theme ring all move on two edges. The schedule's days are a
+  chips track too, one line per day ("Mon 28") with today's number in the highlight, and its audio is a Sub/Dub chips
+  pair. Changing the day keeps the shown cards in place, dimmed, until the new day is in; they then blur away towards
+  the old day while the new cards arrive in turn from the side of the new one, so the page below never jumps. Mockups:
+  `design/record-schedule-days.cjs` (A fill, B track chosen, C underline; stills `design/shots/schedule-days-*.png`,
+  videos `design/shots/motion/schedule-*.mp4`). Switches have a two-edge knob
   that can be dragged, stretches past either end, and springs from its release speed.
 - Resuming (a Continue watching or Recent card) goes straight into the episode: the card finds it in place, dimmed with
   the travelling arc Browse cards use (a second press or Escape stops it), and the player grows out of the card. Only a

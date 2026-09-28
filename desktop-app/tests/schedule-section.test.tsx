@@ -46,7 +46,7 @@ describe("Home schedule section", () => {
     expect(tabs.find((tab) => tab.ariaSelected === "true")?.textContent).toContain("Mon");
     expect(tabs.filter((tab) => tab.classList.contains("today")).map((tab) => tab.textContent)).toEqual(["Mon14"]);
     expect(tabs.map((tab) => tab.querySelector("small")?.textContent)).toEqual(["12", "13", "14", "15", "16", "17", "18"]);
-    expect([...container.querySelectorAll(".schedule-audio button")].map((button) => `${button.textContent}:${button.ariaPressed}`)).toEqual(["SUB:true", "DUB:false"]);
+    expect([...container.querySelectorAll('[aria-label="Schedule audio"] [role="radio"]')].map((button) => `${button.textContent}:${button.ariaChecked}`)).toEqual(["Sub:true", "Dub:false"]);
     expect([...container.querySelectorAll(".schedule-card .t")].map((node) => node.textContent)).toEqual(["Earlier", "Later"]);
     expect([...container.querySelectorAll(".schedule-card .tag:not(.more)")].map((node) => node.textContent)).toEqual(["Fantasy", "Adventure", "Drama", "Comedy", "Fantasy", "Adventure", "Drama", "Comedy"]);
     expect(container.querySelectorAll(".schedule-card .tag[hidden], .schedule-card .tag.more:not(.probe)")).toHaveLength(0);
@@ -102,7 +102,7 @@ describe("Home schedule section", () => {
     schedule.mockImplementation(async (query) => query.mode === "dub" ? dub.promise : scheduleResult(query.date, "Sub Show"));
     await act(async () => { root.render(<ScheduleSection settings={DEFAULT_STATE.settings} library={[]} onOpen={open} />); });
     expect(container.querySelector(".schedule-card .t")?.textContent).toBe("Sub Show");
-    await act(async () => { [...container.querySelectorAll<HTMLButtonElement>(".schedule-audio button")].find((button) => button.textContent === "DUB")!.click(); });
+    await act(async () => { [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Schedule audio"] [role="radio"]')].find((button) => button.textContent === "Dub")!.click(); });
     expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "dub" }), expect.anything());
     expect(container.querySelector(".schedule-card .t")).toBeNull();
     await act(async () => { dub.resolve(scheduleResult("2026-09-14", "Dub Show")); await dub.promise; });
