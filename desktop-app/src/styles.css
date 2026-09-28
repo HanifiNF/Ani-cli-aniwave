@@ -43,7 +43,7 @@ body {
   font: 400 14px/1.45 var(--font);
   -webkit-font-smoothing: antialiased; letter-spacing: -0.005em;
 }
-button, input, select { font: inherit; color: inherit; }
+button, input, select { font: inherit; color: inherit; letter-spacing: inherit; }
 button { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 button:disabled { cursor: default; }
 input { background: none; border: 0; outline: 0; padding: 0; }
@@ -486,18 +486,12 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .section-schedule { padding-bottom: 20px; }
 .section-schedule .section-head { flex-wrap: wrap; row-gap: 8px; }
 .schedule-sub { color: var(--muted); font-size: 13px; }
-.schedule-days { display: flex; gap: 18px; margin-left: auto; }
-.schedule-days button { position: relative; display: grid; justify-items: center; row-gap: 1px; padding: 2px 0; color: var(--muted); font-size: 14px; white-space: nowrap; transition: color var(--t-snap); }
-/* The strip rolls with today, so each tab names its day of the month. */
-.schedule-days button small { color: var(--dim); font-size: 10.5px; font-weight: 400; line-height: 1; font-variant-numeric: tabular-nums; transition: color var(--t-snap); }
-.schedule-days button.on small { color: var(--muted); }
-.schedule-days button:hover { color: var(--text); }
-.schedule-days button.on { color: var(--text); font-weight: 500; }
-.schedule-days button.today::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--muted); transition: background var(--t-snap); }
-.schedule-days button.on.today::after { background: var(--cursor); }
-.schedule-audio { display: flex; gap: 12px; margin-left: 22px; padding-left: 22px; border-left: 1px solid var(--rule); }
-.schedule-audio button { color: var(--muted); font-size: 13px; font-weight: 500; transition: color var(--t-snap); }
-.schedule-audio button:hover, .schedule-audio button.on { color: var(--text); }
+/* The days are a chips track (one line each, "Mon 28"); today's number takes the highlight. */
+.schedule-days { margin-left: auto; }
+.chips.schedule-days button, .chips.schedule-days .chips-lit > span { display: inline-flex; align-items: baseline; gap: 4px; padding: 4px 10px; }
+.schedule-days small { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.schedule-days .today small { color: var(--cursor); }
+.schedule-audio { margin-left: 12px; }
 .schedule-art { display: block; }
 /* Entries that have not aired yet are darkened and desaturated (not faded, which turns pale art hazy); aired ones stay at full brightness because they can be watched. */
 .schedule-card .poster { transition: filter var(--t-snap); }
@@ -511,7 +505,16 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .tag.more.probe { position: absolute; visibility: hidden; }
 .tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: var(--radius-sm); background: var(--raised); color: var(--muted); font-size: 10.5px; line-height: 1; white-space: nowrap; }
 /* Holds one row's worth of height while a day loads so switching days does not collapse the section and jump the scroll. */
-.section-schedule .cards:empty + .schedule-state { min-height: 300px; display: grid; place-items: center; }
+/* Changing the day: the shown cards dim while the new day loads, then blur away towards the old day as the new cards
+   arrive in turn from the side of the new one. */
+.schedule-stage { position: relative; }
+.section-schedule .cards.held { opacity: .45; transition: opacity var(--t-glide) 120ms; }
+.section-schedule .cards.arriving > .card { animation-name: schedule-in; }
+.schedule-leaving { position: absolute; top: 0; left: 0; right: 0; opacity: .45; pointer-events: none; animation: schedule-out var(--t-out) both; }
+.schedule-leaving > .card { animation: none; }
+@keyframes schedule-in { from { opacity: 0; filter: blur(4px); transform: translateX(calc(var(--dir) * 14px)); } }
+@keyframes schedule-out { to { opacity: 0; filter: blur(4px); transform: translateX(calc(var(--dir) * -10px)); } }
+.section-schedule .schedule-stage:has(> .cards:empty) + .schedule-state { min-height: 300px; display: grid; place-items: center; }
 .schedule-state { padding: 24px 12px; color: var(--muted); text-align: center; }
 .schedule-error { display: flex; justify-content: center; align-items: center; gap: 10px; }
 .schedule-error .link { flex: none; }
@@ -817,7 +820,7 @@ kbd { font: 500 11px/1 var(--font); color: var(--muted); padding: 5px 7px; borde
 .pressing { scale: var(--press, .98); }
 @media (prefers-reduced-motion: reduce) {
   .dots, .browse-reading .track i, .search-throbber > span, .src-wrap, .hit-row, .card, .notice, .msg, .hints, .empty, .schedule-state, .page, .palette, .dim, .src .q, .src .audio-availability, .src .metadata-status, .src .t em, .src-wrap.skel .t, .backdrop { animation: none; }
-  .schedule-days button, .schedule-days button.today::after, .schedule-audio button, .schedule-card .poster { transition: none; }
+  .schedule-card .poster, .section-schedule .cards.held { transition: none; }
   .art img { transition: none; }
   .card.is-resolving .hit::before { animation: none; background: var(--cursor); }
   .browse-none, .browse-reading, .browse-line .token, .studio-token, .browse-clear, .browse-more > *, .browse-sort button, .browse-search .clear, .typeahead-list, .browse-ghosts .ghost { animation: none; }
